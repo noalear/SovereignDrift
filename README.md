@@ -36,6 +36,7 @@ Press H or F1 in game for the controls card.
 | F, M, L, C | Seeking missiles, mine, laser, cloak |
 | T / Tab, R, Shift+click | Next target, nearest enemy, target under cursor |
 | N, G, U | Next nav planet, autopilot to it, refit at your starbase |
+| V | Flight assist on/off (the thrusters hold your turn and stop a tumble) |
 | F9, Alt+Enter, Esc | Next song, full screen, menu |
 
 On a gamepad the left stick flies, the right stick aims, RT/LT fire.

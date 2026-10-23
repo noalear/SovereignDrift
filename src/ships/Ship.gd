@@ -1,6 +1,9 @@
 ## Ship -- a flyable, fightable starship (or starbase) built from a design
-## in GameData.  Flight is Newtonian: thrust adds velocity, nothing slows
-## you down but your own engines, brakes and gravity.  Ships point along
+## in GameData.  Flight is physical: the engines push a hull that has mass
+## (modules plus fuel) and rotational inertia, nothing slows you down but
+## your own engines, brakes and gravity, and hits shove and spin you.  The
+## ship owns a PhysicsBody in the world's PhysicsSpace; it fills in forces
+## before the step and copies the state back after.  Ships point along
 ## their +X axis.
 class_name Ship
 extends Node2D
@@ -12,6 +15,18 @@ signal rank_changed(ship: Ship, level: int)
 const BOOST_SPEED_MULT := 1.5
 const BOOST_ACCEL_MULT := 2.2
 const WARP_CHARGE_TIME := 1.1
+## Engine thrust per point of engine power, in mass units * px/s^2.
+const THRUST_PER_ENGINE := 4260.0
+## Fuel units carried per point of engine power (300 s of full burn).
+const FUEL_PER_ENGINE := 6.0
+## Fuel burned per second at full thrust per point of engine power.
+const BURN_PER_ENGINE := 0.02
+## Mass of one fuel unit.
+const FUEL_MASS := 0.5
+## Fuel per second for the reaction control thrusters at full turn.
+const RCS_BURN := 0.25
+## How long the RCS takes to reach the design turn rate, in seconds, before size.
+const SPIN_UP_TIME := 0.12
 
 var world: Node = null
 var design_name := "Scout"
@@ -23,13 +38,22 @@ var is_player := false
 var is_station := false
 
 # flight
+var body: PhysicsBody = null
 var velocity := Vector2.ZERO
+var angular_velocity := 0.0        # rad/s, copied from the body after each step
 var size := 22.0
 var max_speed := 150.0
-var accel := 120.0
-var turn_speed := 180.0
-var mass := 1.0
+var accel := 120.0                 # full thrust over wet mass, px/s^2
+var turn_speed := 180.0            # design turn rate, deg/s
+var mass := 1.0                    # dry mass: modules and weapons
+var engine_power := 0.0            # sum of the engine modules' power
+var thrust_force := 0.0            # engine_power * THRUST_PER_ENGINE
+var fuel := 0.0
+var fuel_max := 0.0
+var burn_rate := 0.0               # fuel/s at full thrust
 var thrust_level := 0.0            # for the engine glow, 0..1
+var flight_assist := true          # RCS holds the turn rate and stops a tumble
+var refuelling := false            # near a friendly base or colony this frame
 
 # systems
 var energy := 1000.0
@@ -106,6 +130,11 @@ func setup(p_world: Node, p_design: String, p_race: int, p_pilot: String, p_ship
 	race_id = p_race
 	pilot_name = p_pilot
 	ship_name = p_ship_name
+	body = PhysicsBody.new()
+	body.kind = PhysicsBody.Kind.SHIP
+	body.node = self
+	body.restitution = 0.25
+	body.friction = 0.35
 	refit(p_design)
 	engine_sound = EngineSound.new()
 	add_child(engine_sound)
@@ -146,12 +175,42 @@ func refit(p_design: Variant) -> void:
 	power_draw = stats["power_draw"]
 	overload = stats["overload"]
 	module_levels = stats["module_levels"].duplicate()
+	# engines against mass: a Scout gets about 170 px/s^2, a Dreadnought 130
+	engine_power = stats["eng"]
+	thrust_force = engine_power * THRUST_PER_ENGINE
+	fuel_max = engine_power * FUEL_PER_ENGINE
+	burn_rate = engine_power * BURN_PER_ENGINE
+	if is_station:
+		# station-keeping thrusters only; the mass does the rest
+		thrust_force = mass * 8.0
+		burn_rate = engine_power * BURN_PER_ENGINE * 0.1
+	fuel = fuel_max
+	accel = thrust_force / wet_mass()
 	energy = energy_max
 	shield = shield_max
 	hull = hull_max
 	_build_weapons()
 	art_model = ShipArt.build_model(design, race_id, size)
+	_build_body()
 	queue_redraw()
+
+
+## Dry mass plus the fuel on board.
+func wet_mass() -> float:
+	return mass + fuel * FUEL_MASS
+
+
+func _build_body() -> void:
+	if body == null:
+		return
+	body.set_hull(CollisionHulls.for_ship(design, race_id, size))
+	body.set_mass(wet_mass())
+	# a starbase holds its spot beside its world: solid, unmovable
+	body.set_kinematic(is_station)
+	body.pos = global_position
+	body.vel = velocity
+	body.angle = rotation
+	body.ang_vel = 0.0
 
 
 func _build_weapons() -> void:
@@ -207,6 +266,28 @@ func speed() -> float:
 	return velocity.length()
 
 
+## Velocity of the local rest frame: the planet whose gravity we sit in,
+## or the sun.  Brakes, the speed limit and the HUD work against it, so
+## "stopped" means parked beside the planet, not against the stars.
+func frame_velocity() -> Vector2:
+	if world == null or world.space == null:
+		return Vector2.ZERO
+	var b: PhysicsBody = world.space.dominant_body(global_position)
+	return b.vel if b != null else Vector2.ZERO
+
+
+func local_velocity() -> Vector2:
+	return velocity - frame_velocity()
+
+
+func fuel_fraction() -> float:
+	return fuel / maxf(fuel_max, 1.0)
+
+
+func has_fuel() -> bool:
+	return fuel > 0.0
+
+
 func is_cloaked_to(viewer: Node) -> bool:
 	return cloaked and viewer != self and cloak_alpha < 0.35
 
@@ -232,63 +313,108 @@ func _physics_process(delta: float) -> void:
 		invulnerable -= delta
 	if hit_flash > 0.0:
 		hit_flash -= delta
-	_fly(delta)
 	_systems(delta)
 	_weapons(delta)
 	queue_redraw()
 
 
+## Called by the world before the physics step: copy the node's state into
+## the body (other code may have moved the ship) and apply this frame's
+## engine and RCS forces.
+func pre_step(delta: float) -> void:
+	body.enabled = not dead
+	if dead:
+		return
+	body.pos = global_position
+	body.vel = velocity
+	body.angle = rotation
+	body.set_mass(wet_mass())
+	body.phasing = warping
+	body.gravity_scale = 0.0 if warping else 1.0
+	_fly(delta)
+
+
+## Called by the world after the step: take the simulated state back.
+func post_step(_delta: float) -> void:
+	if dead:
+		return
+	global_position = body.pos
+	velocity = body.vel
+	rotation = body.angle
+	angular_velocity = body.ang_vel
+
+
 func _fly(delta: float) -> void:
 	var fwd := forward()
-	var boosting: bool = inputs["boost"] and has_boost and energy > 5.0 and inputs["thrust"] > 0.0
-	var cap := max_speed * (BOOST_SPEED_MULT if boosting else 1.0)
-	var a := accel * (BOOST_ACCEL_MULT if boosting else 1.0)
-	if engine_sound != null:
-		engine_sound.update(thrust_level, boosting, warping, delta)
+	var boosting: bool = inputs["boost"] and has_boost and energy > 5.0 and inputs["thrust"] > 0.0 and fuel > 0.0
+	var vmax := max_speed * (BOOST_SPEED_MULT if boosting else 1.0)
+	var f0 := thrust_force * (BOOST_ACCEL_MULT if boosting else 1.0)
+	accel = thrust_force / wet_mass()
 
 	if warping:
 		_warp(delta)
+		body.vel = velocity
+		body.angle = rotation
+		body.ang_vel = 0.0
 		return
 
 	if autopilot and nav_target != null and is_instance_valid(nav_target):
 		_autopilot(delta)
 
+	# --- rotation: reaction control thrusters with real angular inertia
 	var turn: float = clampf(inputs["turn"], -1.0, 1.0)
-	rotation += deg_to_rad(turn_speed) * turn * delta
-	thrust_level = lerpf(thrust_level, clampf(absf(inputs["thrust"]) + (0.5 if boosting else 0.0), 0.0, 1.0), 10.0 * delta)
+	var w_max := deg_to_rad(turn_speed)
+	var spin_up := SPIN_UP_TIME + size / 200.0
+	var torque_max := body.inertia * w_max / spin_up
+	var rcs_level := 0.0
+	if fuel <= 0.0:
+		torque_max *= 0.3          # reaction wheels on reactor power only
+	if flight_assist or turn != 0.0:
+		var w_target := turn * w_max
+		var torque := clampf(body.inertia * (w_target - body.ang_vel) / SPIN_UP_TIME, -torque_max, torque_max)
+		body.apply_torque(torque)
+		rcs_level = absf(torque) / maxf(torque_max, 1.0)
 
-	var acc := Vector2.ZERO
+	# --- translation: the drive pushes less the closer it is to its rated
+	# speed, measured against the local planet so orbits are free
+	var f := Vector2.ZERO
 	var t: float = clampf(inputs["thrust"], -1.0, 1.0)
+	var lv := local_velocity()
+	var along := lv.dot(fwd)
 	if t > 0.0:
-		acc += fwd * a * t
+		f += fwd * f0 * t * _drive_curve(along, vmax)
 	elif t < 0.0:
-		acc += fwd * a * 0.6 * t
-	var s: float = clampf(inputs["strafe"], -1.0, 1.0)
-	if s != 0.0:
-		acc += fwd.orthogonal() * a * 0.7 * s
-	if inputs["brake"] and velocity.length() > 1.0:
-		var brake := velocity.normalized() * maxf(a * brake_power * 1.5, 170.0 * brake_power)
-		if brake.length() * delta > velocity.length():
-			velocity = Vector2.ZERO
-		else:
-			acc -= brake
-	# engines cost energy
-	if acc.length_squared() > 0.0:
-		var drain := 30.0 * delta * (1.0 + (1.5 if boosting else 0.0))
-		if energy < drain:
-			acc *= 0.3
-		energy = maxf(energy - drain, 0.0)
-	# gravity
-	if world != null:
-		acc += world.gravity_at(global_position, mass)
-	velocity += acc * delta
-	# soft speed cap: engines cannot push past it, gravity can
-	var sp := velocity.length()
-	if sp > cap:
-		var over := sp - cap
-		var pull := minf(over, (a * 1.5 + 60.0) * delta)
-		velocity = velocity.normalized() * (sp - pull)
-	global_position += velocity * delta
+		f += fwd * f0 * 0.6 * t * _drive_curve(-along, vmax * 0.6)
+	var st: float = clampf(inputs["strafe"], -1.0, 1.0)
+	if st != 0.0:
+		var side := fwd.orthogonal()
+		f += side * f0 * 0.7 * st * _drive_curve(lv.dot(side) * signf(st), vmax * 0.7)
+	var sp := lv.length()
+	if inputs["brake"] and sp > 1.0:
+		# retro burn, never past a stop
+		var brake_a := minf(maxf(accel * brake_power * 1.5, 170.0 * brake_power), sp / delta)
+		f -= lv.normalized() * brake_a * body.mass
+	var engine_level := f.length() / maxf(thrust_force, 1.0)
+	if fuel <= 0.0:
+		f = Vector2.ZERO
+		engine_level = 0.0
+	# over the rated speed the drive field drags the ship back toward it
+	if sp > vmax and not inputs["brake"]:
+		var over := sp - vmax
+		var pull_a := minf(over / delta, accel * 1.5 + 60.0)
+		f -= lv.normalized() * pull_a * body.mass
+	body.apply_force(f)
+	# --- fuel: engines burn by thrust, boost burns hotter, RCS sips
+	var burn := engine_level * burn_rate * (2.5 if boosting else 1.0) + rcs_level * RCS_BURN
+	if burn > 0.0:
+		if fuel < burn * delta and world != null and is_player and fuel > 0.0:
+			world.notify(self, "Fuel exhausted. Drift to a friendly base or colony to refuel.")
+		fuel = maxf(fuel - burn * delta, 0.0)
+	if boosting:
+		energy = maxf(energy - 75.0 * delta, 0.0)
+	thrust_level = lerpf(thrust_level, clampf(minf(engine_level * 1.2, 1.0) + (0.5 if boosting else 0.0), 0.0, 1.0), 10.0 * delta)
+	if engine_sound != null:
+		engine_sound.update(thrust_level, boosting, warping, delta)
 
 
 ## A puppet only keeps its looks fresh; the host moves it (see Net).
@@ -303,12 +429,34 @@ func _puppet_step(delta: float) -> void:
 	queue_redraw()
 
 
+## Thrust available at a speed along the push direction: full when moving
+## against it, fading to nothing at the rated speed.
+static func _drive_curve(v_along: float, vmax: float) -> float:
+	if v_along <= 0.0:
+		return 1.0
+	var x := v_along / maxf(vmax, 1.0)
+	return clampf(1.0 - x * x * x * x, 0.0, 1.0)
+
+
+## Pushed by a hit: an impulse at a world point, which also spins the hull.
+func apply_hit_impulse(j: Vector2, at: Vector2) -> void:
+	if dead or body == null:
+		return
+	body.apply_impulse(j, at)
+	velocity = body.vel
+	angular_velocity = body.ang_vel
+
+
+## Take fuel aboard, up to the tank.
+func refuel(amount: float) -> void:
+	fuel = minf(fuel + amount, fuel_max)
+
+
 func _warp(delta: float) -> void:
 	var fwd := forward()
 	if warp_charge < WARP_CHARGE_TIME:
 		warp_charge += delta
 		velocity = velocity.lerp(fwd * max_speed * 0.5, 2.0 * delta)
-		global_position += velocity * delta
 		thrust_level = lerpf(thrust_level, 1.0, 5.0 * delta)
 		if warp_charge >= WARP_CHARGE_TIME:
 			Sfx.play(Sfx.leveled("warpout", module_levels.get("qdrv", 1)), global_position, 0.8)
@@ -320,7 +468,6 @@ func _warp(delta: float) -> void:
 	energy -= drain
 	var wspeed := qdrv * GameData.LIGHT_SPEED * 1.25
 	velocity = fwd * wspeed
-	global_position += velocity * delta
 	thrust_level = 1.0
 	# planets stop a warp a little before impact
 	if world != null:
@@ -397,8 +544,9 @@ func _autopilot(delta: float) -> void:
 	var desired := to.angle()
 	var diff := wrapf(desired - rotation, -PI, PI)
 	inputs["turn"] = clampf(diff * 3.0, -1.0, 1.0)
-	var closing := velocity.dot(to.normalized())
-	var stop_dist := closing * closing / maxf(2.0 * accel * 0.8, 1.0)
+	var rel: Vector2 = velocity - nav_target.velocity
+	var closing: float = rel.dot(to.normalized())
+	var stop_dist: float = closing * closing / maxf(2.0 * accel * 0.8, 1.0)
 	warp_block = maxf(warp_block - delta, 0.0)
 	if dist > 3500.0 and absf(diff) < 0.15 and qdrv > 0.0 and energy > 400.0 and warp_block <= 0.0 and not _body_in_path(to):
 		start_warp()
@@ -408,8 +556,8 @@ func _autopilot(delta: float) -> void:
 		inputs["brake"] = false
 	else:
 		inputs["thrust"] = 0.0
-		inputs["brake"] = speed() > 40.0
-		if speed() <= 40.0 and dist < nav_target.radius * 0.6 + 300.0:
+		inputs["brake"] = rel.length() > 40.0
+		if rel.length() <= 40.0 and dist < nav_target.radius * 0.6 + 300.0:
 			autopilot = false
 			inputs["brake"] = false
 			if world != null:
@@ -418,6 +566,9 @@ func _autopilot(delta: float) -> void:
 
 func _systems(delta: float) -> void:
 	energy = minf(energy + energy_regen * delta * 0.1, energy_max)
+	# the reactor cracks a trickle of propellant, so nobody is stranded for good
+	if fuel < fuel_max and energy > energy_max * 0.3 and not refuelling:
+		fuel = minf(fuel + fuel_max * 0.0025 * delta, fuel_max)
 	if shield < shield_max and energy > 2.0:
 		var regen := minf(shield_regen * delta, shield_max - shield)
 		var cost := regen * 1.5
@@ -566,6 +717,8 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 	var end: Vector2 = hit["point"]
 	if hit["body"] != null and not Net.is_client():   # damage is the host's
 		hit["body"].take_damage(w["dps"] * delta, self, end)
+		# a beam leans on what it burns
+		world.push_node(hit["body"], Vector2.RIGHT.rotated(ang) * w["dps"] * delta * World.IMPULSE_PER_DAMAGE * 0.5, end)
 	beam_targets.append([origin, end])
 	# bigger hulls hum lower
 	Sfx.beam(self, clampf(1.3 - size / 80.0, 0.7, 1.2), int(str(w["id"]).right(1)))
@@ -624,6 +777,8 @@ func _die(killer: Node) -> void:
 	if engine_sound != null:
 		engine_sound.silence()
 	died.emit(self, killer)
+	if body != null:
+		body.enabled = false
 	hide()
 	set_physics_process(false)
 
@@ -634,6 +789,13 @@ func respawn(at: Vector2, vel: Vector2) -> void:
 	global_position = at
 	velocity = vel
 	rotation = randf() * TAU
+	angular_velocity = 0.0
+	if body != null:
+		body.enabled = true
+		body.pos = at
+		body.vel = vel
+		body.angle = rotation
+		body.ang_vel = 0.0
 	invulnerable = 3.0
 	target = null
 	autopilot = false
@@ -680,7 +842,8 @@ func try_pickup(module_id: String) -> bool:
 		"eng":
 			if level <= have:
 				return false
-			accel *= 1.25
+			thrust_force *= 1.25
+			fuel = fuel_max
 		"sensor":
 			if level <= have:
 				return false

@@ -81,12 +81,12 @@ func _think() -> void:
 				reaction = (1.0 - skill) * 1.2
 			elif ship.global_position.distance_to(patrol_point) < 300.0:
 				patrol_point = _random_patrol_point()
-			elif (hull_frac < 0.6 or ship.energy < ship.energy_max * 0.2) and home != null:
+			elif (hull_frac < 0.6 or ship.energy < ship.energy_max * 0.2 or ship.fuel_fraction() < 0.15) and home != null:
 				state = State.RETREAT
 		State.ATTACK:
 			if tgt == null:
 				state = State.PATROL
-			elif weak and randf() < 0.8:
+			elif (weak or ship.fuel_fraction() < 0.1) and randf() < 0.8:
 				state = State.RETREAT if home != null else State.EVADE
 				evade_timer = 3.0
 			elif randf() < 0.08 * (1.0 - aggression):
@@ -100,7 +100,7 @@ func _think() -> void:
 		State.RETREAT:
 			if home == null:
 				state = State.PATROL
-			elif hull_frac > 0.9 and shield_frac > 0.8 and ship.energy > ship.energy_max * 0.6:
+			elif hull_frac > 0.9 and shield_frac > 0.8 and ship.energy > ship.energy_max * 0.6 and ship.fuel_fraction() > 0.6:
 				state = State.PATROL
 				patrol_point = _random_patrol_point()
 			elif tgt != null and tgt.global_position.distance_to(ship.global_position) < 500.0 and hull_frac > 0.4:
