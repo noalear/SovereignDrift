@@ -122,6 +122,7 @@ func _draw() -> void:
 		draw_circle(sp, sr, Color(0.4, 0.8, 0.6, 0.06))
 		draw_arc(sp, sr, 0, TAU, 48, Color(0.4, 0.8, 0.6, 0.45), 1.0, true)
 	station_rects.clear()
+	var ship_marks: Array[Rect2] = []
 	for sh in world.ships:
 		if sh.dead:
 			continue
@@ -151,11 +152,12 @@ func _draw() -> void:
 			var side := fwd.orthogonal()
 			var sz := 4.0 + sh.size * 0.05
 			draw_colored_polygon(PackedVector2Array([pos + fwd * sz * 1.6, pos - fwd * sz + side * sz, pos - fwd * sz - side * sz]), col)
+			ship_marks.append(Rect2(pos - Vector2(9, 9), Vector2(18, 18)))
 		if sh == player:
 			draw_arc(pos, 9.0, 0, TAU, 24, Color.WHITE, 1.5, true)
 		elif sh == (player.target if player != null else null):
 			draw_arc(pos, 8.0, 0, TAU, 16, Color(1, 0.9, 0.5), 1.2, true)
-	_draw_labels(labels)
+	_draw_labels(labels, ship_marks)
 	# nav line
 	if player != null and player.nav_target != null and is_instance_valid(player.nav_target):
 		_dashed(to_map(player.global_position), to_map(player.nav_target.global_position), Color(0.6, 0.9, 1.0, 0.7))
@@ -167,9 +169,11 @@ func _draw() -> void:
 ## Planet names: planets first, then moons, each tried right, left, below
 ## and above its dot; a moon whose name fits nowhere is left unlabelled
 ## until hovered.
-func _draw_labels(labels: Array) -> void:
+func _draw_labels(labels: Array, ship_marks: Array[Rect2] = []) -> void:
 	labels.sort_custom(func(a, b): return (0 if a[0].body_class == "Planet" else 1) < (0 if b[0].body_class == "Planet" else 1))
+	# names keep off starbases and ship markers as well as other names
 	var taken: Array[Rect2] = station_rects.duplicate()
+	taken.append_array(ship_marks)
 	for e in labels:
 		var p: Planet = e[0]
 		var pos: Vector2 = e[1]
@@ -191,7 +195,7 @@ func _draw_labels(labels: Array) -> void:
 			if clash and p != hover_planet:
 				continue
 			taken.append(rect)
-			draw_string(font, pos + off, p.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.85, 0.9, 1.0, 0.85 if p.is_colonised() else 0.5))
+			draw_string(font, pos + off, p.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.85, 0.9, 1.0, 0.9 if p.is_colonised() else 0.62))
 			break
 
 
@@ -232,7 +236,12 @@ func _draw_side(r: Rect2) -> void:
 		if counts.get(3, 0) > 0:
 			y += 22
 			draw_string(font, Vector2(x, y), "Pirates", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, GameData.race(3)["color"])
-			draw_string(font, Vector2(x + 100, y), str(counts[3]), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, DIM)
+			# pirates hold colonies but cannot win: a dim bar on the same scale
+			var pc: Color = GameData.race(3)["color"]
+			var bw := r.size.x - 150.0
+			draw_rect(Rect2(x + 100, y - 11, bw, 12), Color(0, 0, 0, 0.5))
+			draw_rect(Rect2(x + 100, y - 11, bw * float(counts[3]) / maxf(total, 1.0), 12), Color(pc.r, pc.g, pc.b, 0.45))
+			draw_string(font, Vector2(x + 100, y), str(counts[3]), HORIZONTAL_ALIGNMENT_RIGHT, bw - 4, 12, Color.WHITE)
 		y += 36
 	# the roster
 	draw_string(font, Vector2(x, y), "PILOTS", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.6, 0.8, 1.0))

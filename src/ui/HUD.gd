@@ -67,6 +67,11 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	if world == null or world.player == null:
 		return
+	# the shipyard, tactical map and scoreboard cover the game; the HUD
+	# would only show through them as clutter
+	for c in get_parent().get_children():
+		if c is Builder or c is TacticalMap or c is Scoreboard:
+			return
 	var p := world.player
 	var vp := get_viewport_rect().size
 	_draw_status(p, vp)
@@ -272,7 +277,7 @@ func _draw_radar(p: Ship, vp: Vector2) -> void:
 
 
 func _draw_messages(vp: Vector2) -> void:
-	var y := 60.0
+	var y := 72.0
 	var x := 24.0
 	for m in messages:
 		var age: float = time - m[2]
@@ -281,8 +286,7 @@ func _draw_messages(vp: Vector2) -> void:
 			continue
 		var col: Color = m[1]
 		col.a = a
-		draw_string(font, Vector2(x + 1, y + 1), m[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0, 0, 0, a * 0.8))
-		draw_string(font, Vector2(x, y), m[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, col)
+		_text(Vector2(x, y), m[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, col)
 		y += 20
 
 
@@ -294,8 +298,8 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 	if p.rank + 1 < GameData.RANKS.size():
 		var nr: Dictionary = GameData.RANKS[p.rank + 1]
 		next = "   next: %d pts, %d kills" % [nr["score"], nr["kills"]]
-	draw_string(font, Vector2(x, y), "%s %s   score %d   kills %d%s" % [rank, p.pilot_name, p.score, p.kills, next], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 0.95, 0.8))
-	draw_string(font, Vector2(x, y + 20), "credits %d   hold %d/%d%s" % [p.credits, p.hold.size(), Ship.HOLD_SIZE, ("   blueprints %d" % p.blueprints.size()) if not p.blueprints.is_empty() else ""], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 0.85, 0.4))
+	_text(Vector2(x, y), "%s %s   score %d   kills %d%s" % [rank, p.pilot_name, p.score, p.kills, next], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 0.95, 0.8))
+	_text(Vector2(x, y + 20), "credits %d   hold %d/%d%s" % [p.credits, p.hold.size(), Ship.HOLD_SIZE, ("   blueprints %d" % p.blueprints.size()) if not p.blueprints.is_empty() else ""], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 0.85, 0.4))
 	# docking prompt
 	if not p.dead and world.nearest_base(p) != null:
 		# on its own dark plate low on the screen, so the starbase art never hides it
@@ -307,13 +311,14 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 		draw_string(font, Vector2(plate.position.x, plate.position.y + 22), dock_text, HORIZONTAL_ALIGNMENT_CENTER, plate.size.x, 16, Color(0.7, 1.0, 0.8, 0.85 + 0.15 * sin(time * 4.0)))
 	# empire standings
 	var sx := vp.x * 0.5 - 180.0
-	draw_string(font, Vector2(sx - 70, 26), "Planets", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.7, 0.8, 0.9, 0.8))
+	_text(Vector2(sx - 70, 26), "Planets", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.7, 0.8, 0.9, 0.9))
 	var parts := []
 	for r in [0, 1, 2, 3]:
 		var n: int = world.planet_counts.get(r, 0)
 		var col: Color = GameData.race(r)["color"]
+		draw_circle(Vector2(sx, 20), 7.5, Color(0, 0, 0, 0.7))
 		draw_circle(Vector2(sx, 20), 6, col)
-		draw_string(font, Vector2(sx + 12, 26), "%s %d" % [GameData.race(r)["name"], n], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.9, 0.9))
+		_text(Vector2(sx + 12, 26), "%s %d" % [GameData.race(r)["name"], n], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.92, 0.92, 0.92))
 		sx += 95
 	_draw_round(vp)
 
@@ -334,12 +339,12 @@ func _draw_round(vp: Vector2) -> void:
 		label += "   FINAL PHASE: double income"
 	elif rd.phase == "opening":
 		label += "   opening"
-	draw_string(font, Vector2(cx - 250, 50), label, HORIZONTAL_ALIGNMENT_CENTER, 500, 17, col)
+	_text(Vector2(cx - 250, 50), label, HORIZONTAL_ALIGNMENT_CENTER, 500, 17, col)
 	if rd.hold_race >= 0 and not rd.over:
 		var hc: Color = GameData.race(rd.hold_race)["color"]
 		var left := maxf(Round.HOLD_SECONDS - rd.hold_timer, 0.0)
 		var txt := "The %s hold every colony: %d s to victory" % [GameData.race(rd.hold_race)["name"], int(ceil(left))]
-		draw_string(font, Vector2(cx - 300, 76), txt, HORIZONTAL_ALIGNMENT_CENTER, 600, 16, hc)
+		_text(Vector2(cx - 300, 76), txt, HORIZONTAL_ALIGNMENT_CENTER, 600, 16, hc)
 		var bw := 320.0
 		draw_rect(Rect2(cx - bw * 0.5, 84, bw, 5), Color(0, 0, 0, 0.5))
 		draw_rect(Rect2(cx - bw * 0.5, 84, bw * rd.hold_timer / Round.HOLD_SECONDS, 5), hc)
@@ -355,7 +360,14 @@ func _draw_music(vp: Vector2) -> void:
 	var text := "Now playing: " + now_playing
 	if Settings.dynamic_music and Settings.music_mode != "off":
 		text += "  -  " + Music.intensity_name()
-	draw_string(font, Vector2(vp.x * 0.5 - 300, vp.y - 36), text, HORIZONTAL_ALIGNMENT_CENTER, 600, 13, Color(0.9, 0.85, 1.0, a * 0.85))
+	_text(Vector2(vp.x * 0.5 - 300, vp.y - 36), text, HORIZONTAL_ALIGNMENT_CENTER, 600, 13, Color(0.9, 0.85, 1.0, a * 0.85))
+
+
+## Text with a dark outline, so it stays readable over the Sun, planets
+## and ships that pass under the HUD.
+func _text(pos: Vector2, text: String, align: HorizontalAlignment, width: float, size: int, col: Color) -> void:
+	draw_string_outline(font, pos, text, align, width, size, 4, Color(0, 0, 0, 0.75 * col.a))
+	draw_string(font, pos, text, align, width, size, col)
 
 
 ## Where an edge marker in direction `dir` goes: on an inset screen
