@@ -7,6 +7,12 @@ var main: Node
 var out_dir := "/tmp/claude-0/sf/shots"
 
 
+func _initialize() -> void:
+	# SF_SHOTS=<dir> keeps runs at different window sizes apart
+	if OS.has_environment("SF_SHOTS"):
+		out_dir = OS.get_environment("SF_SHOTS")
+
+
 func _init() -> void:
 	call_deferred("_start")
 
