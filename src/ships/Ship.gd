@@ -65,6 +65,9 @@ var credits := 0
 var hold: Array = []               # module ids salvaged from wrecks
 var blueprints: Array = []         # enemy parts this pilot may buy
 const HOLD_SIZE := 16
+# this round's record, for the scoreboard
+var captures := 0
+var credits_earned := 0
 
 var weapons: Array = []            # see _build_weapons
 var inputs := {
@@ -591,6 +594,12 @@ func respawn(at: Vector2, vel: Vector2) -> void:
 	autopilot = false
 	show()
 	set_physics_process(true)
+
+
+## Credits paid to the pilot, counted for the scoreboard.
+func earn(amount: int) -> void:
+	credits += amount
+	credits_earned += amount
 
 
 func add_score(points: int, is_kill: bool) -> void:

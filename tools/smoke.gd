@@ -17,7 +17,15 @@ func _start() -> void:
 	main = load("res://src/Main.tscn").instantiate()
 	root.add_child(main)
 	await process_frame
-	main._start_game()
+	await process_frame
+	# a real click on "Play" must start the game (full-screen Controls
+	# under a CanvasLayer once stayed at size zero and ate no clicks)
+	assert(main.menu.size != Vector2.ZERO, "main menu has no size")
+	_click(main.menu.buttons[0][0].get_center())
+	await process_frame
+	await process_frame
+	assert(main.world != null, "clicking Play did not start the game")
+	print("menu: Play clicked with the mouse, game started")
 	print("t=", Time.get_ticks_msec(), " game started; ships=", main.world.ships.size(), " planets=", main.world.planets.size())
 
 
@@ -52,6 +60,10 @@ func _process(_delta: float) -> bool:
 			p.set_cloak(true)
 		if frames == 2000:
 			_exercise_shipyard(w, p)
+		if frames == 2500:
+			_exercise_tactical_map(w)
+	if frames == 5000:
+		_exercise_round(w)
 	if frames % 1000 == 0:
 		var alive := 0
 		for s in w.ships:
@@ -59,6 +71,14 @@ func _process(_delta: float) -> bool:
 				alive += 1
 		print("t=", Time.get_ticks_msec(), " frame ", frames, " alive=", alive, " missiles=", w.missiles.size(), " pickups=", w.powerups.size(),
 			" player hull=", (int(p.hull) if p else -1), " pos=", (p.global_position.round() if p else Vector2.ZERO), " score=", (p.score if p else 0))
+	if frames == 5600:
+		assert(main.scoreboard != null, "scoreboard did not open after the round")
+		print("round: scoreboard open, winner=", main.scoreboard.result["winner"], " how=", main.scoreboard.result["how"], " pilots=", main.scoreboard.result["pilots"].size(),
+			" career rounds=", main.get_node("/root/Settings").career.get("rounds", 0))
+		main.scoreboard.play_again.emit()
+	if frames == 5700:
+		assert(main.world != null and main.scoreboard == null and not main.world.game_over, "play again did not start a fresh round")
+		print("round: fresh round started, clock=", main.world.round_rules.clock_text())
 	if frames == 6000:
 		var kills := 0
 		for s in w.ships:
@@ -86,6 +106,22 @@ func _exercise_shipyard(w: World, p: Ship) -> void:
 	w.try_refit(p)
 	assert(main.builder != null, "shipyard did not open")
 	var b: Builder = main.builder
+	assert(b.size != Vector2.ZERO, "shipyard has no size")
+	b.queue_redraw()
+	await process_frame
+	await process_frame
+	await process_frame
+	var hp_btn := -1
+	for k in b.buttons.size():
+		var cb: Callable = b.buttons[k][1]
+		var args := cb.get_bound_arguments()
+		if args.size() == 2 and args[0] == "hp" and args[1] == 1:
+			hp_btn = k
+	assert(hp_btn >= 0, "no hardpoint button drawn")
+	_click(b.buttons[hp_btn][0].get_center())
+	await process_frame
+	assert(b.sel_kind == "hp" and b.sel_index == 1, "clicking a hardpoint did not select it")
+	print("shipyard: hardpoint selected with the mouse")
 	# a bigger hull, then parts
 	b._switch_hull("Cruiser")
 	print("shipyard: after hull switch hull=%s status=%s credits=%d" % [b.hull, b.status, b.credits])
@@ -109,3 +145,55 @@ func _exercise_shipyard(w: World, p: Ship) -> void:
 	assert(p.design_name == "Cruiser", "launch did not refit")
 	assert(p.design["modules"].has("5503") and p.design["modules"].has("1004"), "parts not fitted")
 	print("shipyard: launched ", p.design_name, " modules=", p.design["modules"], " weapons=", p.design["weapons"].size(), " turn=", p.turn_speed, " accel=", p.accel, " overload=", p.overload)
+
+
+## Open and close the tactical map, set a nav target from it.
+func _exercise_tactical_map(w: World) -> void:
+	var ev := InputEventAction.new()
+	ev.action = "tactical_map"
+	ev.pressed = true
+	main._unhandled_input(ev)
+	assert(main.tactical != null, "tactical map did not open")
+	var earth: Planet = w.planet_by_name["Earth"]
+	assert(main.tactical.size != Vector2.ZERO, "tactical map has no size")
+	_click(main.tactical.to_map(earth.global_position))
+	assert(w.player.nav_target == earth, "map click did not set the nav target")
+	main._unhandled_input(ev)
+	assert(main.tactical == null, "tactical map did not close")
+	print("tactical map: open, nav to Earth, closed")
+
+
+## Run the clock to its last minutes, then hand one empire every colony
+## and let the hold timer end the round.
+func _exercise_round(w: World) -> void:
+	var rd: Round = w.round_rules
+	assert(rd != null, "no round rules")
+	rd.elapsed = maxf(rd.length - 200.0, 100.0)
+	rd.tick(0.1)
+	print("round: phase=", rd.phase, " multiplier=", rd.bonus_multiplier(), " clock=", rd.clock_text())
+	assert(rd.length <= 0.0 or rd.phase == "final", "final phase did not start")
+	var winner: int = w.player.race_id
+	for p in w.planets:
+		if p.is_colonised() and p.owner_race != winner:
+			w.planet_captured(p, winner, w.player)
+	rd.hold_timer = Round.HOLD_SECONDS - 0.5
+	rd.hold_race = winner
+	for i in 20:
+		rd.tick(0.05)
+	assert(rd.over and rd.result["winner"] == winner, "conquest did not end the round")
+	print("round: over, winner=", rd.result["winner"], " standings=", rd.result["standings"])
+
+
+## A left click pushed through the window like a real mouse.
+func _click(at: Vector2) -> void:
+	var move := InputEventMouseMotion.new()
+	move.position = at
+	move.global_position = at
+	root.push_input(move, true)
+	for pressed in [true, false]:
+		var ev := InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_LEFT
+		ev.pressed = pressed
+		ev.position = at
+		ev.global_position = at
+		root.push_input(ev, true)

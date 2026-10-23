@@ -10,6 +10,9 @@ var hud: HUD = null
 var ui_layer: CanvasLayer
 var pause_panel: Control = null
 var builder: Builder = null
+var tactical: TacticalMap = null
+var tactical_opened_at := 0
+var scoreboard: Scoreboard = null
 var font: Font
 
 
@@ -94,6 +97,12 @@ func _show_menu() -> void:
 	if builder != null:
 		builder.queue_free()
 		builder = null
+	_close_tactical()
+	if scoreboard != null:
+		scoreboard.queue_free()
+		scoreboard = null
+	Engine.time_scale = 1.0
+	get_tree().paused = false
 	if world != null:
 		world.queue_free()
 		world = null
@@ -138,6 +147,9 @@ func _start_game() -> void:
 	ui_layer.add_child(hud)
 	hud.attach(world)
 	world.shipyard_requested.connect(open_builder)
+	world.round_over.connect(_on_round_over)
+	if world.round_rules != null and world.round_rules.length > 0.0:
+		world.notify_all("Conquest: %d minutes. Hold the most planets when time runs out, or every colony for 45 seconds. Tab shows the system." % int(world.round_rules.length / 60.0), Color(0.8, 0.9, 1.0))
 	world.notify_all("Welcome, %s. You launch from %s. Press H for the controls." % [Settings.pilot_name, GameData.STARBASES.get(Settings.race_id, "home")], Color(1, 0.95, 0.8))
 
 
@@ -145,7 +157,24 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("fullscreen"):
 		Settings.toggle_fullscreen()
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("pause_menu") and world != null and builder == null:
+	elif event.is_action_pressed("tactical_map") and world != null and builder == null and pause_panel == null and scoreboard == null:
+		if tactical == null:
+			tactical = TacticalMap.new()
+			tactical.world = world
+			ui_layer.add_child(tactical)
+			tactical_opened_at = Time.get_ticks_msec()
+			Sfx.play_ui("click", 0.3)
+		else:
+			_close_tactical()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_released("tactical_map") and tactical != null and event is InputEventKey:
+		# a long press is "hold to look"; a tap leaves the map open
+		if Time.get_ticks_msec() - tactical_opened_at > 350:
+			_close_tactical()
+	elif event.is_action_pressed("pause_menu") and tactical != null:
+		_close_tactical()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("pause_menu") and world != null and builder == null and scoreboard == null:
 		if pause_panel == null:
 			_open_pause()
 		else:
@@ -157,12 +186,12 @@ func _open_pause() -> void:
 	if not Net.is_active():
 		world.set_paused(true)   # online the round goes on behind the menu
 	pause_panel = Control.new()
-	pause_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	pause_panel.process_mode = Node.PROCESS_MODE_ALWAYS
 	ui_layer.add_child(pause_panel)
+	pause_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var bg := ColorRect.new()
 	bg.color = Color(0, 0, 0, 0.55)
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	pause_panel.add_child(bg)
 	var box := VBoxContainer.new()
 	box.set_anchors_preset(Control.PRESET_CENTER)
@@ -216,9 +245,39 @@ func _open_pause() -> void:
 	b1.grab_focus()
 
 
-func open_builder(ship: Ship, base: Ship) -> void:
-	if builder != null or pause_panel != null:
+func _close_tactical() -> void:
+	if tactical != null:
+		tactical.queue_free()
+		tactical = null
+
+
+## The round is decided: let the slow-motion finish play for a moment,
+## then stop the world and show the scoreboard.
+func _on_round_over(result: Dictionary) -> void:
+	var w := world
+	await get_tree().create_timer(3.0, true, false, true).timeout
+	if world == null or world != w or scoreboard != null:
 		return
+	_close_tactical()
+	_close_pause()
+	if builder != null:
+		builder.queue_free()
+		builder = null
+	world.set_paused(true)
+	Engine.time_scale = 1.0
+	scoreboard = Scoreboard.new()
+	scoreboard.open(result, world.player.race_id if world.player != null else Settings.race_id)
+	ui_layer.add_child(scoreboard)
+	scoreboard.play_again.connect(func():
+		_show_menu()
+		_start_game())
+	scoreboard.to_menu.connect(_show_menu)
+
+
+func open_builder(ship: Ship, base: Ship) -> void:
+	if builder != null or pause_panel != null or scoreboard != null:
+		return
+	_close_tactical()
 	world.set_paused(true)
 	world.visible = false
 	builder = Builder.new()

@@ -15,9 +15,10 @@ var dynamic_music := true     # the music follows the fight
 var mouse_aim := true         # turrets follow the mouse
 var screen_shake := 1.0
 var last_join_ip := ""       # the address typed last on the Play online screen
+var round_minutes := 30       # Conquest round length; 0 plays until the system falls
 
 # Persistent career, kept between games like the original profile.
-var career := {"score": 0, "kills": 0, "deaths": 0}
+var career := {"score": 0, "kills": 0, "deaths": 0, "rounds": 0, "wins": 0}
 
 
 func _ready() -> void:
@@ -42,6 +43,7 @@ func load_settings() -> void:
 	race_id = cfg.get_value("pilot", "race", race_id)
 	career = cfg.get_value("pilot", "career", career)
 	last_join_ip = cfg.get_value("online", "last_join_ip", last_join_ip)
+	round_minutes = cfg.get_value("game", "round_minutes", round_minutes)
 
 
 func save_settings() -> void:
@@ -59,6 +61,7 @@ func save_settings() -> void:
 	cfg.set_value("pilot", "race", race_id)
 	cfg.set_value("pilot", "career", career)
 	cfg.set_value("online", "last_join_ip", last_join_ip)
+	cfg.set_value("game", "round_minutes", round_minutes)
 	cfg.save(PATH)
 
 

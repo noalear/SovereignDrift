@@ -21,7 +21,7 @@ var demo_ships: Array = []
 
 func _ready() -> void:
 	font = ThemeDB.fallback_font
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	name_edit = LineEdit.new()
 	name_edit.max_length = 16
@@ -277,7 +277,7 @@ func _draw_pilot(vp: Vector2) -> void:
 	ShipArt.draw_ship(self, "Scout", Settings.race_id, 40.0, GameData.race(Settings.race_id)["color"], 0.4, 1.0, 0.0, Transform2D(-PI * 0.5, Vector2(vp.x * 0.5 + 220, y + 200)))
 	ShipArt.draw_ship(self, "Cruiser", Settings.race_id, 48.0, GameData.race(Settings.race_id)["color"], 0.4, 1.0, 0.0, Transform2D(-PI * 0.5, Vector2(vp.x * 0.5 + 320, y + 200)))
 	_button(Rect2(vp.x * 0.5 - 300, y + 160, 200, 44), "Reset career", func():
-		Settings.career = {"score": 0, "kills": 0, "deaths": 0}
+		Settings.career = {"score": 0, "kills": 0, "deaths": 0, "rounds": 0, "wins": 0}
 		Settings.save_settings())
 	_button(Rect2(vp.x * 0.5 - 300, y + 230, 160, 48), "Back", func(): _set_page("main"))
 
@@ -307,7 +307,8 @@ func _draw_settings(vp: Vector2) -> void:
 	_choice(y + step * 6, "Camera", [[1.4, "Close"], [1.0, "Normal"], [0.7, "Wide"], [0.5, "Very wide"]], Settings.camera_zoom, func(v): Settings.camera_zoom = v, vp)
 	_choice(y + step * 7, "Screen shake", [[0.0, "Off"], [0.5, "Light"], [1.0, "Full"]], Settings.screen_shake, func(v): Settings.screen_shake = v, vp)
 	_choice(y + step * 8, "Mouse-aimed turrets", [[true, "On"], [false, "Off"]], Settings.mouse_aim, func(v): Settings.mouse_aim = v, vp)
-	_button(Rect2(vp.x * 0.5 - 300, y + step * 9 + 20, 160, 48), "Back", func(): _set_page("main"))
+	_choice(y + step * 9, "Round length", [[20, "20 min"], [30, "30 min"], [40, "40 min"], [0, "Until conquest"]], Settings.round_minutes, func(v): Settings.round_minutes = v, vp)
+	_button(Rect2(vp.x * 0.5 - 300, y + step * 10 + 20, 160, 48), "Back", func(): _set_page("main"))
 
 
 func _draw_about(vp: Vector2) -> void:

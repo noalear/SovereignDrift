@@ -17,7 +17,7 @@ var dead_time := 0.0
 func _ready() -> void:
 	font = ThemeDB.fallback_font
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	Music.track_changed.connect(_on_track)
 	if not Music.now_playing().is_empty():
 		now_playing = Music.now_playing()
@@ -78,6 +78,8 @@ func _draw() -> void:
 	_draw_nav(p, vp)
 	_draw_music(vp)
 	_draw_aim(p, vp)
+	_draw_pointers(p, vp)
+	_draw_heat(p, vp)
 	if p.dead:
 		_draw_dead(vp)
 	if show_help:
@@ -90,8 +92,10 @@ func _bar(pos: Vector2, w: float, h: float, frac: float, color: Color, label: St
 	draw_rect(Rect2(pos, Vector2(w, h)), Color(0, 0, 0, 0.45))
 	draw_rect(Rect2(pos, Vector2(w * clampf(frac, 0.0, 1.0), h)), color)
 	draw_rect(Rect2(pos, Vector2(w, h)), Color(1, 1, 1, 0.35), false, 1.0)
+	draw_string_outline(font, pos + Vector2(6, h - 5), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color(0, 0, 0, 0.85))
 	draw_string(font, pos + Vector2(6, h - 5), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 1, 1, 0.95))
-	draw_string(font, pos + Vector2(0, h - 5), value, HORIZONTAL_ALIGNMENT_RIGHT, w - 6, 14, Color(1, 1, 1, 0.9))
+	draw_string_outline(font, pos + Vector2(0, h - 5), value, HORIZONTAL_ALIGNMENT_RIGHT, w - 6, 14, 4, Color(0, 0, 0, 0.85))
+	draw_string(font, pos + Vector2(0, h - 5), value, HORIZONTAL_ALIGNMENT_RIGHT, w - 6, 14, Color(1, 1, 1, 0.95))
 
 
 func _draw_status(p: Ship, vp: Vector2) -> void:
@@ -243,10 +247,13 @@ func _draw_radar(p: Ship, vp: Vector2) -> void:
 		if d.length() > r:
 			continue
 		var col := s.race_color()
+		var hostile := s.race_id != p.race_id
 		if s.is_station:
 			draw_rect(Rect2(c + d - Vector2(4, 4), Vector2(8, 8)), col)
 		else:
 			draw_circle(c + d, 3.0, col)
+		if hostile and not s.is_station:
+			draw_arc(c + d, 5.0, 0, TAU, 12, Color(1.0, 0.25, 0.2, 0.9), 1.2)
 		if s == p.target:
 			draw_arc(c + d, 7.0, 0, TAU, 16, Color.WHITE, 1.5)
 	# own ship
@@ -286,6 +293,7 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 		draw_string(font, Vector2(vp.x * 0.5 - 200, vp.y * 0.5 + 70), "In docking range:  U  opens the shipyard" + ("" if p.speed() <= 220.0 else "  (brake first)"), HORIZONTAL_ALIGNMENT_CENTER, 400, 16, Color(0.7, 1.0, 0.8, 0.8 + 0.2 * sin(time * 4.0)))
 	# empire standings
 	var sx := vp.x * 0.5 - 180.0
+	draw_string(font, Vector2(sx - 70, 26), "Planets", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.7, 0.8, 0.9, 0.8))
 	var parts := []
 	for r in [0, 1, 2, 3]:
 		var n: int = world.planet_counts.get(r, 0)
@@ -293,19 +301,102 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 		draw_circle(Vector2(sx, 20), 6, col)
 		draw_string(font, Vector2(sx + 12, 26), "%s %d" % [GameData.race(r)["name"], n], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.9, 0.9))
 		sx += 95
+	_draw_round(vp)
+
+
+## The round clock under the standings, the phase, and the countdown when
+## one empire holds every colony.
+func _draw_round(vp: Vector2) -> void:
+	var rd: Round = world.round_rules
+	if rd == null:
+		return
+	var cx := vp.x * 0.5
+	var urgent := rd.phase in ["final", "sudden_death"]
+	var col := Color(1.0, 0.75, 0.35, 0.75 + 0.25 * sin(time * 5.0)) if urgent else Color(0.85, 0.92, 1.0, 0.9)
+	var label := rd.clock_text()
+	if rd.phase == "sudden_death":
+		label = "SUDDEN DEATH"
+	elif rd.phase == "final":
+		label += "   FINAL PHASE: double income"
+	elif rd.phase == "opening":
+		label += "   opening"
+	draw_string(font, Vector2(cx - 250, 50), label, HORIZONTAL_ALIGNMENT_CENTER, 500, 17, col)
+	if rd.hold_race >= 0 and not rd.over:
+		var hc: Color = GameData.race(rd.hold_race)["color"]
+		var left := maxf(Round.HOLD_SECONDS - rd.hold_timer, 0.0)
+		var txt := "The %s hold every colony: %d s to victory" % [GameData.race(rd.hold_race)["name"], int(ceil(left))]
+		draw_string(font, Vector2(cx - 300, 76), txt, HORIZONTAL_ALIGNMENT_CENTER, 600, 16, hc)
+		var bw := 320.0
+		draw_rect(Rect2(cx - bw * 0.5, 84, bw, 5), Color(0, 0, 0, 0.5))
+		draw_rect(Rect2(cx - bw * 0.5, 84, bw * rd.hold_timer / Round.HOLD_SECONDS, 5), hc)
 
 
 func _draw_music(vp: Vector2) -> void:
 	if now_playing.is_empty():
 		return
 	var age := time - now_playing_time
-	var a := clampf(1.0 - (age - 7.0) / 2.0, 0.0, 1.0)
+	var a := clampf(1.0 - (age - 4.0) / 1.5, 0.0, 1.0)
 	if a <= 0.0:
 		return
 	var text := "Now playing: " + now_playing
 	if Settings.dynamic_music and Settings.music_mode != "off":
 		text += "  -  " + Music.intensity_name()
-	draw_string(font, Vector2(vp.x * 0.5 - 250, vp.y - 160), text, HORIZONTAL_ALIGNMENT_CENTER, 500, 15, Color(0.9, 0.85, 1.0, a))
+	draw_string(font, Vector2(vp.x * 0.5 - 300, vp.y - 36), text, HORIZONTAL_ALIGNMENT_CENTER, 600, 13, Color(0.9, 0.85, 1.0, a * 0.85))
+
+
+## An arrow on the screen edge to the current target when it is off
+## screen (R picks a fleet contact when nothing is in your own range).
+func _draw_pointers(p: Ship, vp: Vector2) -> void:
+	if p.dead:
+		return
+	var xf := world.get_viewport().get_canvas_transform()
+	var marks := []
+	if p.target != null and is_instance_valid(p.target) and p.target is Ship and not p.target.dead:
+		var hostile: bool = p.target.race_id != p.race_id
+		marks.append([p.target, Color(1.0, 0.35, 0.3) if hostile else Color(1.0, 0.9, 0.4)])
+	var centre := vp * 0.5
+	for mk in marks:
+		var t: Ship = mk[0]
+		var sp: Vector2 = xf * t.global_position
+		if Rect2(Vector2(40, 40), vp - Vector2(80, 80)).has_point(sp):
+			continue
+		var dir := (sp - centre).normalized()
+		# clamp to an inset rectangle
+		var half := vp * 0.5 - Vector2(70, 70)
+		var k := minf(absf(half.x / maxf(absf(dir.x), 0.001)), absf(half.y / maxf(absf(dir.y), 0.001)))
+		var at := centre + dir * k
+		var col: Color = mk[1]
+		var side := dir.orthogonal()
+		draw_colored_polygon(PackedVector2Array([at + dir * 16.0, at - dir * 6.0 + side * 10.0, at - dir * 6.0 - side * 10.0]), col)
+		var dist := int(p.global_position.distance_to(t.global_position) / 10.0)
+		draw_string_outline(font, at - dir * 28.0 + Vector2(-60, 5), "%s  %d km" % [t.pilot_name, dist], HORIZONTAL_ALIGNMENT_CENTER, 120, 12, 3, Color(0, 0, 0, 0.8))
+		draw_string(font, at - dir * 28.0 + Vector2(-60, 5), "%s  %d km" % [t.pilot_name, dist], HORIZONTAL_ALIGNMENT_CENTER, 120, 12, col)
+
+
+## The Sun's heat: an orange wash at the edges and a warning that grows.
+func _draw_heat(p: Ship, vp: Vector2) -> void:
+	var h: float = world.sun_heat
+	if h <= 0.0 or p.dead:
+		return
+	var pulse := 0.5 + 0.5 * sin(time * (4.0 + 10.0 * h))
+	var a := 0.12 + 0.35 * h * h
+	var band := 40.0 + 220.0 * h
+	# a soft vignette: nested frames that fade toward the middle, drawn
+	# without overlapping corners
+	var steps := 10
+	var t := band / steps
+	for i in steps:
+		var k := 1.0 - float(i) / steps
+		var col := Color(1.0, 0.45, 0.1, a * k * k * (0.7 + 0.3 * pulse))
+		var o := i * t
+		draw_rect(Rect2(o, o, vp.x - 2.0 * o, t), col)
+		draw_rect(Rect2(o, vp.y - o - t, vp.x - 2.0 * o, t), col)
+		draw_rect(Rect2(o, o + t, t, vp.y - 2.0 * o - 2.0 * t), col)
+		draw_rect(Rect2(vp.x - o - t, o + t, t, vp.y - 2.0 * o - 2.0 * t), col)
+	var text := "SOLAR HEAT: TURN AWAY FROM THE SUN" if h > 0.25 else "Approaching the Sun"
+	var tc := Color(1.0, 0.85 - 0.5 * h, 0.4 - 0.3 * h, 0.75 + 0.25 * pulse)
+	draw_string_outline(font, Vector2(0, vp.y * 0.32), text, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 26, 6, Color(0, 0, 0, 0.8))
+	draw_string(font, Vector2(0, vp.y * 0.32), text, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 26, tc)
 
 
 ## Crosshair where the turrets are pointed (mouse or right stick).
@@ -354,7 +445,7 @@ func _draw_help(vp: Vector2) -> void:
 		["M", "drop a mine"], ["L", "laser"], ["C", "cloak"],
 		["", ""],
 		["TARGETS AND NAVIGATION", ""],
-		["T / Tab", "next target"], ["R", "nearest enemy"], ["Shift+click", "target under cursor"],
+		["T", "next target"], ["Tab / Back", "tactical map (hold or tap)"], ["R", "nearest enemy"], ["Shift+click", "target under cursor"],
 		["N", "next planet on the nav display"], ["G", "autopilot to the nav planet"], ["U", "shipyard, at your starbase"],
 	]
 	var rows := maxi(left.size(), right.size())

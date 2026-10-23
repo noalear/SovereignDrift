@@ -46,7 +46,7 @@ func open(p_ship: Ship, p_base: Ship, p_world: World) -> void:
 	base = p_base
 	world = p_world
 	font = ThemeDB.fallback_font
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	orig_design = ship.design.duplicate(true)

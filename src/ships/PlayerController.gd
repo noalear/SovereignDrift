@@ -25,7 +25,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("target_nearest"):
 		ship.target = world.nearest_enemy_ship(ship.global_position, ship.race_id, ship.sensor_range * 1.5, ship)
 		if ship.target == null:
-			world.notify(ship, "No enemy in sensor range.")
+			# fall back on what the rest of the fleet can see
+			var known: Ship = world.nearest_known_enemy(ship)
+			if known != null:
+				ship.target = known
+				world.notify(ship, "Fleet contact: %s, %d km away. Follow the arrow." % [known.pilot_name, int(ship.global_position.distance_to(known.global_position) / 10.0)])
+			else:
+				world.notify(ship, "No enemy contacts. Tab shows the system.")
 	elif event.is_action_pressed("nav_next"):
 		world.cycle_nav(ship)
 	elif event.is_action_pressed("autopilot"):

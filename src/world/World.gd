@@ -8,6 +8,7 @@ signal player_died()
 signal player_respawned()
 signal planet_owner_changed(planet: Planet)
 signal shipyard_requested(ship: Ship, base: Ship)
+signal round_over(result: Dictionary)
 
 const MISSILE_SCRIPT := preload("res://src/weapons/Missile.gd")
 const RESPAWN_DELAY := 4.0
@@ -29,7 +30,6 @@ var ships_layer: Node2D
 var missiles_layer: Node2D
 var pickups_layer: Node2D
 var planet_counts := {}
-var win_timer := 0.0
 var game_over := false
 var target_zoom := 1.0
 var shake := 0.0                 # camera shake left, in pixels
@@ -38,7 +38,11 @@ var intensity_timer := 0.0
 var last_player_damage := -100.0
 var last_player_fire := -100.0
 var income_timer := 60.0         # planets pay their empire every minute
+var round_rules: Round = null     # the Conquest rules; the host runs them
 const START_CREDITS := 250
+const BASE_ZOOM := 1.3            # "Normal" camera: ships read clearly at 1080p and 4K
+var sun_heat := 0.0              # 0..1, how close the player is to burning in the Sun
+var _heat_alarm := 0.0
 
 
 func _ready() -> void:
@@ -67,12 +71,15 @@ func _ready() -> void:
 	add_child(camera)
 	starfield.camera = camera
 	target_zoom = Settings.camera_zoom
-	camera.zoom = Vector2.ONE * target_zoom
+	camera.zoom = Vector2.ONE * target_zoom * BASE_ZOOM
 	_build_system()
 	if Net.is_client():
 		Net.client_attach(self)   # the ships come from the host
 	else:
 		_spawn_pilots()
+		round_rules = Round.new()
+		round_rules.setup(self, Settings.round_minutes)
+		round_rules.finished.connect(_on_round_finished)
 		if Net.is_host():
 			Net.host_attach(self)
 	camera.make_current()
@@ -181,8 +188,8 @@ func _place_at_home(s: Ship) -> void:
 	var home := _home_planet(s.race_id)
 	var a := randf() * TAU
 	s.global_position = home.global_position + Vector2(cos(a), sin(a)) * (home.radius + 260.0)
-	s.velocity = home.velocity + Vector2(-sin(a), cos(a)) * 40.0
-	s.rotation = a + PI * 0.5
+	s.velocity = home.velocity + Vector2(cos(a), sin(a)) * 20.0
+	s.rotation = a                  # nose away from the planet, so thrust is safe
 
 
 # ------------------------------------------------------------ main loop
@@ -196,8 +203,8 @@ func _process(delta: float) -> void:
 		if player.warping:
 			speed_mul = 0.5
 		else:
-			speed_mul = lerpf(1.0, 0.72, clampf(player.velocity.length() / GameData.LIGHT_SPEED / 1.2, 0.0, 1.0))
-	camera.zoom = camera.zoom.lerp(Vector2.ONE * target_zoom * speed_mul, 2.5 * delta)
+			speed_mul = lerpf(1.0, 0.75, clampf(player.velocity.length() / GameData.LIGHT_SPEED / 1.2, 0.0, 1.0))
+	camera.zoom = camera.zoom.lerp(Vector2.ONE * target_zoom * BASE_ZOOM * speed_mul, 2.5 * delta)
 	if player != null and not player.dead:
 		# look a little ahead of the ship's motion
 		camera.global_position = player.global_position + player.velocity * 0.35
@@ -231,7 +238,9 @@ func _physics_process(delta: float) -> void:
 	if Net.is_client():
 		Net.client_tick(delta)   # the host collides, scores and respawns
 		return
+	sun_heat = 0.0
 	_collide_ships(delta)
+	_sun_warning(delta)
 	_collide_missiles()
 	_collect_powerups()
 	_respawns()
@@ -319,6 +328,31 @@ func nearest_enemy_ship(pos: Vector2, race_id: int, range_px: float, viewer: Shi
 	return best
 
 
+## The nearest enemy any ship of the viewer's empire can see: what the
+## fleet's shared sensors know, out to a long range.
+func nearest_known_enemy(viewer: Ship, range_px: float = 16000.0) -> Ship:
+	var best: Ship = null
+	var best_d := range_px
+	for s in ships:
+		if s.dead or s.race_id == viewer.race_id or s.is_station:
+			continue
+		var d := viewer.global_position.distance_to(s.global_position)
+		if d >= best_d:
+			continue
+		var seen := s.visible_to(viewer) and d <= viewer.sensor_range * 1.5
+		if not seen:
+			for f in ships:
+				if f.dead or f.race_id != viewer.race_id:
+					continue
+				if s.visible_to(f) and f.global_position.distance_to(s.global_position) <= f.sensor_range * 1.5:
+					seen = true
+					break
+		if seen:
+			best_d = d
+			best = s
+	return best
+
+
 func ship_at(pos: Vector2, tolerance: float) -> Ship:
 	var best: Ship = null
 	var best_d := INF
@@ -351,10 +385,22 @@ func _collide_ships(delta: float) -> void:
 			var d := to.length()
 			var min_d := p.radius + a.size * 0.7
 			if p.look == "Sun":
-				if d < p.radius * 1.6:
-					a.take_damage((220.0 + 600.0 * (1.0 - d / (p.radius * 1.6))) * delta, p)
+				# heat ramps up over two radii above the surface: a warning
+				# first, then real damage, then a scorching bounce off the
+				# corona rather than an instant death
+				var heat := clampf(1.0 - (d - p.radius) / (p.radius * 2.2), 0.0, 1.0)
+				if a == player:
+					sun_heat = heat
+				if heat > 0.25:
+					var t := (heat - 0.25) / 0.75
+					a.take_damage((30.0 + 1100.0 * t * t) * delta, p)
 				if d < min_d:
-					a.take_damage(5000.0, p)
+					var n := to.normalized() if d > 0.001 else Vector2.RIGHT
+					a.global_position = p.global_position + n * min_d
+					var vn := a.velocity.dot(n)
+					if vn < 0.0:
+						a.velocity -= n * vn * 1.6
+					a.take_damage(900.0 * delta + 120.0, p)
 				continue
 			if d < min_d:
 				var n := to.normalized()
@@ -398,6 +444,19 @@ func _collide_ships(delta: float) -> void:
 						b.take_damage(dmg * (a.mass / total) * 2.0 * a_ram / b_ram, a, b.global_position - n * b.size)
 						if a_ram > 1.0 or b_ram > 1.0:
 							add_shake(6.0 if a.is_player or b.is_player else 0.0)
+
+
+## Beep and say so while the player is in the Sun's heat.
+func _sun_warning(delta: float) -> void:
+	if player == null or player.dead or sun_heat <= 0.0:
+		_heat_alarm = 0.0
+		return
+	_heat_alarm -= delta
+	if _heat_alarm <= 0.0:
+		_heat_alarm = lerpf(1.6, 0.35, sun_heat)
+		Sfx.play_ui("alarm", 0.35 + 0.5 * sun_heat)
+		if sun_heat < 0.3:
+			notify(player, "Warning: close to the Sun. Turn away.")
 
 
 func _collide_missiles() -> void:
@@ -535,7 +594,7 @@ func _collect_powerups() -> void:
 				match p.kind:
 					"credits":
 						if s.is_player:
-							s.credits += p.amount
+							s.earn(p.amount)
 							notify(s, "Salvaged %d credits." % p.amount)
 							taken = true
 					"blueprint":
@@ -544,7 +603,7 @@ func _collect_powerups() -> void:
 								s.blueprints.append(p.module_id)
 								notify(s, "Blueprint: %s can now be bought at your shipyard." % GameData.MODULES[p.module_id]["name"])
 							else:
-								s.credits += 60
+								s.earn(60)
 								notify(s, "Duplicate blueprint sold for 60 credits.")
 							taken = true
 					_:
@@ -615,12 +674,14 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 		var a := randf() * TAU
 		spawn_powerup("bp:" + flavour[randi() % flavour.size()], s.global_position, s.velocity * 0.3 + Vector2(cos(a), sin(a)) * 50.0)
 	var killer_ship: Ship = killer as Ship
+	if round_rules != null and killer_ship != null and killer_ship != s:
+		round_rules.on_kill(killer_ship.race_id)
 	if killer_ship != null and killer_ship != s and not killer_ship.dead:
 		var points := 10 + s.rank * 2 + (40 if s.is_station else 0)
 		killer_ship.add_score(points, true)
 		if killer_ship.is_player:
 			var bounty := 30 + s.rank * 8 + (300 if s.is_station else 0)
-			killer_ship.credits += bounty
+			killer_ship.earn(bounty)
 			notify(killer_ship, "Bounty: %d credits." % bounty)
 		notify_all("%s (%s) destroyed %s (%s)." % [killer_ship.pilot_name, GameData.race(killer_ship.race_id)["name"], s.pilot_name, GameData.race(s.race_id)["name"]],
 			killer_ship.race_color() if killer_ship.is_player or s.is_player else Color(0.8, 0.8, 0.8))
@@ -666,15 +727,22 @@ func planet_captured(p: Planet, winner: int, attacker: Node) -> void:
 	var old := p.owner_race
 	p.surrender_to(winner)
 	Net.host_planet_captured(p, winner)
+	var mult := round_rules.bonus_multiplier() if round_rules != null else 1.0
 	if attacker is Ship:
 		attacker.add_score(50, false)
+		attacker.captures += 1
 		if attacker.is_player:
-			attacker.credits += 200
-			notify(attacker, "Capture bonus: 200 credits.")
+			var bonus := int(200 * mult)
+			attacker.earn(bonus)
+			notify(attacker, "Capture bonus: %d credits." % bonus)
+	if round_rules != null:
+		round_rules.on_capture(winner, p.body_name, old)
 	notify_all("%s surrendered to the %s%s." % [p.body_name, GameData.race(winner)["name"],
 		(" (was %s)" % GameData.race(old)["name"]) if old >= 0 else ""], GameData.race(winner)["color"])
 	Sfx.play_ui("captured", 0.7)
 	planet_owner_changed.emit(p)
+	if round_rules != null and round_rules.phase == "sudden_death" and winner <= 2:
+		round_rules.decide(winner)
 
 
 func _score_planets(delta: float) -> void:
@@ -682,29 +750,45 @@ func _score_planets(delta: float) -> void:
 	for p in planets:
 		if p.is_colonised():
 			planet_counts[p.owner_race] = planet_counts.get(p.owner_race, 0) + 1
-	# held planets pay their empire's pilots every minute
+	if game_over:
+		return
+	# held planets pay their empire's pilots every minute, double in the
+	# final phase
 	income_timer -= delta
 	if income_timer <= 0.0:
 		income_timer = 60.0
-		if player != null:
-			var n: int = planet_counts.get(player.race_id, 0)
-			if n > 0:
-				player.credits += n * 10
-				notify(player, "Planet income: %d credits from %d worlds." % [n * 10, n])
-	# a race holding every colony for a minute wins the round
-	var holders := 0
-	var who := -1
-	for r in planet_counts:
-		if planet_counts[r] > 0:
-			holders += 1
-			who = r
-	if holders == 1 and not game_over:
-		win_timer += delta
-		if win_timer > 60.0:
-			game_over = true
-			notify_all("The %s hold the whole system. Victory!" % GameData.race(who)["name"], GameData.race(who)["color"])
-	else:
-		win_timer = 0.0
+		var mult := round_rules.bonus_multiplier() if round_rules != null else 1.0
+		for s in ships:
+			if s.is_station or s.race_id > 2:
+				continue
+			var n: int = planet_counts.get(s.race_id, 0)
+			if n <= 0:
+				continue
+			var pay := int(n * 10 * mult)
+			s.earn(pay)
+			if s.is_player:
+				notify(s, "Planet income: %d credits from %d worlds." % [pay, n])
+	if round_rules != null:
+		round_rules.tick(delta)
+
+
+## The round is decided: freeze the fight in slow motion, record the
+## career, and let Main show the scoreboard.
+func _on_round_finished(result: Dictionary) -> void:
+	game_over = true
+	var winner: int = result["winner"]
+	notify_all("The %s win the Sol system!" % GameData.race(winner)["name"], GameData.race(winner)["color"])
+	Engine.time_scale = 0.35
+	slowmo = 1.2
+	if player != null:
+		Settings.career["rounds"] = Settings.career.get("rounds", 0) + 1
+		if winner == player.race_id:
+			Settings.career["wins"] = Settings.career.get("wins", 0) + 1
+		Settings.career["score"] = player.score
+		Settings.career["kills"] = player.kills
+		Settings.save_settings()
+	Sfx.play_ui("rankup", 1.0)
+	round_over.emit(result)
 
 
 # ----------------------------------------------------------- player aids

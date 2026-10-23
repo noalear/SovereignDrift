@@ -102,6 +102,39 @@ func _process(_delta: float) -> bool:
 			main.builder._launch()
 		if frames == 470:
 			_shot("game_rebuilt")
-		if frames == 480:
-			quit()
+			var ev := InputEventAction.new()
+			ev.action = "tactical_map"
+			ev.pressed = true
+			main._unhandled_input(ev)
+		if frames == 490:
+			_shot("tactical_map")
+			var ev := InputEventAction.new()
+			ev.action = "tactical_map"
+			ev.pressed = true
+			main._unhandled_input(ev)
+			# end the round: the player's empire takes every colony
+			var rd: Round = w.round_rules
+			rd.elapsed = rd.length - 120.0
+			for pl in w.planets:
+				if pl.is_colonised() and pl.owner_race != p.race_id:
+					w.planet_captured(pl, p.race_id, p)
+			rd.hold_race = p.race_id
+			rd.hold_timer = Round.HOLD_SECONDS - 6.0
+		if frames == 500:
+			_shot("game_final_phase")
+		if frames == 520:
+			# fly near the Sun to show the heat warning
+			var sun: Planet = w.planet_by_name["Sol"]
+			p.global_position = sun.global_position + Vector2(sun.radius * 1.9, 0)
+			p.velocity = Vector2.ZERO
+			p.invulnerable = 30.0
+			w.camera.reset_smoothing()
+		if frames == 560:
+			_shot("game_sun")
+			p.global_position = w.planet_by_name["Earth"].global_position + Vector2(600, 0)
+			w.camera.reset_smoothing()
+	if frames == 1250:
+		_shot("scoreboard")
+	if frames == 1260:
+		quit()
 	return false
