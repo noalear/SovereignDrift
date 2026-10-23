@@ -11,10 +11,11 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 2
+const PROTOCOL := 3
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
+const STATS_EVERY := 2.0        # scores, ranks and the round clock
 
 enum Role { OFFLINE, HOST, CLIENT }
 
@@ -30,6 +31,7 @@ var local_net_id := 0            # the client's own ship
 var input_seq := 0
 var snapshot_timer := 0.0
 var ping_timer := 0.0
+var stats_timer := 0.0
 var ping_ms := 0.0
 var snapshots_received := 0
 var inputs_received := 0
@@ -226,7 +228,28 @@ func _roster() -> Array:
 		if not is_instance_valid(s):
 			continue
 		out.append([s.net_id, s.pilot_name, s.race_id, s.design_name, s.ship_name, s.score, s.kills, s.rank, s.dead,
-			s.global_position, s.velocity, s.rotation])
+			s.global_position, s.velocity, s.rotation, s.design])
+	return out
+
+
+## The round as the HUD and the map show it.
+func _round_state() -> Array:
+	var rd = world.round_rules
+	if rd == null:
+		return []
+	return [rd.length, rd.phase, rd.elapsed, rd.hold_race, rd.hold_timer, rd.over, rd.kills, rd.captures]
+
+
+## Every ship's career numbers and what it did this round.
+func _stats() -> Array:
+	var rd = world.round_rules
+	var out := []
+	for id in ships_by_id:
+		var s: Node = ships_by_id[id]
+		if not is_instance_valid(s):
+			continue
+		out.append([s.net_id, s.score, s.kills, s.rank, s.captures, s.deaths,
+			(rd.round_score(s) if rd != null else s.score), (rd.round_kills(s) if rd != null else s.kills)])
 	return out
 
 
@@ -259,6 +282,7 @@ func _rpc_hello(name: String, protocol: int) -> void:
 		_rpc_refused.rpc_id(peer_id, "No free seat in this round.")
 		return
 	_rpc_welcome.rpc_id(peer_id, s.net_id, world.elapsed, _roster(), _planet_owners(), _powerup_list())
+	_rpc_stats.rpc_id(peer_id, _stats(), _round_state())
 	_rpc_seat_changed.rpc(s.net_id, name, true)
 	world.notify_all("%s joined the game as %s." % [name, s.design_name], Color(0.7, 1.0, 0.7))
 	lan.announce(_announcement(PORT))
@@ -307,7 +331,9 @@ func _rpc_command(cmd: String) -> void:
 		"cloak":
 			s.set_cloak(not s.cloaked)
 		"refit":
-			world.try_refit(s)
+			# the shipyard needs the pilot's purse and parts, which only the host
+			# holds so far; until that is shared, say so
+			world.notify(s, "The shipyard is not open to online pilots yet.")
 
 
 func _apply_remote_inputs() -> void:
@@ -393,6 +419,19 @@ func host_planet_captured(p: Node, winner: int) -> void:
 	_rpc_planet_captured.rpc(world.planets.find(p), winner)
 
 
+func host_round_over(result: Dictionary) -> void:
+	if not is_host() or seats.is_empty():
+		return
+	_rpc_stats.rpc(_stats(), _round_state())
+	_rpc_round_over.rpc(result)
+
+
+func host_refit(s: Node) -> void:
+	if not is_host() or seats.is_empty():
+		return
+	_rpc_refit.rpc(s.net_id, s.design)
+
+
 func relay_notify(s: Node, text: String) -> void:
 	if not is_host() or s == null:
 		return
@@ -444,6 +483,8 @@ func _rpc_welcome(my_id: int, elapsed: float, roster: Array, owners: PackedInt32
 			p.surrender_to(owners[i])
 	for row in roster:
 		var s: Node = world._make_ship(row[1], row[2], row[3], row[4], row[0] == my_id)
+		if row.size() > 12 and row[12] is Dictionary:
+			s.refit(row[12])
 		s.net_id = row[0]
 		s.score = row[5]
 		s.kills = row[6]
@@ -625,6 +666,64 @@ func _rpc_planet_captured(index: int, winner: int) -> void:
 
 
 @rpc("authority", "reliable")
+func _rpc_stats(stats: Array, round_state: Array) -> void:
+	if world == null:
+		return
+	var rd = world.round_rules
+	for row in stats:
+		var s: Node = ships_by_id.get(row[0], null)
+		if s == null or not is_instance_valid(s):
+			continue
+		s.score = row[1]
+		s.kills = row[2]
+		s.rank = row[3]
+		s.captures = row[4]
+		s.deaths = row[5]
+		if rd != null:
+			rd.baseline[s] = [row[1] - row[6], row[2] - row[7]]
+	if rd != null and round_state.size() >= 8:
+		rd.length = round_state[0]
+		if rd.phase != round_state[1]:
+			rd.phase = round_state[1]
+			rd.phase_changed.emit(rd.phase)
+		rd.elapsed = round_state[2]
+		rd.hold_race = round_state[3]
+		rd.hold_timer = round_state[4]
+		rd.over = round_state[5]
+		rd.kills = round_state[6]
+		rd.captures = round_state[7]
+
+
+@rpc("authority", "reliable")
+func _rpc_round_over(result: Dictionary) -> void:
+	if world == null:
+		return
+	# the host's pilot is not us
+	for pl in result.get("pilots", []):
+		pl["is_player"] = pl["name"] == callsign
+	if world.round_rules != null:
+		world.round_rules.over = true
+		world.round_rules.phase = "over"
+		world.round_rules.result = result
+	world._on_round_finished(result)
+
+
+@rpc("authority", "reliable")
+func _rpc_refit(net_id: int, design: Dictionary) -> void:
+	var s: Node = ships_by_id.get(net_id, null)
+	if s == null or not is_instance_valid(s):
+		return
+	var pos: Vector2 = s.global_position
+	var vel: Vector2 = s.velocity
+	var rot: float = s.rotation
+	s.refit(design)
+	s.global_position = pos
+	s.velocity = vel
+	s.rotation = rot
+	Sfx.play("dock", pos, 0.8)
+
+
+@rpc("authority", "reliable")
 func _rpc_message(text: String, color: Color) -> void:
 	if world != null:
 		world.message.emit(text, color)
@@ -640,6 +739,11 @@ func client_tick(delta: float) -> void:
 		client.record_input(input_seq, p.inputs, p.aim_point)
 		_rpc_input.rpc_id(1, NetCodec.pack_input(input_seq, p.inputs, p.aim_point, p.global_position))
 	client.tick(delta, ships_by_id)
+	var rd = world.round_rules
+	if rd != null and not rd.over:
+		rd.elapsed += delta           # between stats the clock runs locally
+		if rd.hold_race >= 0:
+			rd.hold_timer += delta
 	ping_timer -= delta
 	if ping_timer <= 0.0:
 		ping_timer = PING_EVERY
@@ -659,3 +763,7 @@ func _physics_process(delta: float) -> void:
 	if snapshot_timer <= 0.0:
 		snapshot_timer += SNAPSHOT_INTERVAL
 		_send_snapshots()
+	stats_timer -= delta
+	if stats_timer <= 0.0:
+		stats_timer = STATS_EVERY
+		_rpc_stats.rpc(_stats(), _round_state())

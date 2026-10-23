@@ -74,7 +74,11 @@ func _ready() -> void:
 	camera.zoom = Vector2.ONE * target_zoom * BASE_ZOOM
 	_build_system()
 	if Net.is_client():
-		Net.client_attach(self)   # the ships come from the host
+		# the ships come from the host, and so does the round: this Round
+		# never ticks, Net fills its fields for the HUD and the map
+		round_rules = Round.new()
+		round_rules.world = self
+		Net.client_attach(self)
 	else:
 		_spawn_pilots()
 		round_rules = Round.new()
@@ -788,6 +792,7 @@ func _on_round_finished(result: Dictionary) -> void:
 		Settings.career["kills"] = player.kills
 		Settings.save_settings()
 	Sfx.play_ui("rankup", 1.0)
+	Net.host_round_over(result)
 	round_over.emit(result)
 
 
@@ -845,6 +850,7 @@ func apply_build(s: Ship, design: Dictionary) -> void:
 	s.velocity = vel
 	s.rotation = rot
 	s.invulnerable = 2.0
+	Net.host_refit(s)
 	Sfx.play("dock", pos, 0.8)
 	notify(s, "Launched: %s." % design["name"])
 

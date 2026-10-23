@@ -86,5 +86,7 @@ func _finish(w) -> void:
 				moving += 1
 		_check(moving > 3, "puppets move from snapshots (%d)" % moving)
 		_check(net.ping_ms > 0.0, "ping measured (%d ms)" % int(net.ping_ms))
+		var rd = w.round_rules
+		_check(rd != null and rd.elapsed > 5.0 and rd.phase != "", "round clock arrived (%s, %s)" % [(rd.clock_text() if rd else "-"), (rd.phase if rd else "-")])
 		_check(net.client != null and net.client.correction_px < 60.0, "reconciliation error small (%.1f px)" % (net.client.correction_px if net.client else -1.0))
 	print("[%s] %s" % [_tag(), "FAILED" if failed else "passed"])
