@@ -217,6 +217,8 @@ func _process(delta: float) -> void:
 
 
 func _defend(delta: float) -> void:
+	if "practice" in world and world.practice:
+		return                          # practice: the colonies hold their fire
 	var enemy: Ship = world.nearest_enemy_ship(global_position, owner_race, defence_range + radius)
 	for w in weapons:
 		w["cooldown"] -= delta

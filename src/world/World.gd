@@ -50,6 +50,8 @@ var last_player_damage := -100.0
 var last_player_fire := -100.0
 var income_timer := 60.0         # planets pay their empire every minute
 var round_rules: Round = null     # the Conquest rules; the host runs them
+var practice := false            # Practice duel: you, your starbase, one pirate at a time
+var duel_score := [0, 0]         # practice: [your kills, their kills]
 const START_CREDITS := 250
 const SUN_HEAT_RADII := 4.0       # the heat zone reaches this many Sun radii above the surface
 const BASE_ZOOM := 1.3            # "Normal" camera: ships read clearly at 1080p and 4K
@@ -97,6 +99,8 @@ func _ready() -> void:
 		round_rules = Round.new()
 		round_rules.world = self
 		Net.client_attach(self)
+	elif practice:
+		_spawn_practice()
 	else:
 		_spawn_pilots()
 		round_rules = Round.new()
@@ -200,8 +204,7 @@ func spawn_rock(pos: Vector2, vel: Vector2, r: float, seed_value: int) -> Debris
 	return d
 
 
-func _spawn_pilots() -> void:
-	# the player
+func _spawn_player() -> void:
 	player = _make_ship(Settings.pilot_name, Settings.race_id, _starting_design(Settings.race_id, Settings.career), Settings.pilot_name + "'s ship", true)
 	player.score = Settings.career["score"]
 	player.kills = Settings.career["kills"]
@@ -211,6 +214,10 @@ func _spawn_pilots() -> void:
 	pc.name = "Controller"
 	player.add_child(pc)
 	pc.setup(player, self)
+
+
+func _spawn_pilots() -> void:
+	_spawn_player()
 	# starbases for the three empires (the player launches from one, below)
 	for race_id in GameData.STARBASES:
 		var home: Planet = planet_by_name[GameData.STARBASES[race_id]]
@@ -247,6 +254,36 @@ func _spawn_pilots() -> void:
 	_spawn_pirate_scouts()
 
 
+## Practice duel: no round clock and no fleets, the colonies hold their
+## fire, and one pirate Scout at a time comes at you from close by.  Your
+## own starbase stays for repairs and the shipyard.
+func _spawn_practice() -> void:
+	_spawn_player()
+	var home: Planet = planet_by_name[GameData.STARBASES[player.race_id]]
+	var base := _make_ship("%s Command" % GameData.race(player.race_id)["name"], player.race_id, "Starbase", GameData.race(player.race_id)["name"] + " Starbase", false)
+	base.global_position = _station_spot(home)
+	base.velocity = space.circular_orbit_velocity(home.body, base.global_position)
+	var bai := AIPilot.new()
+	base.add_child(bai)
+	bai.setup(base, self, home, 14)
+	_keep_station()
+	_place_at_home(player)
+	var s := _make_ship("Pirate Vex", 3, "Scout", "Rust Jackal", false)
+	var ai := AIPilot.new()
+	ai.name = "AI"
+	s.add_child(ai)
+	ai.setup(s, self, home, 2)
+	_place_duelist(s)
+
+
+## Put the practice opponent inside sensor range, facing the player.
+func _place_duelist(s: Ship) -> void:
+	var a := player.rotation + randf_range(-0.6, 0.6)
+	s.global_position = player.global_position + Vector2(cos(a), sin(a)) * minf(1200.0, player.sensor_range * 0.75)
+	s.velocity = player.velocity
+	s.rotation = a + PI
+
+
 ## Two green pirate scouts prowl the player's home world from the start,
 ## so there is an even, early fight to be had before the empire fleets
 ## arrive.  They are in the roster from the first frame, so online
@@ -266,7 +303,7 @@ func _spawn_pirate_scouts() -> void:
 		# start well outside sensor range, on the far side of the home world
 		var a := (player.global_position - home.global_position).angle() + PI + (i - 0.5) * 0.9
 		s.global_position = home.global_position + Vector2(cos(a), sin(a)) * (home.radius + 3600.0)
-		s.velocity = home.velocity
+		s.velocity = space.circular_orbit_velocity(home.body, s.global_position)
 		s.rotation = a + PI
 
 
@@ -1075,6 +1112,9 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 		Settings.career["deaths"] = Settings.career.get("deaths", 0) + 1
 		Settings.save_settings()
 		player_died.emit()
+	if practice and not s.is_station:
+		duel_score[0 if not s.is_player else 1] += 1
+		notify_all("Duel: you %d, pirates %d.%s" % [duel_score[0], duel_score[1], "" if s.is_player else "  Another pirate comes at you in a few seconds."], Color(1.0, 0.9, 0.6))
 	respawn_queue.append([s, elapsed + RESPAWN_DELAY + (6.0 if s.is_station else 0.0)])
 
 
@@ -1087,6 +1127,9 @@ func _respawns() -> void:
 			if s.is_station:
 				var at := _station_spot(home)
 				s.respawn(at, space.circular_orbit_velocity(home.body, at))
+			elif practice and not s.is_player and player != null and not player.dead:
+				_place_duelist(s)
+				s.respawn(s.global_position, s.velocity)
 			else:
 				_place_at_home(s)
 				s.respawn(s.global_position, s.velocity)
