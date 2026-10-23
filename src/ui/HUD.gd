@@ -119,6 +119,8 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 		flags.append("NO FUEL")
 	if not p.flight_assist:
 		flags.append("ASSIST OFF")
+	if p.orbit_guard:
+		flags.append("ORBIT GUARD")
 	if p.cloaked:
 		flags.append("CLOAKED")
 	if p.warping:

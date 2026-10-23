@@ -30,6 +30,8 @@ func _run() -> void:
 	_bullet_sweep()
 	_orbit()
 	await _ship_orbit()
+	await _orbit_guard()
+	await _wreck_effect()
 	await _rock_belt()
 	await _timing()
 	print("physics test done: %d failure(s)" % failures)
@@ -192,6 +194,123 @@ func _ship_orbit() -> void:
 	var v_rail := (luna.velocity - earth.velocity).length()
 	var v_kepler := w.space.orbital_speed(earth.body, luna.orbit_radius)
 	_check("Luna's rail speed is its Kepler speed round Earth", absf(v_rail - v_kepler) < 1.0, "%f vs %f" % [v_rail, v_kepler])
+	main._show_menu()
+	main.queue_free()
+
+
+func _orbit_guard() -> void:
+	# a ship left at rest beside a planet must fly itself into orbit on its
+	# own engines, and an AI pilot flown straight at a planet must not hit it
+	var main: Node = load("res://src/Main.tscn").instantiate()
+	root.add_child(main)
+	await process_frame
+	main._start_game()
+	await process_frame
+	var w: World = main.world
+	var earth: Planet = w.planet_by_name["Earth"]
+	var s: Ship = w.player
+	for o in w.ships:
+		if o != s:
+			o.body.enabled = false
+	s.inputs["thrust"] = 0.0
+	s.inputs["turn"] = 0.0
+	s.inputs["strafe"] = 0.0
+	s.inputs["brake"] = false
+	s.flight_assist = true
+	s.global_position = earth.global_position + Vector2(earth.radius + 300.0, 0)
+	s.velocity = earth.velocity      # dead in the planet's frame: it would fall
+	var fuel0 := s.fuel
+	var min_alt := INF
+	var burned := false
+	var step := 1.0 / 60.0
+	for i in 60 * 120:
+		for p in w.planets:
+			p.update_orbit(step)
+			p.sync_body()
+		s.pre_step(step)
+		w.space.step(step)
+		s.post_step(step)
+		burned = burned or s.orbit_guard
+		min_alt = minf(min_alt, s.global_position.distance_to(earth.global_position) - earth.radius)
+	var alt := s.global_position.distance_to(earth.global_position) - earth.radius
+	var relv := (s.velocity - earth.velocity).length()
+	var v_circ := w.space.orbital_speed(earth.body, earth.radius + alt)
+	_check("the orbit guard fires the engines", burned)
+	_check("the orbit guard burns fuel", s.fuel < fuel0, "%f -> %f" % [fuel0, s.fuel])
+	_check("a ship left at rest beside a planet never touches it", min_alt > s.size, "lowest %.0f px" % min_alt)
+	_check("after two minutes it is in a near-circular orbit", alt > 100.0 and alt < 900.0 and absf(relv - v_circ) < v_circ * 0.35, "alt %.0f relv %.1f circ %.1f" % [alt, relv, v_circ])
+	# an AI pilot aimed straight at the planet with full thrust
+	var ai: Ship = null
+	for o in w.ships:
+		if not o.is_player and not o.is_station and o.race_id == s.race_id:
+			ai = o
+			break
+	_check("there is an AI wingmate to test", ai != null)
+	if ai != null:
+		s.body.enabled = false
+		ai.body.enabled = true
+		var pilot: Node = null
+		for c in ai.get_children():
+			if c is AIPilot:
+				pilot = c
+		if pilot != null:
+			pilot.queue_free()
+		ai.flight_assist = true
+		ai.inputs["thrust"] = 1.0
+		ai.inputs["turn"] = 0.0
+		ai.inputs["strafe"] = 0.0
+		ai.inputs["brake"] = false
+		ai.global_position = earth.global_position + Vector2(0, earth.radius + 450.0)
+		ai.rotation = (earth.global_position - ai.global_position).angle()
+		ai.velocity = earth.velocity
+		var min_ai := INF
+		for i in 60 * 60:
+			for p in w.planets:
+				p.update_orbit(step)
+				p.sync_body()
+			ai.pre_step(step)
+			w.space.step(step)
+			ai.post_step(step)
+			min_ai = minf(min_ai, ai.global_position.distance_to(earth.global_position) - earth.radius)
+		_check("an AI ship flown straight at a planet is turned into orbit", min_ai > ai.size * 0.5, "lowest %.0f px" % min_ai)
+	main._show_menu()
+	main.queue_free()
+
+
+func _wreck_effect() -> void:
+	# a destroyed ship leaves a fading effect and nearby loot, no rigid scrap
+	var main: Node = load("res://src/Main.tscn").instantiate()
+	root.add_child(main)
+	await process_frame
+	main._start_game()
+	await process_frame
+	var w: World = main.world
+	var victim: Ship = null
+	for o in w.ships:
+		if not o.is_player and not o.is_station:
+			victim = o
+			break
+	var rocks_before := w.debris.size()
+	var loot_before := w.powerups.size()
+	var pos := victim.global_position
+	victim.take_damage(1.0e6, w.player, pos)
+	await process_frame
+	_check("a dead ship leaves no rigid scrap", w.debris.size() == rocks_before, "%d -> %d" % [rocks_before, w.debris.size()])
+	_check("the break-up effect is playing", w.fx.wrecks.size() == 1)
+	var pieces: Array = w.fx.wrecks[0]["pieces"]
+	var worst_drift := 0.0
+	for pc in pieces:
+		worst_drift = maxf(worst_drift, (pc["vel"] - victim.velocity).length())
+	_check("the pieces barely drift from the wreck", worst_drift < 60.0, "%.0f px/s" % worst_drift)
+	var loot := w.powerups.slice(loot_before)
+	_check("the wreck drops loot", loot.size() >= 1)
+	var fastest := 0.0
+	for pu in loot:
+		fastest = maxf(fastest, (pu.velocity - victim.velocity * 0.5).length())
+	_check("the loot stays close by", fastest < 60.0, "%.0f px/s" % fastest)
+	for i in 60 * 5:
+		w.fx._process(1.0 / 60.0)
+	_check("the effect is gone after a few seconds", w.fx.wrecks.is_empty())
 	main._show_menu()
 	main.queue_free()
 

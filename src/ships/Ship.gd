@@ -27,6 +27,9 @@ const FUEL_MASS := 0.5
 const RCS_BURN := 0.25
 ## How long the RCS takes to reach the design turn rate, in seconds, before size.
 const SPIN_UP_TIME := 0.12
+## Lowest point of a pass over a planet that the orbit guard will allow,
+## above the surface plus the hull.
+const ORBIT_MARGIN := 40.0
 
 var world: Node = null
 var design_name := "Scout"
@@ -53,6 +56,7 @@ var fuel_max := 0.0
 var burn_rate := 0.0               # fuel/s at full thrust
 var thrust_level := 0.0            # for the engine glow, 0..1
 var flight_assist := true          # RCS holds the turn rate and stops a tumble
+var orbit_guard := false           # the engines are busy steering clear of a planet
 var refuelling := false            # near a friendly base or colony this frame
 
 # systems
@@ -397,11 +401,18 @@ func _fly(delta: float) -> void:
 		var brake_a := minf(maxf(accel * brake_power * 1.5, 170.0 * brake_power), sp / delta)
 		f -= lv.normalized() * brake_a * body.mass
 	var engine_level := f.length() / maxf(thrust_force, 1.0)
+	# the orbit guard: with assist on, a course that would end on a planet's
+	# surface is flown into a circular orbit on the ship's own engines
+	var hands_off: bool = t == 0.0 and st == 0.0 and not inputs["brake"]
+	var guard := _orbit_guard_force(fwd, f0, delta) if flight_assist and (hands_off or not is_player) else Vector2.ZERO
+	if orbit_guard:
+		f = guard
+		engine_level = f.length() / maxf(thrust_force, 1.0)
 	if fuel <= 0.0:
 		f = Vector2.ZERO
 		engine_level = 0.0
 	# over the rated speed the drive field drags the ship back toward it
-	if sp > vmax and not inputs["brake"]:
+	if sp > vmax and not inputs["brake"] and not orbit_guard:
 		var over := sp - vmax
 		var pull_a := minf(over / delta, accel * 1.5 + 60.0)
 		f -= lv.normalized() * pull_a * body.mass
@@ -417,6 +428,56 @@ func _fly(delta: float) -> void:
 	thrust_level = lerpf(thrust_level, clampf(minf(engine_level * 1.2, 1.0) + (0.5 if boosting else 0.0), 0.0, 1.0), 10.0 * delta)
 	if engine_sound != null:
 		engine_sound.update(thrust_level, boosting, warping, delta)
+
+
+## The engine force that keeps this ship off the planet whose well it sits
+## in: when the periapsis of its present course is below the surface (plus
+## margin), thrust toward the circular-orbit velocity here, prograde in the
+## sense it is already going round.  Thrust is what the engines give in
+## each direction (full ahead, 0.6 astern, 0.7 abeam), so a heavy, weakly
+## engined hull may still not make it.  Sets orbit_guard.
+func _orbit_guard_force(fwd: Vector2, f0: float, delta: float) -> Vector2:
+	var was := orbit_guard
+	orbit_guard = false
+	if world == null or world.space == null or fuel <= 0.0 or is_station or docked:
+		return Vector2.ZERO
+	var p: PhysicsBody = world.space.dominant_body(global_position)
+	if p == null or p.is_sun or p.gm <= 0.0:
+		return Vector2.ZERO
+	var r := global_position - p.pos
+	var d := r.length()
+	if d < 1.0:
+		return Vector2.ZERO
+	var reach := PhysicsSpace.reach_of(p)
+	# the pull as the space really applies it: faded at the well's edge, capped
+	var fade := clampf((reach - d) / (reach * PhysicsSpace.FADE), 0.0, 1.0)
+	var gm := minf(p.gm * fade, PhysicsSpace.MAX_GRAVITY * d * d)
+	if gm < 1.0:
+		return Vector2.ZERO
+	var v := velocity - p.vel
+	var h := r.cross(v)
+	var eps := v.length_squared() * 0.5 - gm / d
+	var e := sqrt(maxf(1.0 + 2.0 * eps * h * h / (gm * gm), 0.0))
+	var periapsis := h * h / (gm * (1.0 + e))
+	var safe := (p.radius + size + ORBIT_MARGIN) * (1.15 if was else 1.0)
+	if periapsis > safe:
+		return Vector2.ZERO
+	if eps >= 0.0 and r.dot(v) > 0.0:
+		return Vector2.ZERO             # already on the way out
+	var side := signf(h) if absf(h) > 1.0 else signf(r.cross(fwd))
+	if side == 0.0:
+		side = 1.0
+	var want := Vector2(-r.y, r.x) / d * side * sqrt(gm / d)
+	var dv := want - v
+	if dv.length() < 1.0:
+		return Vector2.ZERO
+	orbit_guard = true
+	var dir := dv.normalized()
+	var along := dir.dot(fwd)
+	var across := dir.dot(fwd.orthogonal())
+	var cap := f0 * (1.0 if along > 0.0 else 0.6) * absf(along) + f0 * 0.7 * absf(across)
+	var need := dv.length() * body.mass / maxf(delta, 0.001)
+	return dir * minf(cap, need)
 
 
 ## A puppet only keeps its looks fresh; the host moves it (see Net).

@@ -1,5 +1,5 @@
 ## World -- the Sol system scenario: bodies, ships, missiles, pickups,
-## wreckage and asteroids, the physics step, scoring, respawns and planet
+## asteroids, the physics step, scoring, respawns and planet
 ## capture.
 class_name World
 extends Node2D
@@ -18,14 +18,13 @@ const RESPAWN_DELAY := 4.0
 const IMPULSE_PER_DAMAGE := 180.0
 ## Closing speed below which a bump does no damage.
 const IMPACT_THRESHOLD := 60.0
-const MAX_WRECKAGE := 90
 
 var space: PhysicsSpace
 var planets: Array[Planet] = []
 var ships: Array[Ship] = []
 var missiles: Array = []
 var powerups: Array = []
-var debris: Array = []           # Debris nodes: wreckage and rocks
+var debris: Array = []           # Debris nodes: the belt's rocks
 var sun: Planet = null
 var camera: Camera2D
 var fx: Fx
@@ -662,7 +661,7 @@ func _impact(victim: PhysicsBody, other: PhysicsBody, v: float, point: Vector2) 
 				dmg *= 0.5
 				attacker = null
 		node.take_damage(dmg, attacker, point)
-	elif node is Debris and node.is_rock:
+	elif node is Debris:
 		node.take_damage(dmg * 0.5, other.node, point)
 
 
@@ -770,8 +769,6 @@ func raycast_beam(shooter: Node, origin: Vector2, dir: Vector2, range_px: float)
 			best_t = t
 			best = s
 	for d in debris:
-		if not d.is_rock:
-			continue
 		var t := space.ray_body(origin, dir, d.body, best_t)
 		if t >= 0.0 and t < best_t:
 			best_t = t
@@ -865,17 +862,17 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 			var f := 1.0 - maxf(d, 0.0) / splash
 			p.take_damage(m.warhead * f * 0.5, attacker if attacker is Ship else null)
 	for d: Debris in debris:
-		if d.is_rock:
-			var dd: float = pos.distance_to(d.global_position) - d.rock_radius
-			if dd < splash:
-				d.take_damage(m.warhead * (1.0 - maxf(dd, 0.0) / splash) * 0.5, attacker, d.global_position)
+		var dd: float = pos.distance_to(d.global_position) - d.rock_radius
+		if dd < splash:
+			d.take_damage(m.warhead * (1.0 - maxf(dd, 0.0) / splash) * 0.5, attacker, d.global_position)
 	blast(pos, splash, m.warhead * IMPULSE_PER_DAMAGE * 0.6)
 	fx.explosion(pos, splash * 0.5, m.color, m.missile_id == "002", "explode")
 
 
-## A pressure wave that throws ships, wreckage, rocks and loot outward.
-func blast(pos: Vector2, range_px: float, impulse: float) -> void:
-	var kinds := [PhysicsBody.Kind.SHIP, PhysicsBody.Kind.DEBRIS, PhysicsBody.Kind.ROCK, PhysicsBody.Kind.PICKUP]
+## A pressure wave that throws ships, rocks and loot outward.  Nothing
+## light is thrown faster than BLAST_MAX_DV, so loot stays where it fell.
+const BLAST_MAX_DV := 90.0
+func blast(pos: Vector2, range_px: float, impulse: float, kinds: Array = [PhysicsBody.Kind.SHIP, PhysicsBody.Kind.ROCK, PhysicsBody.Kind.PICKUP]) -> void:
 	for b: PhysicsBody in space.bodies_near(pos, range_px, kinds):
 		var surf: Vector2 = b.closest_surface_point(pos)
 		var f := 1.0 - clampf(surf.distance_to(pos) / range_px, 0.0, 1.0)
@@ -883,7 +880,8 @@ func blast(pos: Vector2, range_px: float, impulse: float) -> void:
 			continue
 		var dir := b.pos - pos
 		dir = dir.normalized() if dir.length_squared() > 1e-6 else Vector2.RIGHT
-		push_node(b.node, dir * impulse * f, surf.lerp(b.pos, 0.5))
+		var j := minf(impulse * f, BLAST_MAX_DV * b.mass)
+		push_node(b.node, dir * j, surf.lerp(b.pos, 0.5))
 
 
 func spawn_sparks(pos: Vector2, n: int, color: Color) -> void:
@@ -900,58 +898,7 @@ func spawn_powerup(id: String, pos: Vector2, vel: Vector2) -> void:
 	space.add_body(p.body)
 
 
-# -------------------------------------------------------------- wreckage
-
-## Break a dead ship's hull into tumbling chunks that keep its momentum.
-func spawn_wreck(s: Ship) -> void:
-	var hull: PackedVector2Array = s.body.hull
-	var n := hull.size()
-	if n < 3:
-		return
-	var chunks := 4 + (2 if s.size > 40.0 else 0)
-	var per := maxi(n / chunks, 2)
-	var total_area := absf(PhysicsBody._signed_area(hull))
-	var i := 0
-	while i < n:
-		var j := mini(i + per, n)
-		if n - j < 2:
-			j = n
-		var pts := PackedVector2Array([Vector2.ZERO])
-		for k in range(i, j + 1):
-			pts.append(hull[k % n])
-		var c := Vector2.ZERO
-		for p in pts:
-			c += p
-		c /= pts.size()
-		var local := PackedVector2Array()
-		for p in pts:
-			local.append(p - c)
-		var area := absf(PhysicsBody._signed_area(local))
-		var world_c := s.global_position + c.rotated(s.rotation)
-		var burst := c.rotated(s.rotation).normalized() * randf_range(40.0, 140.0)
-		var vel := s.velocity + burst + Vector2(randf_range(-30, 30), randf_range(-30, 30))
-		var chunk_mass := maxf(s.mass * (area / maxf(total_area, 1.0)) * 0.5, 20.0)
-		var d := Debris.new()
-		debris_layer.add_child(d)
-		d.setup_wreck(self, local, world_c, vel, s.rotation, s.angular_velocity + randf_range(-3.0, 3.0), chunk_mass, s.race_color())
-		debris.append(d)
-		space.add_body(d.body)
-		i = j
-	_trim_wreckage()
-
-
-func _trim_wreckage() -> void:
-	var count := 0
-	for d in debris:
-		if not d.is_rock:
-			count += 1
-	for d in debris.duplicate():
-		if count <= MAX_WRECKAGE:
-			break
-		if not d.is_rock:
-			remove_debris(d)
-			count -= 1
-
+# -------------------------------------------------------------- debris
 
 func remove_debris(d: Debris) -> void:
 	if not is_instance_valid(d):
@@ -1048,8 +995,9 @@ func _on_ship_damaged(s: Ship, amount: float) -> void:
 func _on_ship_died(s: Ship, killer: Node) -> void:
 	var big := s.size > 40.0
 	fx.explosion(s.global_position, s.size * 1.6, s.race_color(), big)
-	spawn_wreck(s)
-	blast(s.global_position, s.size * 5.0, s.mass * 25.0)
+	fx.wreck(s.body.hull, s.global_position, s.velocity, s.rotation, s.angular_velocity, s.race_color())
+	# the wave rocks nearby ships and rocks; the loot it leaves is spared
+	blast(s.global_position, s.size * 5.0, s.mass * 25.0, [PhysicsBody.Kind.SHIP, PhysicsBody.Kind.ROCK])
 	if player != null:
 		# the blast is felt by distance: shake, a dip in the music, and a
 		# beat of slow motion when it was the player's kill
@@ -1077,11 +1025,11 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 			break
 		var id: String = candidates[randi() % candidates.size()]
 		var a := randf() * TAU
-		spawn_powerup(id, s.global_position + Vector2(cos(a), sin(a)) * s.size * 0.5, s.velocity * 0.4 + Vector2(cos(a), sin(a)) * randf_range(30.0, 90.0))
+		spawn_powerup(id, s.global_position + Vector2(cos(a), sin(a)) * s.size * 0.5, s.velocity * 0.5 + Vector2(cos(a), sin(a)) * randf_range(10.0, 30.0))
 	# the purse spills: a credit chip, and now and then a blueprint of an
 	# empire part the wreck carried
 	var purse := 20 + s.rank * 6 + (200 if s.is_station else 0)
-	spawn_powerup("cr:%d" % purse, s.global_position + Vector2(randf_range(-20, 20), randf_range(-20, 20)), s.velocity * 0.3 + Vector2(randf_range(-40, 40), randf_range(-40, 40)))
+	spawn_powerup("cr:%d" % purse, s.global_position + Vector2(randf_range(-20, 20), randf_range(-20, 20)), s.velocity * 0.5 + Vector2(randf_range(-15, 15), randf_range(-15, 15)))
 	var flavour := []
 	for id in s.design["modules"]:
 		if GameData.part_race(id) == s.race_id:
@@ -1091,7 +1039,7 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 			flavour.append(w[0])
 	if not flavour.is_empty() and randf() < (0.35 if big else 0.2):
 		var a := randf() * TAU
-		spawn_powerup("bp:" + flavour[randi() % flavour.size()], s.global_position, s.velocity * 0.3 + Vector2(cos(a), sin(a)) * 50.0)
+		spawn_powerup("bp:" + flavour[randi() % flavour.size()], s.global_position, s.velocity * 0.5 + Vector2(cos(a), sin(a)) * 20.0)
 	var killer_ship: Ship = killer as Ship
 	if killer_ship != null and killer_ship.race_id == s.race_id:
 		killer_ship = null        # never credit a kill on your own side
