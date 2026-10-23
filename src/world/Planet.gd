@@ -127,8 +127,15 @@ func _style(rng: RandomNumberGenerator) -> void:
 	material_.set_shader_parameter("color_b", b)
 	material_.set_shader_parameter("color_c", c)
 	material_.set_shader_parameter("atmosphere", atmo)
+	material_.set_shader_parameter("extent", quad_extent())
 	material_.set_shader_parameter("seed", rng.randf() * 50.0)
 	material_.set_shader_parameter("spin", rng.randf_range(0.01, 0.04) * (1.0 if rng.randf() < 0.7 else -1.0))
+
+
+## Half the shader quad in body radii: the Sun's corona needs room to
+## fade out before the quad's edge.
+func quad_extent() -> float:
+	return 2.6 if look == "Sun" else 1.25
 
 
 func set_colony(race: int, design: String, pop: int) -> void:
@@ -263,7 +270,8 @@ func _draw() -> void:
 		var rc := Color(0.85, 0.8, 0.65, 0.45) if look == "Saturn" else Color(0.7, 0.85, 0.9, 0.3)
 		for i in 5:
 			draw_arc(Vector2.ZERO, radius * (1.35 + i * 0.09), 0, TAU, 96, rc, radius * 0.06, true)
-	draw_texture_rect(white_tex, Rect2(-radius * 1.25, -radius * 1.25, radius * 2.5, radius * 2.5), false)
+	var ext := quad_extent()
+	draw_texture_rect(white_tex, Rect2(-radius * ext, -radius * ext, radius * ext * 2.0, radius * ext * 2.0), false)
 	if is_colonised():
 		var rc: Color = GameData.race(owner_race)["color"]
 		if hit_flash > 0.0:

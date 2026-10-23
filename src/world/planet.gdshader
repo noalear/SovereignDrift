@@ -10,6 +10,8 @@ uniform vec2 light_dir = vec2(1.0, 0.0);
 uniform float seed = 1.0;
 uniform float atmosphere = 0.0;
 uniform float spin = 0.02;
+// half the drawn quad, in body radii
+uniform float extent = 1.25;
 
 float hash(vec3 p) {
 	p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3) + seed);
@@ -44,17 +46,21 @@ void fragment() {
 	float r = sqrt(r2);
 	vec4 col = vec4(0.0);
 	if (kind == 4) {
-		// star: hot core, animated corona
+		// star: limb-darkened photosphere, corona and flares that fade out
+		// well inside the quad, so its square edge never shows
+		float rr = r * extent;          // distance in body radii
 		float t = TIME * 0.15;
-		float n = fbm(vec3(uv * 3.0, t));
-		float core = smoothstep(0.72, 0.55, r);
-		float glow = exp(-max(r - 0.6, 0.0) * 5.5) * (0.75 + 0.35 * n);
-		vec3 c = mix(color_b.rgb, color_a.rgb, core) + vec3(1.0, 0.9, 0.7) * core * 0.4 * n;
-		c = mix(c, color_a.rgb, glow * (1.0 - core));
+		float n = fbm(vec3(uv * extent * 2.4, t));
+		float core = smoothstep(1.0, 0.9, rr);
+		float limb = sqrt(max(1.0 - rr * rr, 0.0));
+		vec3 disc = mix(color_b.rgb, color_a.rgb, pow(limb, 0.45)) + vec3(1.0, 0.9, 0.7) * limb * 0.4 * n;
+		float fade = smoothstep(extent, extent * 0.5, rr);
+		float glow = exp(-max(rr - 0.95, 0.0) * 3.2) * (0.75 + 0.35 * n) * fade;
+		vec3 c = mix(color_a.rgb * 0.9 + color_b.rgb * 0.1, disc, core);
 		float a = max(core, glow);
-		float flare = fbm(vec3(atan(uv.y, uv.x) * 2.0, r * 6.0 - t * 2.0, seed)) * smoothstep(1.0, 0.6, r) * (1.0 - core);
+		float flare = fbm(vec3(atan(uv.y, uv.x) * 2.0, rr * 4.8 - t * 2.0, seed)) * smoothstep(1.7, 0.95, rr) * (1.0 - core);
 		c += vec3(1.0, 0.8, 0.5) * flare * 0.5;
-		a = clamp(a + flare * 0.5, 0.0, 1.0);
+		a = clamp(a + flare * 0.5 * fade, 0.0, 1.0);
 		COLOR = vec4(c, a);
 	} else {
 		float body = 1.0 - smoothstep(0.94, 0.97, r);
