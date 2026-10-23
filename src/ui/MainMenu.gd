@@ -170,11 +170,11 @@ func _draw_main(vp: Vector2) -> void:
 func _draw_online(vp: Vector2) -> void:
 	var x := vp.x * 0.5 - 300.0
 	var y := vp.y * 0.36
-	draw_string(font, Vector2(x, y), "Co-op over a LAN or the internet. The host runs the round; friends drop in as %s pilots." % GameData.race(Settings.race_id)["name"],
-		HORIZONTAL_ALIGNMENT_LEFT, 640, 16, Color(0.8, 0.85, 0.95))
+	draw_string(font, Vector2(x, y), "Co-op over a LAN or the internet: the host runs the round, friends drop in as %s pilots." % GameData.race(Settings.race_id)["name"],
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.8, 0.85, 0.95))
 	_button(Rect2(x, y + 20, 280, 48), "Host a game (port %d)" % Net.PORT, func(): host_pressed.emit())
-	draw_string(font, Vector2(x + 300, y + 50), "Friends join with your address; on the internet open UDP %d or use Tailscale." % Net.PORT,
-		HORIZONTAL_ALIGNMENT_LEFT, 340, 13, Color(0.7, 0.75, 0.85))
+	draw_multiline_string(font, Vector2(x + 300, y + 40), "Friends join with your address. Over the internet, open UDP %d on your router or use Tailscale." % Net.PORT,
+		HORIZONTAL_ALIGNMENT_LEFT, 320, 13, -1, Color(0.7, 0.75, 0.85))
 	draw_string(font, Vector2(x, y + 110), "Join by address", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(0.85, 0.9, 1.0))
 	ip_edit.position = Vector2(x + 180, y + 84)
 	ip_edit.size = Vector2(300, 40)
