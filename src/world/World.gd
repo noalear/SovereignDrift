@@ -157,6 +157,30 @@ func _spawn_pilots() -> void:
 		# spread the pilots out so the fight does not start on top of the player
 		s.global_position += Vector2(randf_range(-1400, 1400), randf_range(-1400, 1400))
 		per_race[race_id] += 1
+	_spawn_pirate_scouts()
+
+
+## Two green pirate scouts prowl the player's home world from the start,
+## so there is an even, early fight to be had before the empire fleets
+## arrive.  They are in the roster from the first frame, so online
+## joiners see them too.
+func _spawn_pirate_scouts() -> void:
+	if player == null:
+		return
+	var home := _home_planet(player.race_id)
+	var names := [["Vex", "Rust Jackal"], ["Mako", "Bilge Hound"]]
+	for i in names.size():
+		var s := _make_ship("Pirate " + names[i][0], 3, "Scout", names[i][1], false)
+		s.rank = 0
+		var ai := AIPilot.new()
+		ai.name = "AI"
+		s.add_child(ai)
+		ai.setup(s, self, home, 1)
+		# start well outside sensor range, on the far side of the home world
+		var a := (player.global_position - home.global_position).angle() + PI + (i - 0.5) * 0.9
+		s.global_position = home.global_position + Vector2(cos(a), sin(a)) * (home.radius + 3600.0)
+		s.velocity = home.velocity
+		s.rotation = a + PI
 
 
 func _starting_design(race_id: int, career: Dictionary) -> String:

@@ -4,7 +4,7 @@
 # Exit code 1 when the ship enters the damaging heat, dies, or gets nowhere.
 extends SceneTree
 
-const TRIAL_FRAMES := 2400
+const TRIAL_FRAMES := 3000
 const TRIALS := [["Mars", 0.0], ["Mars", 0.25], ["Venus", -0.2], ["Earth", 0.1]]
 
 var frames := 0

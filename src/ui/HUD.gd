@@ -292,7 +292,13 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 	draw_string(font, Vector2(x, y + 20), "credits %d   hold %d/%d%s" % [p.credits, p.hold.size(), Ship.HOLD_SIZE, ("   blueprints %d" % p.blueprints.size()) if not p.blueprints.is_empty() else ""], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 0.85, 0.4))
 	# docking prompt
 	if not p.dead and world.nearest_base(p) != null:
-		draw_string(font, Vector2(vp.x * 0.5 - 200, vp.y * 0.5 + 70), "In docking range:  U  opens the shipyard" + ("" if p.speed() <= 220.0 else "  (brake first)"), HORIZONTAL_ALIGNMENT_CENTER, 400, 16, Color(0.7, 1.0, 0.8, 0.8 + 0.2 * sin(time * 4.0)))
+		# on its own dark plate low on the screen, so the starbase art never hides it
+		var dock_text := "In docking range:  U  opens the shipyard" + ("" if p.speed() <= 220.0 else "  (brake first)")
+		var plate := Rect2(vp.x * 0.5 - 250, vp.y - 98, 500, 32)
+		draw_rect(plate, Color(0.02, 0.06, 0.05, 0.78))
+		draw_rect(plate, Color(0.4, 1.0, 0.7, 0.55), false, 1.5)
+		draw_string_outline(font, Vector2(plate.position.x, plate.position.y + 22), dock_text, HORIZONTAL_ALIGNMENT_CENTER, plate.size.x, 16, 4, Color(0, 0, 0, 0.85))
+		draw_string(font, Vector2(plate.position.x, plate.position.y + 22), dock_text, HORIZONTAL_ALIGNMENT_CENTER, plate.size.x, 16, Color(0.7, 1.0, 0.8, 0.85 + 0.15 * sin(time * 4.0)))
 	# empire standings
 	var sx := vp.x * 0.5 - 180.0
 	draw_string(font, Vector2(sx - 70, 26), "Planets", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.7, 0.8, 0.9, 0.8))
