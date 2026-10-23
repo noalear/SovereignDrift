@@ -10,6 +10,7 @@ var hud: HUD = null
 var ui_layer: CanvasLayer
 var pause_panel: Control = null
 var builder: Builder = null
+var trade: Trade = null
 var tactical: TacticalMap = null
 var tactical_opened_at := 0
 var scoreboard: Scoreboard = null
@@ -23,6 +24,9 @@ func _ready() -> void:
 	add_child(ui_layer)
 	_show_menu()
 	Net.session_ended.connect(_on_session_ended)
+	Net.trade_opened.connect(_open_trade)
+	Net.trade_updated.connect(func(d): if trade != null: trade.update(d))
+	Net.trade_closed.connect(_close_trade)
 	Net.status.connect(_on_net_status)
 	_start_from_command_line()
 
@@ -103,6 +107,7 @@ func _show_menu() -> void:
 		scoreboard = null
 	Engine.time_scale = 1.0
 	get_tree().paused = false
+	_close_trade({})
 	if world != null:
 		world.queue_free()
 		world = null
@@ -280,6 +285,25 @@ func _on_round_over(result: Dictionary) -> void:
 		_show_menu()
 		_start_game())
 	scoreboard.to_menu.connect(_show_menu)
+
+
+## A trade the host opened for our pilot: a window over the running round.
+func _open_trade(data: Dictionary) -> void:
+	if world == null or scoreboard != null:
+		return
+	_close_trade({})
+	_close_tactical()
+	trade = Trade.new()
+	ui_layer.add_child(trade)
+	trade.open(data)
+
+
+func _close_trade(data: Dictionary) -> void:
+	if trade != null:
+		trade.queue_free()
+		trade = null
+	if world != null and data.has("reason") and world.player != null:
+		world.notify(world.player, data["reason"])
 
 
 func open_builder(ship: Ship, base: Ship) -> void:

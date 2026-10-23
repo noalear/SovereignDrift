@@ -52,6 +52,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			Net.client_command("refit")
 		else:
 			world.try_refit(ship)
+	elif event.is_action_pressed("trade"):
+		if Net.is_active():
+			Net.request_trade(ship, ship.target)
+		else:
+			world.notify(ship, "Trading is between online pilots.")
 	elif event.is_action_pressed("flight_assist"):
 		ship.flight_assist = not ship.flight_assist
 		Settings.flight_assist = ship.flight_assist

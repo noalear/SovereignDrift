@@ -11,7 +11,7 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 4
+const PROTOCOL := 5
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -172,6 +172,9 @@ func _on_peer_connected(peer_id: int) -> void:
 
 func _on_peer_disconnected(peer_id: int) -> void:
 	var net_id: int = seats.get(peer_id, 0)
+	var t := _trade_of(net_id)
+	if not t.is_empty():
+		_close_trade(t, "The trade ended: a pilot left.")
 	seats.erase(peer_id)
 	remote_inputs.erase(peer_id)
 	last_seq_from.erase(peer_id)
@@ -812,12 +815,293 @@ func client_tick(delta: float) -> void:
 		_rpc_ping.rpc_id(1, Time.get_ticks_msec())
 
 
+# ------------------------------------------------------------- trading
+# Two pilots within TRADE_RANGE put credits, salvage and blueprints on the
+# table; both accept; the host swaps.  Both ships sit parked meanwhile.
+# The host's own pilot goes through the same code with peer id 1.
+
+signal trade_opened(data: Dictionary)
+signal trade_updated(data: Dictionary)
+signal trade_closed(data: Dictionary)
+
+const TRADE_RANGE := 900.0
+
+var trades := {}                 # id -> {id, ships: [net_id, net_id], offers: {}, accepted: {}}
+var next_trade_id := 1
+
+
+func _peer_of(net_id: int) -> int:
+	if world != null and world.player != null and world.player.net_id == net_id:
+		return 1
+	for peer_id in seats:
+		if seats[peer_id] == net_id:
+			return peer_id
+	return -1
+
+
+func _to_peer(peer_id: int, kind: String, data: Dictionary) -> void:
+	if peer_id == 1:
+		_rpc_trade_msg(kind, data)
+	elif peer_id > 1:
+		_rpc_trade_msg.rpc_id(peer_id, kind, data)
+
+
+## Any pilot: ask the host for a trade with the targeted ship.
+func request_trade(s: Node, target: Node) -> void:
+	if target == null or not is_instance_valid(target):
+		if world != null:
+			world.notify(s, "Target a pilot first (T), then press B to trade.")
+		return
+	trade_cmd("invite", {"target": target.net_id})
+
+
+## Any pilot's trade action: the host handles it, a client sends it.
+func trade_cmd(kind: String, data: Dictionary) -> void:
+	if is_host():
+		_handle_trade_cmd(1, kind, data)
+	elif is_client():
+		_rpc_trade_cmd.rpc_id(1, kind, data)
+
+
+@rpc("any_peer", "reliable")
+func _rpc_trade_cmd(kind: String, data: Dictionary) -> void:
+	if is_host():
+		_handle_trade_cmd(multiplayer.get_remote_sender_id(), kind, data)
+
+
+func _trade_of(net_id: int) -> Dictionary:
+	for t in trades.values():
+		if net_id in t["ships"]:
+			return t
+	return {}
+
+
+static func _clean_offer(offer: Variant) -> Dictionary:
+	var o := {"credits": 0, "parts": [], "blueprints": [], "cargo": {}}
+	if offer is Dictionary:
+		o["credits"] = maxi(int(offer.get("credits", 0)), 0)
+		for i in offer.get("parts", []):
+			if int(i) >= 0 and not o["parts"].has(int(i)):
+				o["parts"].append(int(i))
+		for b in offer.get("blueprints", []):
+			if not o["blueprints"].has(str(b)):
+				o["blueprints"].append(str(b))
+		var cargo: Variant = offer.get("cargo", {})
+		if cargo is Dictionary:
+			o["cargo"] = cargo   # reserved for carried population
+	return o
+
+
+## An offer is only as good as the purse behind it.
+func _offer_fits(s: Node, o: Dictionary) -> bool:
+	if o["credits"] > s.credits:
+		return false
+	for i in o["parts"]:
+		if i >= s.hold.size():
+			return false
+	for b in o["blueprints"]:
+		if not s.blueprints.has(b):
+			return false
+	return true
+
+
+func _purse_of(s: Node) -> Dictionary:
+	return {"credits": s.credits, "hold": s.hold.duplicate(), "blueprints": s.blueprints.duplicate()}
+
+
+func _park(s: Node, on: bool) -> void:
+	s.docked = on
+	if on:
+		for k in s.inputs.keys():
+			s.inputs[k] = false if typeof(s.inputs[k]) == TYPE_BOOL else 0.0
+		s.inputs["brake"] = true
+
+
+func _trade_view(t: Dictionary) -> Dictionary:
+	# offers as the other side should read them: part names, not hold indices
+	var offers := {}
+	for id in t["ships"]:
+		var o: Dictionary = t["offers"][id].duplicate(true)
+		var s: Node = ships_by_id.get(id, null)
+		var names := []
+		for i in o["parts"]:
+			if s != null and i < s.hold.size():
+				names.append(GameData.MODULES[s.hold[i]]["name"] if GameData.MODULES.has(s.hold[i]) else s.hold[i])
+		o["part_names"] = names
+		offers[id] = o
+	return {"id": t["id"], "offers": offers, "accepted": t["accepted"].duplicate()}
+
+
+func _handle_trade_cmd(peer_id: int, kind: String, data: Dictionary) -> void:
+	if world == null:
+		return
+	var me: Node = ships_by_id.get(seats.get(peer_id, 0), null) if peer_id != 1 else world.player
+	if me == null or not is_instance_valid(me) or me.dead:
+		return
+	match kind:
+		"invite":
+			var other: Node = ships_by_id.get(int(data.get("target", 0)), null)
+			if other == null or not is_instance_valid(other) or other == me or other.dead:
+				world.notify(me, "No one there to trade with.")
+			elif _peer_of(other.net_id) < 0:
+				world.notify(me, "%s is a computer pilot; only pilots can trade." % other.pilot_name)
+			elif me.global_position.distance_to(other.global_position) > TRADE_RANGE:
+				world.notify(me, "Too far from %s to trade: close to within %d." % [other.pilot_name, int(TRADE_RANGE)])
+			elif not _trade_of(me.net_id).is_empty() or not _trade_of(other.net_id).is_empty() or me.docked or other.docked:
+				world.notify(me, "%s is busy." % other.pilot_name)
+			else:
+				var t := {"id": next_trade_id, "ships": [me.net_id, other.net_id],
+					"offers": {me.net_id: _clean_offer({}), other.net_id: _clean_offer({})},
+					"accepted": {me.net_id: false, other.net_id: false}}
+				next_trade_id += 1
+				trades[t["id"]] = t
+				_park(me, true)
+				_park(other, true)
+				for id in t["ships"]:
+					var s: Node = ships_by_id[id]
+					var partner: Node = ships_by_id[t["ships"][1] if id == t["ships"][0] else t["ships"][0]]
+					var d := _purse_of(s)
+					d["id"] = t["id"]
+					d["me"] = id
+					d["partner"] = partner.net_id
+					d["partner_name"] = partner.pilot_name
+					_to_peer(_peer_of(id), "open", d)
+				world.notify_all("%s and %s are trading." % [me.pilot_name, other.pilot_name], Color(0.8, 0.9, 1.0))
+		"offer":
+			var t := _trade_of(me.net_id)
+			if t.is_empty() or t["id"] != int(data.get("id", -1)):
+				return
+			var o := _clean_offer(data.get("offer", {}))
+			if not _offer_fits(me, o):
+				_to_peer(peer_id, "update", _trade_view(t))
+				return
+			t["offers"][me.net_id] = o
+			for id in t["ships"]:
+				t["accepted"][id] = false
+				_to_peer(_peer_of(id), "update", _trade_view(t))
+		"accept":
+			var t := _trade_of(me.net_id)
+			if t.is_empty() or t["id"] != int(data.get("id", -1)):
+				return
+			if t["accepted"][me.net_id]:
+				return   # already said yes; nothing new to tell
+			t["accepted"][me.net_id] = true
+			var all := true
+			for id in t["ships"]:
+				all = all and t["accepted"][id]
+			if all:
+				_settle_trade(t)
+			else:
+				for id in t["ships"]:
+					_to_peer(_peer_of(id), "update", _trade_view(t))
+		"cancel":
+			var t := _trade_of(me.net_id)
+			if not t.is_empty():
+				_close_trade(t, "%s called the trade off." % me.pilot_name)
+
+
+func _settle_trade(t: Dictionary) -> void:
+	var a: Node = ships_by_id.get(t["ships"][0], null)
+	var b: Node = ships_by_id.get(t["ships"][1], null)
+	if a == null or b == null or not is_instance_valid(a) or not is_instance_valid(b):
+		_close_trade(t, "A pilot is gone.")
+		return
+	var oa: Dictionary = t["offers"][a.net_id]
+	var ob: Dictionary = t["offers"][b.net_id]
+	if not _offer_fits(a, oa) or not _offer_fits(b, ob):
+		_close_trade(t, "The goods changed under the table; try again.")
+		return
+	# gather what each side gives, then hand it over
+	var give_a := _take(a, oa)
+	var give_b := _take(b, ob)
+	_give(b, give_a)
+	_give(a, give_b)
+	trades.erase(t["id"])
+	for s in [a, b]:
+		_park(s, false)
+		var d := _purse_of(s)
+		d["id"] = t["id"]
+		d["reason"] = "Deal done."
+		d["done"] = true
+		_to_peer(_peer_of(s.net_id), "closed", d)
+	world.notify_all("%s and %s made a deal." % [a.pilot_name, b.pilot_name], Color(0.8, 1.0, 0.8))
+
+
+func _take(s: Node, o: Dictionary) -> Dictionary:
+	var out := {"credits": o["credits"], "parts": [], "blueprints": o["blueprints"].duplicate(), "cargo": o["cargo"]}
+	s.credits -= o["credits"]
+	var idx: Array = o["parts"].duplicate()
+	idx.sort()
+	idx.reverse()
+	for i in idx:
+		out["parts"].append(s.hold[i])
+		s.hold.remove_at(i)
+	return out
+
+
+func _give(s: Node, goods: Dictionary) -> void:
+	s.credits += goods["credits"]
+	for id in goods["parts"]:
+		if s.hold.size() < Ship.HOLD_SIZE:
+			s.hold.append(id)
+		else:
+			world.spawn_powerup(id, s.global_position + Vector2(randf_range(-30, 30), randf_range(-30, 30)), s.velocity)
+			world.notify(s, "Hold full: %s left floating beside you." % GameData.MODULES[id]["name"])
+	for b in goods["blueprints"]:
+		if not s.blueprints.has(b):
+			s.blueprints.append(b)
+
+
+func _close_trade(t: Dictionary, reason: String) -> void:
+	trades.erase(t["id"])
+	for id in t["ships"]:
+		var s: Node = ships_by_id.get(id, null)
+		if s != null and is_instance_valid(s):
+			_park(s, false)
+		var d := {"id": t["id"], "reason": reason, "done": false}
+		if s != null and is_instance_valid(s):
+			d.merge(_purse_of(s))
+		_to_peer(_peer_of(id), "closed", d)
+
+
+## Each tick on the host: trades end when a pilot dies or drifts away.
+func _watch_trades() -> void:
+	for t in trades.values().duplicate():
+		var a: Node = ships_by_id.get(t["ships"][0], null)
+		var b: Node = ships_by_id.get(t["ships"][1], null)
+		if a == null or b == null or not is_instance_valid(a) or not is_instance_valid(b) or a.dead or b.dead:
+			_close_trade(t, "The trade ended: a pilot was lost.")
+		elif a.global_position.distance_to(b.global_position) > TRADE_RANGE * 1.5:
+			_close_trade(t, "The trade ended: the ships drifted apart.")
+
+
+## What the host tells a pilot about their trade (also called locally for
+## the host's own pilot).
+@rpc("authority", "reliable")
+func _rpc_trade_msg(kind: String, data: Dictionary) -> void:
+	match kind:
+		"open":
+			trade_opened.emit(data)
+		"update":
+			trade_updated.emit(data)
+		"closed":
+			# the purse after the deal (or unchanged) comes with the close
+			var s: Node = ships_by_id.get(local_net_id, null) if is_client() else null
+			if s != null and is_instance_valid(s) and data.has("credits"):
+				s.credits = data["credits"]
+				s.hold = data["hold"]
+				s.blueprints = data["blueprints"]
+			trade_closed.emit(data)
+
+
 # ------------------------------------------------------------- per tick
 
 func _physics_process(delta: float) -> void:
 	if not is_host() or world == null:
 		return
 	_apply_remote_inputs()
+	if not trades.is_empty():
+		_watch_trades()
 	if seats.is_empty():
 		snapshot_timer = 0.0
 		return

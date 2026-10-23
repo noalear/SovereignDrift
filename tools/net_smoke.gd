@@ -16,6 +16,15 @@ var net: Node
 var shipyard_opened := false
 var build_sent := false
 var hooked := false
+var trade_seen := false
+var trade_hooked := false
+var joiner_seen_at := -1
+var world_seen_at := -1
+var trade_requested := false
+var parked := false
+var trade_done := false
+var credits_before := -1
+var offer_sent := false
 
 
 func _init() -> void:
@@ -43,7 +52,46 @@ func _process(_delta: float) -> bool:
 		w.shipyard_requested.connect(func(s, _b):
 			shipyard_opened = true
 			print("[%s] shipyard opened for %s with %d credits" % [_tag(), s.pilot_name, s.credits]))
-	if is_host and w != null and frames == 1200:
+	if w != null and not trade_hooked:
+		trade_hooked = true
+		w.message.connect(func(t, _c): print("[%s] msg: %s" % [_tag(), t]))
+		net.trade_opened.connect(func(d):
+			trade_seen = true
+			print("[%s] trade opened with %s, my credits %d" % [_tag(), d["partner_name"], d["credits"]])
+			# offer: the host gives 150 credits, the joiner gives a part if it has one
+			var offer := {"credits": 150 if is_host else 0, "parts": ([] if is_host or d["hold"].is_empty() else [0]), "blueprints": []}
+			net.trade_cmd("offer", {"id": d["id"], "offer": offer})
+			offer_sent = true
+			net.trade_cmd("accept", {"id": d["id"]}))
+		net.trade_updated.connect(func(d):
+			# accept again whenever the host resets it, but only once our own offer is on the table
+			if offer_sent and not d["accepted"].values().all(func(v): return v):
+				net.trade_cmd("accept", {"id": d["id"]}))
+		net.trade_closed.connect(func(d):
+			trade_done = d.get("done", false)
+			print("[%s] trade closed: %s credits now %d" % [_tag(), d.get("reason", ""), d.get("credits", -1)]))
+	var now := Time.get_ticks_msec()
+	if w != null and world_seen_at < 0:
+		world_seen_at = now
+	if is_host and w != null and joiner_seen_at < 0:
+		for s in w.ships:
+			if s.pilot_name == "Joiner":
+				joiner_seen_at = now
+	if is_host and w != null and joiner_seen_at > 0 and now - joiner_seen_at > 3000 and not trade_requested:
+		trade_requested = true
+		# bring the joiner alongside and open a trade with them
+		for s in w.ships:
+			if s.pilot_name == "Joiner":
+				s.global_position = p.global_position + Vector2(200, 0)
+				s.velocity = p.velocity
+				s.hold.append("5002")
+				p.credits = 500
+				credits_before = s.credits
+				p.target = s
+				net.request_trade(p, s)
+				print("[host] trade requested with the joiner")
+	if is_host and w != null and joiner_seen_at > 0 and now - joiner_seen_at > 7000 and not parked:
+		parked = true
 		# park the joiner at their starbase so the shipyard lets them in
 		for s in w.ships:
 			if s.pilot_name == "Joiner":
@@ -55,7 +103,7 @@ func _process(_delta: float) -> bool:
 					s.global_position = base.global_position + Vector2(base.size + 100.0, 0)
 					s.velocity = base.velocity
 					print("[host] parked the joiner at the starbase")
-	if not is_host and p != null and frames == 900:
+	if not is_host and p != null and world_seen_at > 0 and now - world_seen_at > 9000 and frames % 7 == 0 and not shipyard_opened and not build_sent:
 		net.client_command("refit")   # the host parked us at the base a moment ago
 	if not is_host and shipyard_opened and not build_sent and p != null:
 		build_sent = true
@@ -76,8 +124,8 @@ func _process(_delta: float) -> bool:
 			_tag(), Time.get_ticks_msec(), Engine.get_physics_frames(), frames / 60, (w.ships.size() if w else -1), (w.missiles.size() if w else -1),
 			net.snapshots_received, net.inputs_received, net.seats.size(),
 			(p.pilot_name if p else "none"), (p.global_position.round() if p else Vector2.ZERO)] + ("  ping=%dms corr=%.1fpx pickups=%d" % [int(net.ping_ms), (net.client.correction_px if net.client else 0.0), (w.powerups.size() if w else 0)] if not is_host else ""))
-	var limit := 45 * 60 if is_host else 20 * 60
-	if frames >= limit:
+	var done: bool = (now - world_seen_at > 36000) if is_host else (world_seen_at > 0 and now - world_seen_at > 15000)
+	if done:
 		_finish(w)
 		quit(1 if failed else 0)
 	return false
@@ -101,6 +149,12 @@ func _finish(w) -> void:
 			if s.pilot_name == "Joiner":
 				human += 1
 		_check(human == 1 or net.seats.is_empty(), "the joiner's ship is named after them")
+		_check(trade_seen, "trade window opened for the host")
+		_check(trade_done, "trade settled")
+		for s in w.ships:
+			if s.pilot_name == "Joiner":
+				_check(s.credits == credits_before + 150 and s.hold.is_empty(), "joiner got 150 credits and gave the part (credits %d, hold %d)" % [s.credits, s.hold.size()])
+		_check(w.player.credits == 350 and w.player.hold.has("5002"), "host paid 150 and got the part (credits %d)" % w.player.credits)
 	else:
 		_check(net.snapshots_received > 100, "received snapshots (%d)" % net.snapshots_received)
 		_check(peak_ships >= 10, "roster arrived (%d ships)" % peak_ships)
@@ -114,6 +168,7 @@ func _finish(w) -> void:
 		_check(net.ping_ms > 0.0, "ping measured (%d ms)" % int(net.ping_ms))
 		_check(shipyard_opened, "shipyard opened for the joiner")
 		_check(build_sent and not w.player.docked, "build accepted and the joiner undocked")
+		_check(trade_seen and trade_done, "trade window opened and settled for the joiner")
 		var rd = w.round_rules
 		_check(rd != null and rd.elapsed > 5.0 and rd.phase != "", "round clock arrived (%s, %s)" % [(rd.clock_text() if rd else "-"), (rd.phase if rd else "-")])
 		_check(net.client != null and net.client.correction_px < 60.0, "reconciliation error small (%.1f px)" % (net.client.correction_px if net.client else -1.0))
