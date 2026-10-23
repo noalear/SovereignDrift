@@ -1,0 +1,86 @@
+## PlayerController -- turns keyboard and mouse input into ship inputs.
+class_name PlayerController
+extends Node
+
+var ship: Ship
+var world: Node
+var mouse_steer := false
+
+
+func setup(p_ship: Ship, p_world: Node) -> void:
+	ship = p_ship
+	world = p_world
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if ship == null or ship.dead or world.paused:
+		return
+	if event.is_action_pressed("cloak"):
+		ship.set_cloak(not ship.cloaked)
+	elif event.is_action_pressed("target_next"):
+		world.cycle_target(ship)
+	elif event.is_action_pressed("target_nearest"):
+		ship.target = world.nearest_enemy_ship(ship.global_position, ship.race_id, ship.sensor_range * 1.5, ship)
+		if ship.target == null:
+			world.notify(ship, "No enemy in sensor range.")
+	elif event.is_action_pressed("nav_next"):
+		world.cycle_nav(ship)
+	elif event.is_action_pressed("autopilot"):
+		if ship.nav_target == null:
+			world.cycle_nav(ship)
+		ship.autopilot = not ship.autopilot
+		world.notify(ship, ("Autopilot to %s." % ship.nav_target.body_name) if ship.autopilot and ship.nav_target else "Autopilot off.")
+	elif event.is_action_pressed("warp"):
+		if ship.warping:
+			ship.end_warp()
+		else:
+			if ship.qdrv <= 0.0:
+				world.notify(ship, "No quantum drive fitted.")
+			elif ship.energy < 200.0:
+				world.notify(ship, "Not enough energy for the quantum drive.")
+			else:
+				ship.start_warp()
+	elif event.is_action_pressed("refit"):
+		world.try_refit(ship)
+	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and event.shift_pressed:
+		var pos: Vector2 = world.get_global_mouse_position()
+		var s: Ship = world.ship_at(pos, 40.0 / world.camera.zoom.x)
+		if s != null and s != ship:
+			ship.target = s
+	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_MIDDLE:
+		var pos: Vector2 = world.get_global_mouse_position()
+		var s: Ship = world.ship_at(pos, 40.0 / world.camera.zoom.x)
+		if s != null and s != ship:
+			ship.target = s
+
+
+func _physics_process(_delta: float) -> void:
+	if ship == null or ship.dead:
+		return
+	var i := ship.inputs
+	if world.paused:
+		for k in i.keys():
+			i[k] = false if typeof(i[k]) == TYPE_BOOL else 0.0
+		return
+	var manual := false
+	var thrust := Input.get_action_strength("thrust") - Input.get_action_strength("reverse")
+	var turn := Input.get_action_strength("turn_right") - Input.get_action_strength("turn_left")
+	var strafe := Input.get_action_strength("strafe_right") - Input.get_action_strength("strafe_left")
+	if absf(thrust) > 0.0 or absf(turn) > 0.0 or absf(strafe) > 0.0 or Input.is_action_pressed("brake"):
+		manual = true
+	if manual and ship.autopilot:
+		ship.autopilot = false
+		world.notify(ship, "Manual control.")
+	if manual and ship.warping and (absf(turn) > 0.0 or thrust < 0.0):
+		ship.end_warp()
+	if not ship.autopilot:
+		i["thrust"] = thrust
+		i["turn"] = turn
+		i["strafe"] = strafe
+		i["brake"] = Input.is_action_pressed("brake")
+	i["boost"] = Input.is_action_pressed("boost")
+	i["fire_primary"] = Input.is_action_pressed("fire_primary") and not Input.is_key_pressed(KEY_SHIFT)
+	i["fire_secondary"] = Input.is_action_pressed("fire_secondary")
+	i["fire_missile"] = Input.is_action_pressed("fire_missile")
+	i["fire_mine"] = Input.is_action_pressed("fire_mine")
+	i["fire_beam"] = Input.is_action_pressed("fire_beam")

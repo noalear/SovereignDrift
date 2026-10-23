@@ -1,0 +1,352 @@
+## HUD -- the cockpit overlay: ship status, target readout, radar, message
+## log, rank, music notice and the help card.
+class_name HUD
+extends Control
+
+var world: World
+var font: Font
+var messages: Array = []       # [text, color, time]
+var now_playing := ""
+var now_playing_time := -100.0
+var radar_range := 3000.0
+var show_help := false
+var time := 0.0
+var dead_time := 0.0
+
+
+func _ready() -> void:
+	font = ThemeDB.fallback_font
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	set_anchors_preset(Control.PRESET_FULL_RECT)
+	Music.track_changed.connect(_on_track)
+	if not Music.now_playing().is_empty():
+		now_playing = Music.now_playing()
+		now_playing_time = 0.0
+
+
+func attach(p_world: World) -> void:
+	world = p_world
+	world.message.connect(_on_message)
+	world.player_died.connect(func(): dead_time = 0.0)
+
+
+func _on_track(title: String, style: String) -> void:
+	now_playing = "%s  (%s)" % [title, style]
+	now_playing_time = time
+
+
+func _on_message(text: String, color: Color) -> void:
+	messages.append([text, color, time])
+	if messages.size() > 7:
+		messages.pop_front()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("help"):
+		show_help = not show_help
+	elif event.is_action_pressed("radar_zoom_in"):
+		radar_range = maxf(radar_range * 0.7, 800.0)
+	elif event.is_action_pressed("radar_zoom_out"):
+		radar_range = minf(radar_range * 1.4, 30000.0)
+	elif event.is_action_pressed("music_next"):
+		Music.next_track()
+	elif event is InputEventMouseButton and event.pressed and world != null:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			world.zoom_by(1.1)
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			world.zoom_by(0.9)
+
+
+func _process(delta: float) -> void:
+	time += delta
+	if world != null and world.player != null and world.player.dead:
+		dead_time += delta
+	queue_redraw()
+
+
+func _draw() -> void:
+	if world == null or world.player == null:
+		return
+	var p := world.player
+	var vp := get_viewport_rect().size
+	_draw_status(p, vp)
+	_draw_weapons(p, vp)
+	_draw_target(p, vp)
+	_draw_radar(p, vp)
+	_draw_messages(vp)
+	_draw_rank(p, vp)
+	_draw_nav(p, vp)
+	_draw_music(vp)
+	if p.dead:
+		_draw_dead(vp)
+	if show_help:
+		_draw_help(vp)
+	else:
+		draw_string(font, Vector2(vp.x * 0.5 - 150, vp.y - 14), "H: help   Esc: menu", HORIZONTAL_ALIGNMENT_CENTER, 300, 14, Color(1, 1, 1, 0.45))
+
+
+func _bar(pos: Vector2, w: float, h: float, frac: float, color: Color, label: String, value: String) -> void:
+	draw_rect(Rect2(pos, Vector2(w, h)), Color(0, 0, 0, 0.45))
+	draw_rect(Rect2(pos, Vector2(w * clampf(frac, 0.0, 1.0), h)), color)
+	draw_rect(Rect2(pos, Vector2(w, h)), Color(1, 1, 1, 0.35), false, 1.0)
+	draw_string(font, pos + Vector2(6, h - 5), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 1, 1, 0.95))
+	draw_string(font, pos + Vector2(0, h - 5), value, HORIZONTAL_ALIGNMENT_RIGHT, w - 6, 14, Color(1, 1, 1, 0.9))
+
+
+func _draw_status(p: Ship, vp: Vector2) -> void:
+	var x := 24.0
+	var y := vp.y - 130.0
+	var w := 300.0
+	draw_rect(Rect2(x - 10, y - 34, w + 20, 134), Color(0.02, 0.04, 0.08, 0.6))
+	draw_string(font, Vector2(x, y - 12), "%s   %s" % [p.ship_name, p.design_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, p.race_color())
+	_bar(Vector2(x, y), w, 22, p.shield / maxf(p.shield_max, 1.0), Color(0.3, 0.6, 1.0, 0.85), "Shields", "%d / %d" % [int(p.shield), int(p.shield_max)])
+	_bar(Vector2(x, y + 26), w, 22, p.hull / maxf(p.hull_max, 1.0), Color(0.95, 0.55, 0.25, 0.85) if p.hull / p.hull_max > 0.3 else Color(1, 0.2, 0.2, 0.9), "Hull", "%d / %d" % [int(p.hull), int(p.hull_max)])
+	_bar(Vector2(x, y + 52), w, 22, p.energy / maxf(p.energy_max, 1.0), Color(0.95, 0.85, 0.3, 0.85), "Energy", "%d" % int(p.energy))
+	var flags := []
+	if p.cloaked:
+		flags.append("CLOAKED")
+	if p.warping:
+		flags.append("QUANTUM DRIVE")
+	if p.autopilot:
+		flags.append("AUTOPILOT")
+	if p.inputs["boost"] and p.has_boost and p.inputs["thrust"] > 0.0:
+		flags.append("BOOST")
+	draw_string(font, Vector2(x, y + 94), "Speed %4d   %s" % [int(p.speed()), "  ".join(flags)], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.95, 1.0))
+
+
+func _draw_weapons(p: Ship, vp: Vector2) -> void:
+	var x := 350.0
+	var y := vp.y - 130.0
+	var lines := []
+	var seen := {}
+	for w in p.weapons:
+		var key: String = w["slot"]
+		if seen.has(key):
+			seen[key] += 1
+			continue
+		seen[key] = 1
+	var keymap := {"primary": "Space", "secondary": "Ctrl", "missile": "F", "mine": "M", "beam": "L"}
+	for w in p.weapons:
+		var key: String = w["slot"]
+		if seen.get(key, 0) == 0:
+			continue
+		var count: int = seen[key]
+		seen[key] = 0
+		var label: String = GameData.missile_display_name(p.race_id, w["missile"]) if w["kind"] == "tube" else w["name"]
+		var ammo := ""
+		if w["ammo"] >= 0:
+			ammo = "  x%d" % w["ammo"]
+		var ready: bool = w["cooldown"] <= 0.0 and p.energy >= w["cost"]
+		lines.append(["%s  %s%s%s" % [keymap.get(key, "?"), label, ("  (%d)" % count) if count > 1 else "", ammo], ready])
+	draw_rect(Rect2(x - 10, y - 34, 260, 134), Color(0.02, 0.04, 0.08, 0.6))
+	draw_string(font, Vector2(x, y - 12), "Weapons", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 1, 1, 0.9))
+	var ly := y + 10
+	for l in lines:
+		draw_string(font, Vector2(x, ly), l[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 1.0, 0.9) if l[1] else Color(0.6, 0.6, 0.6))
+		ly += 18
+	var sys := []
+	if p.can_cloak:
+		sys.append("C cloak")
+	if p.qdrv > 0.0:
+		sys.append("J quantum drive")
+	if p.has_boost:
+		sys.append("Shift boost")
+	draw_string(font, Vector2(x, y + 94), "  ".join(sys), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.75, 0.85, 1.0, 0.8))
+
+
+func _draw_target(p: Ship, vp: Vector2) -> void:
+	var t := p.target
+	if t == null or not is_instance_valid(t) or (t is Ship and t.dead):
+		return
+	# bracket in world space -> screen
+	var cam := world.camera
+	var screen := (t.global_position - cam.get_screen_center_position()) * cam.zoom + vp * 0.5
+	var r: float = (t.size if t is Ship else t.radius) * cam.zoom.x + 10.0
+	var col: Color = t.race_color() if t is Ship else Color(1, 1, 1)
+	if t is Ship and t.race_id == p.race_id:
+		col = Color(0.5, 1.0, 0.5)
+	var vis: bool = t is Planet or t.visible_to(p)
+	if vis and screen.x > -50 and screen.x < vp.x + 50 and screen.y > -50 and screen.y < vp.y + 50:
+		var pts := [Vector2(-r, -r), Vector2(r, -r), Vector2(r, r), Vector2(-r, r)]
+		for i in 4:
+			var a: Vector2 = screen + pts[i]
+			var b: Vector2 = screen + pts[(i + 1) % 4]
+			draw_line(a, a.lerp(b, 0.3), col, 2.0)
+			draw_line(b, b.lerp(a, 0.3), col, 2.0)
+	else:
+		# off-screen arrow
+		var dir := (screen - vp * 0.5).normalized()
+		var edge := vp * 0.5 + dir * (minf(vp.x, vp.y) * 0.42)
+		draw_line(edge, edge - dir * 22.0 + dir.orthogonal() * 10.0, col, 2.0)
+		draw_line(edge, edge - dir * 22.0 - dir.orthogonal() * 10.0, col, 2.0)
+	# readout
+	var x := vp.x - 330.0
+	var y := 24.0
+	draw_rect(Rect2(x - 10, y - 4, 320, 112), Color(0.02, 0.04, 0.08, 0.6))
+	if t is Ship:
+		draw_string(font, Vector2(x, y + 14), "%s   %s %s" % [t.pilot_name, GameData.race(t.race_id)["adj"], t.design_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, col)
+		draw_string(font, Vector2(x, y + 34), "%s   range %d" % [GameData.rank_name(t.rank), int(t.global_position.distance_to(p.global_position))], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.9, 0.9))
+		_bar(Vector2(x, y + 44), 300, 18, t.shield / maxf(t.shield_max, 1.0), Color(0.3, 0.6, 1.0, 0.85), "Shields", "%d" % int(t.shield))
+		_bar(Vector2(x, y + 66), 300, 18, t.hull / maxf(t.hull_max, 1.0), Color(0.95, 0.55, 0.25, 0.85), "Hull", "%d" % int(t.hull))
+		if not vis:
+			draw_string(font, Vector2(x, y + 102), "Contact lost", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 0.7, 0.5))
+
+
+func _draw_nav(p: Ship, vp: Vector2) -> void:
+	var t := p.nav_target
+	if t == null or not is_instance_valid(t):
+		return
+	var cam := world.camera
+	var screen := (t.global_position - cam.get_screen_center_position()) * cam.zoom + vp * 0.5
+	var col := Color(0.6, 1.0, 0.8)
+	var dist := int(t.global_position.distance_to(p.global_position) - t.radius)
+	if screen.x > -50 and screen.x < vp.x + 50 and screen.y > -50 and screen.y < vp.y + 50:
+		var r: float = t.radius * cam.zoom.x + 14.0
+		draw_arc(screen, r, 0, TAU, 48, Color(col.r, col.g, col.b, 0.5), 1.5, true)
+		draw_string(font, screen + Vector2(-40, -r - 6), "%s  %d" % [t.body_name, dist], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
+	else:
+		var dir := (screen - vp * 0.5).normalized()
+		var edge := vp * 0.5 + dir * (minf(vp.x, vp.y) * 0.46)
+		draw_circle(edge, 5.0, col)
+		draw_string(font, edge + Vector2(-40, 20) , "%s  %d" % [t.body_name, dist], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
+
+
+func _draw_radar(p: Ship, vp: Vector2) -> void:
+	var r := 120.0
+	var c := Vector2(vp.x - r - 30.0, vp.y - r - 30.0)
+	draw_circle(c, r + 4, Color(0.02, 0.04, 0.08, 0.7))
+	draw_arc(c, r, 0, TAU, 64, Color(0.4, 0.8, 0.6, 0.6), 1.5, true)
+	draw_arc(c, r * 0.5, 0, TAU, 48, Color(0.4, 0.8, 0.6, 0.2), 1.0, true)
+	var scale := r / radar_range
+	# sensor range circle
+	var sr := p.sensor_range * scale
+	if sr < r:
+		draw_arc(c, sr, 0, TAU, 48, Color(0.4, 0.8, 0.6, 0.3), 1.0, true)
+	for pl in world.planets:
+		var d := (pl.global_position - p.global_position) * scale
+		if d.length() > r:
+			continue
+		var pr := clampf(pl.radius * scale, 1.5, 14.0)
+		var col := Color(0.6, 0.6, 0.6)
+		if pl.look == "Sun":
+			col = Color(1.0, 0.8, 0.3)
+		elif pl.is_colonised():
+			col = GameData.race(pl.owner_race)["color"]
+		draw_circle(c + d, pr, col)
+	for s in world.ships:
+		if s.dead or s == p:
+			continue
+		if not s.visible_to(p):
+			continue
+		var d := (s.global_position - p.global_position) * scale
+		if d.length() > r:
+			continue
+		var col := s.race_color()
+		if s.is_station:
+			draw_rect(Rect2(c + d - Vector2(4, 4), Vector2(8, 8)), col)
+		else:
+			draw_circle(c + d, 3.0, col)
+		if s == p.target:
+			draw_arc(c + d, 7.0, 0, TAU, 16, Color.WHITE, 1.5)
+	# own ship
+	var fwd := Vector2.RIGHT.rotated(p.rotation)
+	draw_line(c, c + fwd * 10.0, Color.WHITE, 2.0)
+	draw_circle(c, 3.0, Color.WHITE)
+	draw_string(font, c + Vector2(-r, r + 22), "Radar %d   +/- zoom" % int(radar_range), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.6, 0.9, 0.7, 0.8))
+
+
+func _draw_messages(vp: Vector2) -> void:
+	var y := 60.0
+	var x := 24.0
+	for m in messages:
+		var age: float = time - m[2]
+		var a := clampf(1.0 - (age - 8.0) / 3.0, 0.0, 1.0)
+		if a <= 0.0:
+			continue
+		var col: Color = m[1]
+		col.a = a
+		draw_string(font, Vector2(x + 1, y + 1), m[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0, 0, 0, a * 0.8))
+		draw_string(font, Vector2(x, y), m[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, col)
+		y += 20
+
+
+func _draw_rank(p: Ship, vp: Vector2) -> void:
+	var x := 24.0
+	var y := 24.0
+	var rank := GameData.rank_name(p.rank)
+	var next := ""
+	if p.rank + 1 < GameData.RANKS.size():
+		var nr: Dictionary = GameData.RANKS[p.rank + 1]
+		next = "   next: %d pts, %d kills" % [nr["score"], nr["kills"]]
+	draw_string(font, Vector2(x, y), "%s %s   score %d   kills %d%s" % [rank, p.pilot_name, p.score, p.kills, next], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 0.95, 0.8))
+	# empire standings
+	var sx := vp.x * 0.5 - 180.0
+	var parts := []
+	for r in [0, 1, 2, 3]:
+		var n: int = world.planet_counts.get(r, 0)
+		var col: Color = GameData.race(r)["color"]
+		draw_circle(Vector2(sx, 20), 6, col)
+		draw_string(font, Vector2(sx + 12, 26), "%s %d" % [GameData.race(r)["name"], n], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.9, 0.9))
+		sx += 95
+
+
+func _draw_music(vp: Vector2) -> void:
+	if now_playing.is_empty():
+		return
+	var age := time - now_playing_time
+	var a := clampf(1.0 - (age - 7.0) / 2.0, 0.0, 1.0)
+	if a <= 0.0:
+		return
+	var text := "Now playing: " + now_playing
+	draw_string(font, Vector2(vp.x * 0.5 - 200, vp.y - 160), text, HORIZONTAL_ALIGNMENT_CENTER, 400, 15, Color(0.9, 0.85, 1.0, a))
+
+
+func _draw_dead(vp: Vector2) -> void:
+	var a := clampf(dead_time, 0.0, 1.0)
+	draw_rect(Rect2(Vector2.ZERO, vp), Color(0.3, 0.0, 0.0, 0.25 * a))
+	draw_string(font, Vector2(0, vp.y * 0.4), "Your ship was destroyed", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 40, Color(1, 0.8, 0.7, a))
+	var left := maxf(World.RESPAWN_DELAY - dead_time, 0.0)
+	draw_string(font, Vector2(0, vp.y * 0.4 + 40), "Relaunching in %d..." % int(ceil(left)), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, Color(1, 1, 1, a))
+
+
+func _draw_help(vp: Vector2) -> void:
+	var left := [
+		["FLIGHT", ""],
+		["W / Up", "thrust"], ["S / Down", "reverse"], ["A D / Left Right", "turn"], ["Q E", "strafe"],
+		["Shift", "boost (with thrust)"], ["X", "brake"], ["J", "quantum drive (warp)"],
+		["", ""],
+		["SYSTEM", ""],
+		["H / F1", "this card"], ["Esc", "menu"], ["F9", "next song"], ["Alt+Enter", "full screen"],
+		["Mouse wheel", "camera zoom"], ["+ / -", "radar zoom"],
+	]
+	var right := [
+		["WEAPONS", ""],
+		["Space / LMB", "torpedoes"], ["Ctrl / RMB", "plasma, grenades, cannon"], ["F", "seeking missiles"],
+		["M", "drop a mine"], ["L", "laser"], ["C", "cloak"],
+		["", ""],
+		["TARGETS AND NAVIGATION", ""],
+		["T / Tab", "next target"], ["R", "nearest enemy"], ["Shift+click", "target under cursor"],
+		["N", "next planet on the nav display"], ["G", "autopilot to the nav planet"], ["U", "refit at your starbase"],
+	]
+	var rows := maxi(left.size(), right.size())
+	var w := 980.0
+	var h := 70.0 + rows * 22.0 + 50.0
+	var x := (vp.x - w) * 0.5
+	var y := (vp.y - h) * 0.5
+	draw_rect(Rect2(x, y, w, h), Color(0.02, 0.04, 0.1, 0.92))
+	draw_rect(Rect2(x, y, w, h), Color(0.5, 0.7, 1.0, 0.6), false, 1.5)
+	draw_string(font, Vector2(x, y + 30), "CONTROLS", HORIZONTAL_ALIGNMENT_CENTER, w, 20, Color(0.85, 0.92, 1.0))
+	for col in [[left, x + 30.0], [right, x + 500.0]]:
+		var ly := y + 66
+		for row in col[0]:
+			var key: String = row[0]
+			var desc: String = row[1]
+			if desc.is_empty():
+				draw_string(font, Vector2(col[1], ly), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.6, 0.8, 1.0))
+			else:
+				draw_string(font, Vector2(col[1], ly), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 1, 1))
+				draw_string(font, Vector2(col[1] + 150.0, ly), desc, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.85, 0.9, 1.0))
+			ly += 22
+	var fy := y + 66 + rows * 22.0 + 10
+	draw_string(font, Vector2(x, fy), "Destroy enemy ships and bombard enemy colonies until they surrender.", HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
+	draw_string(font, Vector2(x, fy + 22), "Pick up floating modules to upgrade your ship.  Rank up to unlock bigger hulls.", HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
