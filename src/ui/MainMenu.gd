@@ -4,6 +4,7 @@ extends Control
 
 signal play_pressed()
 signal practice_pressed()
+signal free_flight_pressed()
 signal host_pressed()
 signal join_pressed(address: String)
 signal quit_pressed()
@@ -232,7 +233,8 @@ func _draw_main(vp: Vector2) -> void:
 	draw_string(font, Vector2(0, y - 20), "%s %s of the %s   score %d   kills %d" % [rank, Settings.pilot_name, GameData.race(Settings.race_id)["name"], Settings.career["score"], Settings.career["kills"]],
 		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 17, Color(1, 0.95, 0.8))
 	_button(Rect2(x, y, w, 52), "Play: the Sol system", func(): play_pressed.emit())
-	_button(Rect2(x, y + 64, w, 52), "Practice duel", func(): practice_pressed.emit())
+	_button(Rect2(x, y + 64, w * 0.5 - 4, 52), "Practice duel", func(): practice_pressed.emit())
+	_button(Rect2(x + w * 0.5 + 4, y + 64, w * 0.5 - 4, 52), "Free flight", func(): free_flight_pressed.emit())
 	_button(Rect2(x, y + 128, w, 52), "Play online", func(): _set_page("online"))
 	_button(Rect2(x, y + 192, w, 52), "Pilot", func(): _set_page("pilot"))
 	_button(Rect2(x, y + 256, w, 52), "Settings", func(): _set_page("settings"))

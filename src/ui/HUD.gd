@@ -105,9 +105,9 @@ func _bar(pos: Vector2, w: float, h: float, frac: float, color: Color, label: St
 
 func _draw_status(p: Ship, vp: Vector2) -> void:
 	var x := 24.0
-	var y := vp.y - 130.0
+	var y := vp.y - 144.0
 	var w := 300.0
-	draw_rect(Rect2(x - 10, y - 34, w + 20, 134), Color(0.02, 0.04, 0.08, 0.6))
+	draw_rect(Rect2(x - 10, y - 34, w + 20, 148), Color(0.02, 0.04, 0.08, 0.6))
 	draw_string(font, Vector2(x, y - 12), "%s   %s" % [p.ship_name, p.design_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, p.race_color())
 	_bar(Vector2(x, y), w, 19, p.shield / maxf(p.shield_max, 1.0), Color(0.3, 0.6, 1.0, 0.85), "Shields", "%d / %d" % [int(p.shield), int(p.shield_max)])
 	_bar(Vector2(x, y + 22), w, 19, p.hull / maxf(p.hull_max, 1.0), Color(0.95, 0.55, 0.25, 0.85) if p.hull / p.hull_max > 0.3 else Color(1, 0.2, 0.2, 0.9), "Hull", "%d / %d" % [int(p.hull), int(p.hull_max)])
@@ -129,7 +129,7 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 		flags.append("AUTOPILOT")
 	if p.inputs["boost"] and p.has_boost and p.inputs["thrust"] > 0.0:
 		flags.append("BOOST")
-	draw_string(font, Vector2(x, y + 94), "Speed %4d   %s" % [int(p.local_velocity().length()), "  ".join(flags)], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.95, 1.0))
+	draw_string(font, Vector2(x, y + 106), "Speed %4d   %s" % [int(p.local_velocity().length()), "  ".join(flags)], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.95, 1.0))
 
 
 func _draw_weapons(p: Ship, vp: Vector2) -> void:
@@ -312,7 +312,7 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 		draw_string_outline(font, Vector2(plate.position.x, plate.position.y + 22), dock_text, HORIZONTAL_ALIGNMENT_CENTER, plate.size.x, 16, 4, Color(0, 0, 0, 0.85))
 		draw_string(font, Vector2(plate.position.x, plate.position.y + 22), dock_text, HORIZONTAL_ALIGNMENT_CENTER, plate.size.x, 16, Color(0.7, 1.0, 0.8, 0.85 + 0.15 * sin(time * 4.0)))
 	# empire standings
-	var sx := vp.x * 0.5 - 180.0
+	var sx := vp.x * 0.5 - 195.0
 	_text(Vector2(sx - 70, 26), "Planets", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.7, 0.8, 0.9, 0.9))
 	var parts := []
 	for r in [0, 1, 2, 3]:
@@ -321,7 +321,7 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 		draw_circle(Vector2(sx, 20), 7.5, Color(0, 0, 0, 0.7))
 		draw_circle(Vector2(sx, 20), 6, col)
 		_text(Vector2(sx + 12, 26), "%s %d" % [GameData.race(r)["name"], n], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.92, 0.92, 0.92))
-		sx += 95
+		sx += 102
 	_draw_round(vp)
 
 
@@ -381,7 +381,7 @@ func _edge_anchor(dir: Vector2, vp: Vector2) -> Vector2:
 		Rect2(vp.x - 345, 0, 345, 140),            # target panel
 		Rect2(0, vp.y - 190, 640, 190),            # status and weapons
 		Rect2(vp.x - 300, vp.y - 310, 300, 310),   # radar
-		Rect2(vp.x * 0.5 - 330, 0, 660, 95),       # planets, clock, hold bar
+		Rect2(vp.x * 0.5 - 360, 0, 720, 110),      # planets, clock, hold bar
 		Rect2(0, 0, 560, 50),                      # rank and credits
 	]
 	var centre := vp * 0.5
@@ -391,8 +391,9 @@ func _edge_anchor(dir: Vector2, vp: Vector2) -> Vector2:
 	for tries in 80:
 		var lrect := Rect2(at - dir * 30.0 + Vector2(-64, -12), Vector2(128, 20))
 		var blocked := false
+		var tip := at + dir * 18.0
 		for r in panels:
-			if r.grow(6).has_point(at) or r.intersects(lrect):
+			if r.grow(8).has_point(at) or r.grow(4).has_point(tip) or r.intersects(lrect.grow(4)):
 				blocked = true
 				break
 		if not blocked:

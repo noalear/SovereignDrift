@@ -50,6 +50,7 @@ var last_player_fire := -100.0
 var income_timer := 60.0         # planets pay their empire every minute
 var round_rules: Round = null     # the Conquest rules; the host runs them
 var practice := false            # Practice duel: you, your starbase, one pirate at a time
+var practice_opponent := true    # false: Free flight, practice with no pirate at all
 var duel_score := [0, 0]         # practice: [your kills, their kills]
 const START_CREDITS := 250
 const SUN_HEAT_RADII := 4.0       # the heat zone reaches this many Sun radii above the surface
@@ -262,11 +263,11 @@ func _spawn_practice() -> void:
 	var base := _make_ship("%s Command" % GameData.race(player.race_id)["name"], player.race_id, "Starbase", GameData.race(player.race_id)["name"] + " Starbase", false)
 	base.global_position = _station_spot(home)
 	base.velocity = space.circular_orbit_velocity(home.body, base.global_position)
-	var bai := AIPilot.new()
-	base.add_child(bai)
-	bai.setup(base, self, home, 14)
+	# no AI for the starbase: it holds its fire, so every duel is yours
 	_keep_station()
 	_place_at_home(player)
+	if not practice_opponent:
+		return
 	var s := _make_ship("Pirate Vex", 3, "Scout", "Rust Jackal", false)
 	var ai := AIPilot.new()
 	ai.name = "AI"
@@ -1061,7 +1062,11 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 		Settings.save_settings()
 		player_died.emit()
 	if practice and not s.is_station:
-		duel_score[0 if not s.is_player else 1] += 1
+		# only a duel's real result counts: you killed it, or it killed you
+		if s.is_player and killer_ship != null:
+			duel_score[1] += 1
+		elif not s.is_player and killer_ship == player:
+			duel_score[0] += 1
 		notify_all("Duel: you %d, pirates %d.%s" % [duel_score[0], duel_score[1], "" if s.is_player else "  Another pirate comes at you in a few seconds."], Color(1.0, 0.9, 0.6))
 	respawn_queue.append([s, elapsed + RESPAWN_DELAY + (6.0 if s.is_station else 0.0)])
 

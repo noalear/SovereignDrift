@@ -124,6 +124,7 @@ func _show_menu() -> void:
 	ui_layer.add_child(menu)
 	menu.play_pressed.connect(_start_game)
 	menu.practice_pressed.connect(_start_practice)
+	menu.free_flight_pressed.connect(_start_free_flight)
 	menu.host_pressed.connect(_host_game)
 	menu.join_pressed.connect(_join_game)
 	menu.quit_pressed.connect(func(): get_tree().quit())
@@ -138,7 +139,11 @@ func _start_practice() -> void:
 	_start_game(true)
 
 
-func _start_game(practice := false) -> void:
+func _start_free_flight() -> void:
+	_start_game(true, false)
+
+
+func _start_game(practice := false, opponent := true) -> void:
 	Settings.save_settings()
 	Sfx.play_ui("ui_start", 0.8)
 	if menu != null:
@@ -153,6 +158,7 @@ func _start_game(practice := false) -> void:
 	world = World.new()
 	world.name = "World"
 	world.practice = practice
+	world.practice_opponent = opponent
 	add_child(world)
 	hud = HUD.new()
 	ui_layer.add_child(hud)
@@ -161,7 +167,9 @@ func _start_game(practice := false) -> void:
 	world.round_over.connect(_on_round_over)
 	if world.round_rules != null and world.round_rules.length > 0.0:
 		world.notify_all("Conquest: %d minutes. Hold the most planets when time runs out, or every colony for 45 seconds. Tab shows the system." % int(world.round_rules.length / 60.0), Color(0.8, 0.9, 1.0))
-	if practice:
+	if practice and not opponent:
+		world.notify_all("Free flight: no enemies, no round clock, and the colonies hold their fire. Try long autopilot routes with N and G. Esc for the menu.", Color(0.8, 0.9, 1.0))
+	elif practice:
 		world.notify_all("Practice duel: one pirate Scout at a time, no round clock, no fleets, and the colonies hold their fire. Esc for the menu.", Color(0.8, 0.9, 1.0))
 	world.notify_all("Welcome, %s. You launch from the %s starbase at %s. Press H for the controls." % [Settings.pilot_name, GameData.race(Settings.race_id)["name"], GameData.STARBASES.get(Settings.race_id, "home")], Color(1, 0.95, 0.8))
 

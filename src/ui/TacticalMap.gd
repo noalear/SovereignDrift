@@ -47,15 +47,30 @@ func to_map(pos: Vector2) -> Vector2:
 	return _map_rect().get_center() + pos * _scale()
 
 
+## Planets and the Sun win a click over their moons: a moon is picked
+## only when the click is closer to it and clear of any planet.
 func planet_at(screen: Vector2) -> Planet:
 	var best: Planet = null
-	var best_d := 18.0
+	var best_d := 26.0
 	for p in world.planets:
+		if p.body_class in ["Moon", "Minor"]:
+			continue
 		var d := to_map(p.global_position).distance_to(screen)
 		if d < best_d:
 			best_d = d
 			best = p
-	return best
+	if best != null and best_d < 12.0:
+		return best
+	var moon: Planet = null
+	var moon_d := minf(best_d, 14.0) if best != null else 14.0
+	for p in world.planets:
+		if not p.body_class in ["Moon", "Minor"]:
+			continue
+		var d := to_map(p.global_position).distance_to(screen)
+		if d < moon_d:
+			moon_d = d
+			moon = p
+	return moon if moon != null else best
 
 
 # ----------------------------------------------------------------- input

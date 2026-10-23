@@ -91,9 +91,31 @@ func _process(_delta: float) -> bool:
 		p.velocity = mars.velocity
 	if mars_from > 0 and frames == mars_from + 1500:
 		_check(p.hull + p.shield >= hull_at_mars - 1.0, "the Drengin colony on Mars held its fire")
+		_check(w.starbase_of(p.race_id).get_node_or_null("AI") == null and w.starbase_of(p.race_id).get_children().filter(func(c): return c is AIPilot).is_empty(), "your starbase has no gunner in practice")
+		_check_map_click(w)
+		main._show_menu()
+		main._start_free_flight()
+	if mars_from > 0 and frames == mars_from + 1520:
+		_check(w.practice and not w.practice_opponent and w.ships.size() == 2 and _pirate(w) == null, "Free flight: just you and your starbase (%d ships)" % w.ships.size())
 		print("practice duel: ", "FAILED" if failed else "passed")
 		quit(1 if failed else 0)
 	return false
+
+
+## A click on Mars on the Tab map picks Mars, even a little toward a moon.
+func _check_map_click(w) -> void:
+	var map := TacticalMap.new()
+	map.world = w
+	main.ui_layer.add_child(map)
+	map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var mars = w.planet_by_name["Mars"]
+	var deimos = w.planet_by_name["Deimos"]
+	var at: Vector2 = map.to_map(mars.global_position)
+	var toward: Vector2 = (map.to_map(deimos.global_position) - at)
+	var off := toward.normalized() * minf(6.0, toward.length() * 0.45) if toward.length() > 0.5 else Vector2.ZERO
+	var hit: Planet = map.planet_at(at + off)
+	_check(hit == mars, "a map click on Mars picks Mars (got %s, moon %.1f px away)" % [hit.body_name if hit else "nothing", toward.length()])
+	map.queue_free()
 
 
 func _check(ok: bool, what: String) -> void:
