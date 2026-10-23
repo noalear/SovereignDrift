@@ -36,6 +36,7 @@ var cat_scroll := 0.0
 var cat_rect := Rect2()
 var buttons: Array = []             # [rect, callable, enabled]
 var hover := -1
+var _hp_hover := {}                 # button index -> hardpoint, for highlighting
 var status := ""
 var status_time := 0.0
 var time := 0.0
@@ -414,8 +415,17 @@ func _draw_centre(r: Rect2) -> void:
 	var st := GameData.stats_for(design)
 	var rc: Color = GameData.race(base.race_id)["color"]
 	draw_string(font, r.position + Vector2(14, 28), "%s %s" % [GameData.race(base.race_id)["adj"], hull], HORIZONTAL_ALIGNMENT_LEFT, -1, 20, rc)
-	# the ship, large
-	var pic_h := r.size.y * 0.55
+	# which mount the pointer is over, on the ship or in the list (from
+	# last frame's buttons, which share this frame's layout)
+	var hot: int = _hp_hover.get(hover, -1)
+	_hp_hover.clear()
+	# the lists below the picture take what they need; the ship gets the rest
+	var mount_cols := 4
+	var bay_cols := 3
+	var mount_rows := ceili(hardpoints.size() / float(mount_cols))
+	var bay_rows := ceili((modules.size() + 1) / float(bay_cols))
+	var lists_h := 34.0 + mount_rows * 42.0 + 44.0 + bay_rows * 42.0 + 10.0
+	var pic_h := clampf(r.size.y - 50.0 - lists_h, 200.0, r.size.y * 0.55)
 	var centre := r.position + Vector2(r.size.x * 0.5, 40 + pic_h * 0.5)
 	var size: float = design["size"]
 	var scale := minf(pic_h * 0.36 / size, r.size.x * 0.3 / size)
@@ -425,40 +435,61 @@ func _draw_centre(r: Rect2) -> void:
 	if tex != null:
 		scale = minf(scale, 1.9 * tex.get_width() / (size * ShipArt.LENGTH))
 	ShipArt.draw_ship(self, design, base.race_id, size, rc, 0.4 + 0.2 * sin(time * 3.0), 1.0, 0.0, Transform2D(0.0, Vector2.ONE * scale, 0.0, centre))
-	# hardpoints; mounts that share a spot are fanned out so each ring and
-	# label stays readable
+	# hardpoints: a small numbered badge on each turret; names live in the
+	# list below, and only the mount in focus shows its firing arc
+	var spots := ShipArt.hardpoint_spots(hull, base.race_id, size)
 	var placed: Array[Vector2] = []
-	var label_rows: Array[Vector2] = []
+	var badge := []
 	for i in hardpoints.size():
-		var hp: Array = hardpoints[i]
-		var mount := Vector2.RIGHT.rotated(deg_to_rad(float(hp[0]))) * (float(hp[1]) + size * 0.5) * (0.75 if hp[1] == 0 else 1.0)
-		var pos := centre + mount * scale
+		var pos: Vector2 = centre + spots[i] * scale
 		var tries := 0
-		while tries < 8 and placed.any(func(q: Vector2) -> bool: return q.distance_to(pos) < 40.0):
-			pos += Vector2(0, 44) if mount.y >= 0 else Vector2(0, -44)
+		while tries < 6 and placed.any(func(q: Vector2) -> bool: return q.distance_to(pos) < 22.0):
+			pos += Vector2(0, 22) if spots[i].y >= 0 else Vector2(0, -22)
 			tries += 1
 		placed.append(pos)
-		# labels sit below mounts on the lower side and above on the upper side
-		var label_pos := pos + (Vector2(-80, 44) if mount.y >= 0.0 else Vector2(-80, -36))
-		while label_rows.any(func(q: Vector2) -> bool: return absf(q.y - label_pos.y) < 14.0 and absf(q.x - label_pos.x) < 150.0):
-			label_pos.y += 14.0 if mount.y >= 0.0 else -14.0
-		label_rows.append(label_pos)
-		var selected := sel_kind == "hp" and sel_index == i
-		var hit := Rect2(pos - Vector2(22, 22), Vector2(44, 44))
-		buttons.append([hit, _select.bind("hp", i), true])
-		var idx := buttons.size() - 1
-		var ring := Color(1, 1, 1, 0.9) if selected else (Color(0.7, 0.85, 1.0, 0.8) if hover == idx else Color(0.6, 0.75, 0.95, 0.5))
-		# the firing arc
-		var a0 := deg_to_rad(float(hp[3]))
-		var a1 := deg_to_rad(float(hp[4]))
-		draw_arc(pos, 30.0, a0, a1, 24, Color(ring.r, ring.g, ring.b, 0.35), 6.0, true)
-		draw_arc(pos, 18.0, 0, TAU, 20, ring, 2.0 if selected else 1.2, true)
+		badge.append(pos)
+		buttons.append([Rect2(pos - Vector2(14, 14), Vector2(28, 28)), _select.bind("hp", i), true])
+		_hp_hover[buttons.size() - 1] = i
+	var focus := sel_index if sel_kind == "hp" else -1
+	for i in hardpoints.size():
+		if i == focus or i == hot:
+			var hp: Array = hardpoints[i]
+			var c := Color(1, 1, 1, 0.45) if i == focus else Color(0.7, 0.85, 1.0, 0.35)
+			draw_arc(badge[i], 34.0, deg_to_rad(float(hp[3])), deg_to_rad(float(hp[4])), 32, c, 7.0, true)
+	for i in hardpoints.size():
+		var pos: Vector2 = badge[i]
+		var filled: bool = mounts[i] != null
+		var lit := i == focus or i == hot
+		draw_circle(pos, 10.0, Color(0.02, 0.04, 0.1, 0.85))
+		var edge := Color(1, 1, 1, 0.95) if i == focus else (Color(0.75, 0.88, 1.0, 0.9) if lit else Color(rc.r, rc.g, rc.b, 0.75 if filled else 0.4))
+		draw_arc(pos, 10.0, 0, TAU, 20, edge, 2.0 if lit else 1.2, true)
+		draw_string(font, pos + Vector2(-10, 4.5), str(i + 1), HORIZONTAL_ALIGNMENT_CENTER, 20, 12, TEXT if filled else DIM)
+	# weapon mounts list
+	var y := r.position.y + 50 + pic_h
+	draw_string(font, Vector2(r.position.x + 14, y + 16), "WEAPON MOUNTS", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.6, 0.8, 1.0))
+	y += 26
+	var mw := (r.size.x - 28 - (mount_cols - 1) * 8) / mount_cols
+	for i in hardpoints.size():
+		var chip := Rect2(r.position.x + 14 + (i % mount_cols) * (mw + 8), y + (i / mount_cols) * 42, mw, 36)
+		var hp: Array = hardpoints[i]
 		var m = mounts[i]
-		var label: String = GameData.MODULES[m["id"]]["name"] if m != null else "empty %s mount" % GameData.class_name_of(hp[5])
-		draw_string(font, label_pos, label, HORIZONTAL_ALIGNMENT_CENTER, 160, 12, TEXT if m != null else DIM)
-		draw_string(font, pos + Vector2(-5, 5), str(i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, ring)
+		buttons.append([chip, _select.bind("hp", i), true])
+		_hp_hover[buttons.size() - 1] = i
+		var fc := Color(0.25, 0.45, 0.8, 0.9) if i == focus else (Color(0.16, 0.27, 0.5, 0.95) if i == hot else Color(0.08, 0.14, 0.28, 0.85))
+		if m == null and i != focus and i != hot:
+			fc = Color(0.05, 0.08, 0.16, 0.6)
+		draw_rect(chip, fc)
+		draw_rect(chip, Color(0.5, 0.7, 1.0, 0.5 if m != null else 0.3), false, 1.0)
+		draw_string(font, chip.position + Vector2(8, 16), str(i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(rc.r, rc.g, rc.b))
+		var name: String = GameData.MODULES[m["id"]]["name"] if m != null else "empty"
+		draw_string(font, chip.position + Vector2(26, 16), _fit(name, mw - 34, 13), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, TEXT if m != null else DIM)
+		var arc := int(round(float(hp[4]) - float(hp[3])))
+		var sub := "%s  ·  %s" % [GameData.class_name_of(hp[5]), "turret" if arc >= 150 else "arc %d°" % arc]
+		draw_string(font, chip.position + Vector2(26, 31), _fit(sub, mw - 34, 11), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, DIM)
+		if m != null and not m["stock"]:
+			draw_circle(chip.end - Vector2(10, 10), 3.0, GOOD)
 	# bays
-	var by := r.position.y + 50 + pic_h
+	var by := y + mount_rows * 42 + 8
 	var cap: int = st["bay_cap"]
 	var used: int = st["bay_used"]
 	draw_string(font, Vector2(r.position.x + 14, by + 16), "INTERNAL BAYS   %d / %d volume" % [used, cap], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.6, 0.8, 1.0))
@@ -466,7 +497,7 @@ func _draw_centre(r: Rect2) -> void:
 	draw_rect(Rect2(r.position.x + 14, by + 24, barw, 6), Color(0, 0, 0, 0.5))
 	draw_rect(Rect2(r.position.x + 14, by + 24, barw * clampf(float(used) / cap, 0.0, 1.0), 6), BAD if used > cap else Color(0.4, 0.7, 1.0))
 	by += 40
-	var cols := 3
+	var cols := bay_cols
 	var cw := (r.size.x - 28 - (cols - 1) * 8) / cols
 	for i in modules.size() + 1:
 		var col := i % cols
@@ -492,6 +523,20 @@ func _draw_centre(r: Rect2) -> void:
 			draw_rect(chip, Color(0.05, 0.08, 0.16, 0.6) if not selected else Color(0.2, 0.35, 0.6, 0.8))
 			draw_rect(chip, Color(0.5, 0.7, 1.0, 0.3), false, 1.0)
 			draw_string(font, chip.position + Vector2(0, 23), "+ add a part", HORIZONTAL_ALIGNMENT_CENTER, chip.size.x, 13, DIM)
+
+
+func _price_w(price: String) -> float:
+	return font.get_string_size(price, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+
+
+## `text` cut down with an ellipsis to fit `width` at font size `fsize`.
+func _fit(text: String, width: float, fsize: int) -> String:
+	if font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x <= width:
+		return text
+	var t := text
+	while t.length() > 1 and font.get_string_size(t + "…", HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x > width:
+		t = t.substr(0, t.length() - 1)
+	return t.strip_edges() + "…"
 
 
 func _draw_right(r: Rect2) -> void:
@@ -586,7 +631,8 @@ func _draw_right(r: Rect2) -> void:
 		draw_rect(row, Color(0.06, 0.1, 0.2, 0.7) if hover != idx or not enabled else Color(0.14, 0.24, 0.45, 0.9))
 		var col := TEXT if enabled else Color(0.45, 0.45, 0.5)
 		draw_string(font, row.position + Vector2(8, 19), e["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, col)
-		draw_string(font, row.position + Vector2(210, 19), e["info"], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, DIM if enabled else Color(0.4, 0.4, 0.45))
+		var info_w := row.size.x - 210 - _price_w(e["price"]) - 22
+		draw_string(font, row.position + Vector2(210, 19), _fit(e["info"], info_w, 12), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, DIM if enabled else Color(0.4, 0.4, 0.45))
 		draw_string(font, row.position + Vector2(row.size.x - 130, 19), e["price"], HORIZONTAL_ALIGNMENT_RIGHT, 122, 13, e["pcol"])
 	if list.size() > visible:
 		var frac := float(visible) / list.size()

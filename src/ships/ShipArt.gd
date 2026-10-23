@@ -21,6 +21,7 @@ static var _textures := {}
 static var _masks := {}
 static var _spots := {}
 static var _models := {}
+static var _engines := {}
 
 
 # ---------------------------------------------------------------- public
@@ -154,6 +155,53 @@ static func hull_mask(tex: Texture2D) -> Dictionary:
 				depth[i] = d
 		out = {"gw": gw, "gh": gh, "depth": depth}
 	_masks[key] = out
+	return out
+
+
+## The engines painted on a hull: bright, saturated glow at the stern,
+## grouped into bands.  Each is {"x", "y", "h"} as fractions of the
+## painting (x from the left edge, y from the centre line, h tall).
+static func painted_engines(tex: Texture2D) -> Array:
+	if tex == null:
+		return []
+	var key := tex.resource_path
+	if _engines.has(key):
+		return _engines[key]
+	var out := []
+	var img := tex.get_image()
+	if img != null:
+		if img.is_compressed():
+			img.decompress()
+		var w := img.get_width()
+		var h := img.get_height()
+		var bands := []          # [y0, y1, pixel count, rearmost x]
+		for y in h:
+			var n := 0
+			var rear := w
+			for x in int(w * 0.3):
+				var c := img.get_pixel(x, y)
+				var hi := maxf(c.r, maxf(c.g, c.b))
+				if c.a > 0.5 and hi > 0.84 and hi - minf(c.r, minf(c.g, c.b)) > 0.16:
+					n += 1
+					rear = mini(rear, x)
+			if n == 0:
+				continue
+			if not bands.is_empty() and y - bands[-1][1] <= 3:
+				bands[-1][1] = y
+				bands[-1][2] += n
+				bands[-1][3] = mini(bands[-1][3], rear)
+			else:
+				bands.append([y, y, n, rear])
+		var most := 0
+		for b in bands:
+			most = maxi(most, b[2])
+		for b in bands:
+			if b[2] >= 6 and b[2] >= most * 0.25:
+				out.append({"x": float(b[3]) / w, "y": (b[0] + b[1]) * 0.5 / h - 0.5, "h": float(b[1] - b[0] + 1) / h})
+		if out.size() > 6:
+			out.sort_custom(func(a, b) -> bool: return a["h"] > b["h"])
+			out = out.slice(0, 6)
+	_engines[key] = out
 	return out
 
 
@@ -325,14 +373,30 @@ static func _count_funcs(fit: Dictionary) -> Dictionary:
 	return out
 
 
-## One nozzle per engine, spread across the stern and set on the hull's
-## rear edge so the flames come out of the painting.
+## Where the engine flames come out: the engines painted on the hull,
+## or, for a painting without visible ones, one nozzle per engine module
+## spread across the stern and set on the hull's rear edge.
 static func _nozzle_points(m: Dictionary, hull_name: String, size: float, n: int, tier: int) -> Array:
 	var rect: Rect2 = m["rect"]
 	var mask: Dictionary = m["mask"]
+	var out := []
+	for e in painted_engines(m["tex"]):
+		var r := clampf(e["h"] * rect.size.y * 0.45, size * 0.07, size * 0.2) * (0.9 + 0.05 * tier)
+		var x: float = rect.position.x + e["x"] * rect.size.x
+		# a glow painted inside the hull still gets its flame at the edge
+		if not mask.is_empty():
+			var gw: int = mask["gw"]
+			var gh: int = mask["gh"]
+			var row := clampi(int((e["y"] + 0.5) * gh), 0, gh - 1)
+			for gx in gw:
+				if mask["depth"][row * gw + gx] > 0.0:
+					x = minf(x, rect.position.x + gx * rect.size.x / gw)
+					break
+		out.append({"pos": Vector2(x + r * 0.4, e["y"] * rect.size.y), "r": r})
+	if not out.is_empty():
+		return out
 	n = clampi(n, 1, 4)
 	var spread := rect.size.y * (0.18 if hull_name == "Scout" else 0.28)
-	var out := []
 	var r := size * (0.08 + 0.03 * tier) * (1.0 if n <= 2 else 0.8)
 	for i in n:
 		var y := 0.0 if n == 1 else lerpf(-spread, spread, float(i) / float(n - 1))
@@ -375,15 +439,12 @@ static func _system_overlays(m: Dictionary, size: float, counts: Dictionary) -> 
 	var rect: Rect2 = m["rect"]
 	var hw := rect.size.y * 0.5          # half height of the hull sprite
 	var s := size
-	# engines are part of each painting; one pair of booster pods flanks
-	# the outer nozzles
-	var nzs: Array = m["nozzles"]
-	if counts.get("boost", 0) > 0 and not nzs.is_empty():
-		var top: Dictionary = nzs[0]
-		var bottom: Dictionary = nzs[nzs.size() - 1]
-		var r: float = top["r"]
-		_overlay(m, "booster", top["pos"] + Vector2(r * 1.6, -r * 1.5), r * 1.9, 0.0, 0.95)
-		_overlay(m, "booster", bottom["pos"] + Vector2(r * 1.6, r * 1.5), r * 1.9, 0.0, 0.95)
+	# engines are part of each painting; one pair of booster pods sits on
+	# the aft flanks
+	if counts.get("boost", 0) > 0:
+		var bx := rect.position.x + rect.size.x * 0.24
+		_overlay(m, "booster", Vector2(bx, -hw * 0.4), s * 0.24, 0.0, 0.95)
+		_overlay(m, "booster", Vector2(bx, hw * 0.4), s * 0.24, 0.0, 0.95)
 	# quantum drive fins over the stern
 	var qt: int = counts.get("qdrv_tier", 0)
 	if qt > 0:
@@ -450,7 +511,7 @@ static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: flo
 		for nz in m["nozzles"]:
 			var p: Vector2 = nz["pos"]
 			var r: float = nz["r"]
-			var l := r * (3.0 + 5.0 * thrusting) * randf_range(0.85, 1.15)
+			var l := r * (2.6 + 4.2 * thrusting) * randf_range(0.85, 1.15)
 			c.draw_colored_polygon(PackedVector2Array([p + Vector2(r * 0.5, -r * 1.3), p + Vector2(-l * 1.3, 0), p + Vector2(r * 0.5, r * 1.3)]), Color(glow.r, glow.g, glow.b, 0.3 * a))
 			c.draw_colored_polygon(PackedVector2Array([p + Vector2(r * 0.5, -r * 0.9), p + Vector2(-l, 0), p + Vector2(r * 0.5, r * 0.9)]), Color(glow.r, glow.g, glow.b, 0.75 * a))
 			c.draw_colored_polygon(PackedVector2Array([p + Vector2(r * 0.5, -r * 0.45), p + Vector2(-l * 0.55, 0), p + Vector2(r * 0.5, r * 0.45)]), Color(1, 1, 1, 0.9 * a))
