@@ -96,6 +96,9 @@ func _exercise_shipyard(w: World, p: Ship) -> void:
 		if s.is_station and s.race_id == p.race_id and not s.dead:
 			base = s
 	assert(base != null, "no friendly starbase")
+	if main.builder != null:
+		main.builder._cancel()          # opened earlier by the frame-1500 refit try
+		await process_frame
 	p.global_position = base.global_position + Vector2(200, 0)
 	p.velocity = base.velocity
 	p.credits = 9000

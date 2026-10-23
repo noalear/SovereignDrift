@@ -383,7 +383,7 @@ func _draw_heat(p: Ship, vp: Vector2) -> void:
 	var band := 40.0 + 220.0 * h
 	# a soft vignette: nested frames that fade toward the middle, drawn
 	# without overlapping corners
-	var steps := 10
+	var steps := 28
 	var t := band / steps
 	for i in steps:
 		var k := 1.0 - float(i) / steps
