@@ -42,6 +42,11 @@ float fbm(vec3 p) {
 
 void fragment() {
 	vec2 uv = UV * 2.0 - 1.0;
+	if (kind != 4) {
+		// planets were laid out for a 1.25-radius quad; the quad is now
+		// larger so the atmosphere can fade out before its edge
+		uv *= extent / 1.25;
+	}
 	float r2 = dot(uv, uv);
 	float r = sqrt(r2);
 	vec4 col = vec4(0.0);
@@ -64,7 +69,7 @@ void fragment() {
 		COLOR = vec4(c, a);
 	} else {
 		float body = 1.0 - smoothstep(0.94, 0.97, r);
-		float halo = atmosphere * exp(-max(r - 0.94, 0.0) * 14.0) * (1.0 - body);
+		float halo = atmosphere * exp(-max(r - 0.94, 0.0) * 14.0) * (1.0 - body) * smoothstep(extent / 1.25, extent / 1.25 * 0.9, r);
 		if (body <= 0.0 && halo <= 0.001) {
 			discard;
 		}
@@ -109,8 +114,10 @@ void fragment() {
 		vec3 lit = surf * (0.08 + 0.92 * diff) * (0.3 + 0.7 * term);
 		// night side city glow on living worlds
 		if (kind == 3) {
-			float city = smoothstep(0.52, 0.56, fbm(sp * 1.4)) * noise(sp * 30.0);
-			lit += vec3(1.0, 0.8, 0.4) * city * (1.0 - term) * 0.6;
+			// sparse points of light on the continents, not a speckled sheet
+			float land_n = smoothstep(0.52, 0.56, fbm(sp * 1.4));
+			float city = land_n * smoothstep(0.72, 0.9, noise(sp * 38.0)) * smoothstep(0.3, 0.7, noise(sp * 6.0 + vec3(4.0)));
+			lit += vec3(1.0, 0.82, 0.5) * city * (1.0 - term) * 0.8;
 		}
 		// rim light / atmosphere
 		float rim = pow(1.0 - z, 3.0);

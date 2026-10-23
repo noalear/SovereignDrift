@@ -139,10 +139,10 @@ func _style(rng: RandomNumberGenerator) -> void:
 	material_.set_shader_parameter("spin", rng.randf_range(0.01, 0.04) * (1.0 if rng.randf() < 0.7 else -1.0))
 
 
-## Half the shader quad in body radii: the Sun's corona needs room to
-## fade out before the quad's edge.
+## Half the shader quad in body radii: the Sun's corona and planets'
+## atmospheres need room to fade out before the quad's edge.
 func quad_extent() -> float:
-	return 2.6 if look == "Sun" else 1.25
+	return 2.6 if look == "Sun" else 1.5
 
 
 func set_colony(race: int, design: String, pop: int) -> void:
