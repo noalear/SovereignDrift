@@ -50,9 +50,24 @@ src/ships/             Ship, ShipArt, AIPilot, PlayerController
 src/world/             World, Planet (+ planet.gdshader), Starfield, Fx, Powerup
 src/weapons/           Missile
 src/ui/                MainMenu, HUD
+src/audio/             EngineSound (per-ship drive and booster loops)
 tools/                 smoke test and screenshot scripts
+tools/sfx/             sound-effect generator (Python: numpy, scipy, soundfile)
 assets/music/          Ogg soundtrack (see below)
+assets/sfx/            rendered sound effects, <name>_<NN>.ogg
 ```
+
+## Sound effects
+
+Every effect is designed in code in `tools/sfx/generate.py` and rendered to
+`assets/sfx/` (48 kHz Ogg, several variants each so repeats never sound the
+same).  Modules have a voice per level: Engine I chemical rocket, II ion
+drive, III fusion torch, IV antimatter; Booster I-III; Laser I-III (laser,
+phaser, particle lance); Shield I-VI and the station shield; Armor I-III;
+Quantum drive I-III.  To change a sound, edit its function and run
+`python3 tools/sfx/generate.py <name>`, then open the editor (or run
+`godot --headless --path . --import`) to re-import.
+`tools/sfx_record.gd` records the in-game mix with Movie Maker for checks.
 
 ## Testing
 

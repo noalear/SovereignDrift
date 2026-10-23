@@ -30,3 +30,6 @@ desktop.ini
 *.swp
 .vscode/
 .idea/
+
+# Python caches (tools/sfx)
+__pycache__/
