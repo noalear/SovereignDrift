@@ -77,6 +77,7 @@ func _draw() -> void:
 	_draw_rank(p, vp)
 	_draw_nav(p, vp)
 	_draw_music(vp)
+	_draw_aim(p, vp)
 	if p.dead:
 		_draw_dead(vp)
 	if show_help:
@@ -298,7 +299,26 @@ func _draw_music(vp: Vector2) -> void:
 	if a <= 0.0:
 		return
 	var text := "Now playing: " + now_playing
-	draw_string(font, Vector2(vp.x * 0.5 - 200, vp.y - 160), text, HORIZONTAL_ALIGNMENT_CENTER, 400, 15, Color(0.9, 0.85, 1.0, a))
+	if Settings.dynamic_music and Settings.music_mode != "off":
+		text += "  -  " + Music.intensity_name()
+	draw_string(font, Vector2(vp.x * 0.5 - 250, vp.y - 160), text, HORIZONTAL_ALIGNMENT_CENTER, 500, 15, Color(0.9, 0.85, 1.0, a))
+
+
+## Crosshair where the turrets are pointed (mouse or right stick).
+func _draw_aim(p: Ship, vp: Vector2) -> void:
+	if p.dead or p.aim_point == Vector2.INF or not p.has_turret:
+		return
+	var cam := world.camera
+	var screen := (p.aim_point - cam.get_screen_center_position()) * cam.zoom + vp * 0.5
+	if screen.x < 0 or screen.y < 0 or screen.x > vp.x or screen.y > vp.y:
+		return
+	var col := Color(0.6, 1.0, 0.7, 0.85)
+	var hover := world.ship_at(p.aim_point, 40.0 / cam.zoom.x)
+	if hover != null and hover != p and hover.race_id != p.race_id:
+		col = Color(1.0, 0.45, 0.4, 0.95)
+	draw_arc(screen, 11.0, 0.0, TAU, 24, col, 1.5)
+	for d in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:
+		draw_line(screen + d * 6.0, screen + d * 16.0, col, 1.5)
 
 
 func _draw_dead(vp: Vector2) -> void:
@@ -314,10 +334,15 @@ func _draw_help(vp: Vector2) -> void:
 		["FLIGHT", ""],
 		["W / Up", "thrust"], ["S / Down", "reverse"], ["A D / Left Right", "turn"], ["Q E", "strafe"],
 		["Shift", "boost (with thrust)"], ["X", "brake"], ["J", "quantum drive (warp)"],
+		["Mouse", "aims the turrets"],
 		["", ""],
 		["SYSTEM", ""],
 		["H / F1", "this card"], ["Esc", "menu"], ["F9", "next song"], ["Alt+Enter", "full screen"],
 		["Mouse wheel", "camera zoom"], ["+ / -", "radar zoom"],
+		["", ""],
+		["GAMEPAD", ""],
+		["Sticks", "left flies, right aims"], ["RT / LT", "torpedoes / secondary"],
+		["A B X Y", "boost, brake, missile, mine"], ["Bumpers", "strafe"], ["D-pad", "targets, nav, autopilot"],
 	]
 	var right := [
 		["WEAPONS", ""],

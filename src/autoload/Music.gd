@@ -1,50 +1,68 @@
 ## Music -- plays the soundtrack: the eight genre remixes and the ten new
-## tracks, shuffled, with a "now playing" notice for the HUD.
+## tracks.  In "follows the fight" mode the game reports an intensity
+## (cruise, tension, battle) and the music crossfades to a track of that
+## energy; otherwise everything plays on shuffle.  Explosions duck it for
+## a beat.
 extends Node
 
 signal track_changed(title: String, style: String)
 
+enum Intensity { CRUISE, TENSION, BATTLE }
+
+# file, title, style, energy
 const REMIXES := [
-	["remix1-space-ambient", "Stellar Frontier I", "space ambient"],
-	["remix2-synthwave", "Stellar Frontier II", "synthwave"],
-	["remix3-liquid-dnb", "Stellar Frontier III", "liquid drum & bass"],
-	["remix4-chiptune", "Stellar Frontier IV", "chiptune"],
-	["remix5-edm-trance", "Stellar Frontier V", "trance"],
-	["remix6-symphonic-metal", "Stellar Frontier VI", "symphonic metal"],
-	["remix7-epic-orchestral", "Stellar Frontier VII", "epic orchestral"],
-	["remix8-dubstep", "Stellar Frontier VIII", "dubstep"],
-	["remix8-darkwave", "Stellar Frontier VIII", "darkwave"],
+	["remix1-space-ambient", "Stellar Frontier I", "space ambient", Intensity.CRUISE],
+	["remix2-synthwave", "Stellar Frontier II", "synthwave", Intensity.TENSION],
+	["remix3-liquid-dnb", "Stellar Frontier III", "liquid drum & bass", Intensity.BATTLE],
+	["remix4-chiptune", "Stellar Frontier IV", "chiptune", Intensity.TENSION],
+	["remix5-edm-trance", "Stellar Frontier V", "trance", Intensity.BATTLE],
+	["remix6-symphonic-metal", "Stellar Frontier VI", "symphonic metal", Intensity.BATTLE],
+	["remix7-epic-orchestral", "Stellar Frontier VII", "epic orchestral", Intensity.BATTLE],
+	["remix8-dubstep", "Stellar Frontier VIII", "dubstep", Intensity.BATTLE],
+	["remix8-darkwave", "Stellar Frontier VIII", "darkwave", Intensity.TENSION],
 ]
 const NEW_TRACKS := [
-	["new01-graveyard-orbit", "Graveyard Orbit", "trip-hop"],
-	["new02-across-the-heliopause", "Across the Heliopause", "progressive house"],
-	["new03-lagrange-drift", "Lagrange Drift", "atmospheric jungle"],
-	["new04-tritone-run", "Tritone Run", "big beat"],
-	["new05-nebula-caravan", "Nebula Caravan", "goa trance"],
-	["new06-black-shipyards", "Black Shipyards", "industrial"],
-	["new07-rimward-patrol", "Rimward Patrol", "cinematic electronica"],
-	["new08-long-haul-to-kepler-gate", "Long Haul to Kepler Gate", "Detroit techno"],
-	["new09-far-sun-meridian", "Far Sun Meridian", "space synth"],
-	["new10-lantern-orbit", "Lantern Orbit", "ambient techno"],
+	["new01-graveyard-orbit", "Graveyard Orbit", "trip-hop", Intensity.CRUISE],
+	["new02-across-the-heliopause", "Across the Heliopause", "progressive house", Intensity.TENSION],
+	["new03-lagrange-drift", "Lagrange Drift", "atmospheric jungle", Intensity.TENSION],
+	["new04-tritone-run", "Tritone Run", "big beat", Intensity.BATTLE],
+	["new05-nebula-caravan", "Nebula Caravan", "goa trance", Intensity.TENSION],
+	["new06-black-shipyards", "Black Shipyards", "industrial", Intensity.BATTLE],
+	["new07-rimward-patrol", "Rimward Patrol", "cinematic electronica", Intensity.TENSION],
+	["new08-long-haul-to-kepler-gate", "Long Haul to Kepler Gate", "Detroit techno", Intensity.TENSION],
+	["new09-far-sun-meridian", "Far Sun Meridian", "space synth", Intensity.CRUISE],
+	["new10-lantern-orbit", "Lantern Orbit", "ambient techno", Intensity.CRUISE],
 ]
 
-var player: AudioStreamPlayer
-var queue: Array = []
+const CROSSFADE := 2.5
+const SWITCH_DELAY := {Intensity.CRUISE: 14.0, Intensity.TENSION: 5.0, Intensity.BATTLE: 2.0}
+
+var players: Array[AudioStreamPlayer] = []
+var active := 0                  # index of the player carrying the current track
+var fade := 1.0                  # 0..1 progress of the crossfade into `active`
 var current: Array = []
-var history: Array = []
+var recent: Array = []           # files played lately, avoided when picking
+var intensity := Intensity.CRUISE
+var wanted := Intensity.CRUISE
+var wanted_since := 0.0
+var duck := 0.0                  # 0..1 extra attenuation
+var base_db := 0.0
+var time := 0.0
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	player = AudioStreamPlayer.new()
-	player.bus = "Master"
-	add_child(player)
-	player.finished.connect(_on_finished)
+	for i in 2:
+		var p := AudioStreamPlayer.new()
+		p.bus = "Master"
+		add_child(p)
+		p.finished.connect(_on_finished.bind(i))
+		players.append(p)
 	set_volume(Settings.music_volume)
 	start()
 
 
-func playlist() -> Array:
+func all_tracks() -> Array:
 	var list := []
 	if Settings.music_mode in ["all", "remixes"]:
 		for t in REMIXES:
@@ -58,39 +76,82 @@ func playlist() -> Array:
 	return list
 
 
+func pool(level: int) -> Array:
+	var all := all_tracks()
+	if not Settings.dynamic_music:
+		return all
+	var out := all.filter(func(t): return t[3] == level)
+	if out.size() < 2:
+		# too few tracks of that energy in the chosen set: widen to the neighbours
+		out = all.filter(func(t): return absi(t[3] - level) <= 1)
+	return out if not out.is_empty() else all
+
+
 func start() -> void:
-	queue.clear()
+	recent.clear()
 	if Settings.music_mode == "off":
-		player.stop()
+		for p in players:
+			p.stop()
 		current = []
 		return
-	next_track()
+	_play_from(pool(intensity), false)
+
+
+## The game's read of the situation; the music follows after a delay so a
+## stray contact does not flip the track.
+func set_intensity(level: int) -> void:
+	if level != wanted:
+		wanted = level
+		wanted_since = time
 
 
 func next_track() -> void:
 	if Settings.music_mode == "off":
 		return
-	if queue.is_empty():
-		queue = playlist()
-		queue.shuffle()
-		# Avoid repeating the song that just ended.
-		if queue.size() > 1 and not current.is_empty() and queue[0][0] == current[0]:
-			queue.append(queue.pop_front())
-	current = queue.pop_front()
-	var path := "res://assets/music/%s/%s.ogg" % ["remix" if current[0].begins_with("remix") else "new", current[0]]
+	_play_from(pool(intensity), true)
+
+
+func _pick(from: Array) -> Array:
+	var choices := from.filter(func(t): return not recent.has(t[0]))
+	if choices.is_empty():
+		recent.clear()
+		choices = from.duplicate()
+	if choices.size() > 1 and not current.is_empty():
+		choices = choices.filter(func(t): return t[0] != current[0])
+	return choices[randi() % choices.size()]
+
+
+func _play_from(from: Array, crossfade: bool) -> void:
+	if from.is_empty():
+		return
+	var track := _pick(from)
+	var path := "res://assets/music/%s/%s.ogg" % ["remix" if track[0].begins_with("remix") else "new", track[0]]
 	var stream := load(path)
 	if stream == null:
 		push_warning("Missing music: " + path)
 		return
-	player.stream = stream
-	player.play()
-	history.append(current)
-	track_changed.emit(current[1], current[2])
+	var next := 1 - active if crossfade else active
+	if not crossfade:
+		players[1 - active].stop()
+	players[next].stream = stream
+	players[next].play()
+	active = next
+	fade = 0.0 if crossfade else 1.0
+	current = track
+	recent.append(track[0])
+	if recent.size() > 6:
+		recent.pop_front()
+	track_changed.emit(track[1], track[2])
 
 
 func set_volume(v: float) -> void:
 	Settings.music_volume = v
-	player.volume_db = linear_to_db(clampf(v, 0.0001, 1.0)) if v > 0.001 else -80.0
+	base_db = linear_to_db(clampf(v, 0.0001, 1.0)) if v > 0.001 else -80.0
+
+
+## Lower the music for a moment (explosions).  amount 0..1.
+func duck_for(amount: float) -> void:
+	duck = maxf(duck, clampf(amount, 0.0, 1.0))
 
 
 func now_playing() -> String:
@@ -99,5 +160,34 @@ func now_playing() -> String:
 	return "%s  (%s)" % [current[1], current[2]]
 
 
-func _on_finished() -> void:
-	next_track()
+func intensity_name() -> String:
+	return ["cruise", "tension", "battle"][intensity]
+
+
+func _process(delta: float) -> void:
+	time += delta
+	if fade < 1.0:
+		fade = minf(fade + delta / CROSSFADE, 1.0)
+		if fade >= 1.0:
+			players[1 - active].stop()
+	duck = maxf(duck - delta * 0.9, 0.0)
+	var duck_db := -12.0 * duck
+	var a_db := base_db + linear_to_db(maxf(fade, 0.001)) + duck_db
+	var b_db := base_db + linear_to_db(maxf(1.0 - fade, 0.001)) + duck_db
+	players[active].volume_db = a_db if base_db > -79.0 else -80.0
+	players[1 - active].volume_db = b_db if (base_db > -79.0 and fade < 1.0) else -80.0
+	# follow the fight
+	if Settings.dynamic_music and Settings.music_mode != "off" and wanted != intensity:
+		var delay: float = SWITCH_DELAY[wanted]
+		if wanted > intensity:
+			delay = SWITCH_DELAY[wanted]
+		if time - wanted_since >= delay:
+			intensity = wanted
+			if not current.is_empty() and current[3] != intensity:
+				_play_from(pool(intensity), true)
+
+
+func _on_finished(index: int) -> void:
+	if index != active or Settings.music_mode == "off":
+		return
+	_play_from(pool(intensity), false)

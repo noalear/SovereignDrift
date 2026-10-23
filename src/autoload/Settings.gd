@@ -11,7 +11,9 @@ var pilot_name := "Pilot"
 var race_id := 1
 var song8 := "dubstep"        # dubstep | darkwave
 var camera_zoom := 1.0
-var arcade_turn := true       # mouse-free keyboard flight
+var dynamic_music := true     # the music follows the fight
+var mouse_aim := true         # turrets follow the mouse
+var screen_shake := 1.0
 
 # Persistent career, kept between games like the original profile.
 var career := {"score": 0, "kills": 0, "deaths": 0}
@@ -30,6 +32,9 @@ func load_settings() -> void:
 	music_volume = cfg.get_value("audio", "music_volume", music_volume)
 	sfx_volume = cfg.get_value("audio", "sfx_volume", sfx_volume)
 	song8 = cfg.get_value("audio", "song8", song8)
+	dynamic_music = cfg.get_value("audio", "dynamic_music", dynamic_music)
+	mouse_aim = cfg.get_value("controls", "mouse_aim", mouse_aim)
+	screen_shake = cfg.get_value("video", "screen_shake", screen_shake)
 	fullscreen = cfg.get_value("video", "fullscreen", fullscreen)
 	camera_zoom = cfg.get_value("video", "camera_zoom", camera_zoom)
 	pilot_name = cfg.get_value("pilot", "name", pilot_name)
@@ -43,6 +48,9 @@ func save_settings() -> void:
 	cfg.set_value("audio", "music_volume", music_volume)
 	cfg.set_value("audio", "sfx_volume", sfx_volume)
 	cfg.set_value("audio", "song8", song8)
+	cfg.set_value("audio", "dynamic_music", dynamic_music)
+	cfg.set_value("controls", "mouse_aim", mouse_aim)
+	cfg.set_value("video", "screen_shake", screen_shake)
 	cfg.set_value("video", "fullscreen", fullscreen)
 	cfg.set_value("video", "camera_zoom", camera_zoom)
 	cfg.set_value("pilot", "name", pilot_name)

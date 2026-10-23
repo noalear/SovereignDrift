@@ -173,26 +173,31 @@ func _draw_pilot(vp: Vector2) -> void:
 
 
 func _draw_settings(vp: Vector2) -> void:
-	var y := vp.y * 0.36
+	var y := vp.y * 0.27
+	var step := 48.0
 	_choice(y, "Music", [["all", "Remixes + new tracks"], ["remixes", "Remixes"], ["new", "New tracks"], ["off", "Off"]], Settings.music_mode,
 		func(v):
 			Settings.music_mode = v
 			Music.start(), vp)
-	_choice(y + 56, "Song 8 remix", [["dubstep", "Dubstep"], ["darkwave", "Darkwave"]], Settings.song8,
+	_choice(y + step, "Song 8 remix", [["dubstep", "Dubstep"], ["darkwave", "Darkwave"]], Settings.song8,
 		func(v):
 			Settings.song8 = v
 			Music.start(), vp)
+	_choice(y + step * 2, "Dynamic music", [[true, "On"], [false, "Shuffle"]], Settings.dynamic_music,
+		func(v): Settings.dynamic_music = v, vp)
 	var vols := []
 	for v in [0.0, 0.25, 0.5, 0.75, 1.0]:
 		vols.append([v, "%d%%" % int(v * 100)])
-	_choice(y + 112, "Music volume", vols, Settings.music_volume, func(v): Music.set_volume(v), vp)
-	_choice(y + 168, "Effects volume", vols, Settings.sfx_volume, func(v): Settings.sfx_volume = v, vp)
-	_choice(y + 224, "Display", [[true, "Full screen"], [false, "Window"]], Settings.fullscreen,
+	_choice(y + step * 3, "Music volume", vols, Settings.music_volume, func(v): Music.set_volume(v), vp)
+	_choice(y + step * 4, "Effects volume", vols, Settings.sfx_volume, func(v): Settings.sfx_volume = v, vp)
+	_choice(y + step * 5, "Display", [[true, "Full screen"], [false, "Window"]], Settings.fullscreen,
 		func(v):
 			Settings.fullscreen = v
 			Settings.apply(), vp)
-	_choice(y + 280, "Camera", [[1.4, "Close"], [1.0, "Normal"], [0.7, "Wide"], [0.5, "Very wide"]], Settings.camera_zoom, func(v): Settings.camera_zoom = v, vp)
-	_button(Rect2(vp.x * 0.5 - 300, y + 350, 160, 48), "Back", func(): _set_page("main"))
+	_choice(y + step * 6, "Camera", [[1.4, "Close"], [1.0, "Normal"], [0.7, "Wide"], [0.5, "Very wide"]], Settings.camera_zoom, func(v): Settings.camera_zoom = v, vp)
+	_choice(y + step * 7, "Screen shake", [[0.0, "Off"], [0.5, "Light"], [1.0, "Full"]], Settings.screen_shake, func(v): Settings.screen_shake = v, vp)
+	_choice(y + step * 8, "Mouse-aimed turrets", [[true, "On"], [false, "Off"]], Settings.mouse_aim, func(v): Settings.mouse_aim = v, vp)
+	_button(Rect2(vp.x * 0.5 - 300, y + step * 9 + 20, 160, 48), "Back", func(): _set_page("main"))
 
 
 func _draw_about(vp: Vector2) -> void:

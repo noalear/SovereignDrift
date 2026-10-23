@@ -75,6 +75,9 @@ var last_attacker: Node = null
 var last_attacked_at := -100.0
 var engine_sound: AudioStreamPlayer2D = null
 var beam_targets := []             # beams fired this frame, for drawing
+var aim_point := Vector2.INF       # where the pilot wants turrets to point (world)
+var has_turret := false
+var last_hit_angle := 0.0
 
 
 func setup(p_world: Node, p_design: String, p_race: int, p_pilot: String, p_ship_name: String) -> void:
@@ -161,6 +164,7 @@ func refit(p_design: String) -> void:
 
 func _build_weapons() -> void:
 	weapons.clear()
+	has_turret = false
 	for w in design["weapons"]:
 		var m: Dictionary = GameData.MODULES[w[0]]
 		var entry := {
@@ -195,6 +199,8 @@ func _build_weapons() -> void:
 			entry["dps"] = 45.0 + float(m["p"][1]) * 0.15
 			entry["rate"] = 0.0
 		weapons.append(entry)
+		if is_turret(entry):
+			has_turret = true
 
 
 func race_color() -> Color:
@@ -422,9 +428,19 @@ func _weapons(delta: float) -> void:
 			_fire_tube(w)
 
 
+func is_turret(w: Dictionary) -> bool:
+	return w["arc1"] - w["arc0"] >= deg_to_rad(150.0)
+
+
 func _aim_angle(w: Dictionary) -> float:
 	# Fire toward the target if it is inside the arc, else straight down the arc centre.
 	var centre: float = w["fire_angle"]
+	# a turret under a pilot's hand points where the pilot points
+	if aim_point != Vector2.INF and is_turret(w):
+		var rel := wrapf((aim_point - global_position).angle() - rotation, -PI, PI)
+		if w["arc1"] - w["arc0"] >= TAU - 0.2:
+			return rel
+		return clampf(rel, w["arc0"], w["arc1"])
 	if target != null and is_instance_valid(target) and not (target is Ship and target.dead):
 		var to := target.global_position - global_position
 		var lead := to
@@ -463,6 +479,8 @@ func _fire_tube(w: Dictionary) -> void:
 	if w["missile"] == "002":
 		v = velocity * 0.6
 	world.spawn_missile(self, w["missile"], mount + dir * size * 0.3, v, ang, target)
+	if is_player:
+		world.last_player_fire = world.elapsed
 	var snd := "torpedo"
 	match w["missile"]:
 		"003", "011": snd = "plasma"
@@ -505,6 +523,10 @@ func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO) -> v
 	if cloaked:
 		set_cloak(false)
 	hit_flash = 0.15
+	if at != Vector2.ZERO:
+		last_hit_angle = (at - global_position).angle() - rotation
+	elif attacker is Node2D:
+		last_hit_angle = (attacker.global_position - global_position).angle() - rotation
 	var remaining := amount
 	if shield > 0.0:
 		var absorbed := minf(shield, remaining)
@@ -619,11 +641,18 @@ func _draw() -> void:
 		base = base.lerp(Color.WHITE, 0.7)
 	var dmg := 1.0 - hull / maxf(hull_max, 1.0)
 	ShipArt.draw_ship(self, design_name, race_id, size, base, thrust_level, cloak_alpha, dmg)
-	# shield shimmer when recently hit
+	# shield ripple where the shot landed
 	if hit_flash > 0.0 and shield > 0.0:
-		var c := base
-		c.a = hit_flash * 3.0 * cloak_alpha
-		draw_arc(Vector2.ZERO, size * 1.35, 0, TAU, 40, c, 3.0, true)
+		var c := Color(0.5, 0.75, 1.0, hit_flash * 5.0 * cloak_alpha)
+		var spread := 0.9 + (0.15 - hit_flash) * 6.0
+		draw_arc(Vector2.ZERO, size * 1.35, last_hit_angle - spread, last_hit_angle + spread, 24, c, 3.5, true)
+		var c2 := Color(0.7, 0.85, 1.0, hit_flash * 2.0 * cloak_alpha)
+		draw_arc(Vector2.ZERO, size * 1.35, 0, TAU, 40, c2, 1.5, true)
+	# turret arcs for the pilot's own ship
+	if is_player and Settings.mouse_aim and aim_point != Vector2.INF:
+		for w in weapons:
+			if is_turret(w) and w["arc1"] - w["arc0"] < TAU - 0.2:
+				draw_arc(Vector2.ZERO, size * 1.1, w["arc0"], w["arc1"], 24, Color(1, 1, 1, 0.12), 1.0, true)
 	if invulnerable > 0.0:
 		var c := Color(1, 1, 1, 0.25 + 0.25 * sin(invulnerable * 20.0))
 		draw_arc(Vector2.ZERO, size * 1.5, 0, TAU, 40, c, 2.0, true)

@@ -31,6 +31,11 @@ var planet_counts := {}
 var win_timer := 0.0
 var game_over := false
 var target_zoom := 1.0
+var shake := 0.0                 # camera shake left, in pixels
+var slowmo := 0.0                # seconds of kill slow-motion left
+var intensity_timer := 0.0
+var last_player_damage := -100.0
+var last_player_fire := -100.0
 
 
 func _ready() -> void:
@@ -157,6 +162,7 @@ func _make_ship(pilot: String, race_id: int, design: String, ship_name: String, 
 	ships_layer.add_child(s)
 	s.setup(self, design, race_id, pilot, ship_name)
 	s.died.connect(_on_ship_died)
+	s.damaged.connect(_on_ship_damaged)
 	s.rank_changed.connect(_on_rank_changed)
 	ships.append(s)
 	return s
@@ -175,12 +181,34 @@ func _place_at_home(s: Ship) -> void:
 func _process(delta: float) -> void:
 	if paused:
 		return
-	camera.zoom = camera.zoom.lerp(Vector2.ONE * target_zoom, 5.0 * delta)
+	# pull the camera out as the ship speeds up, further still in warp
+	var speed_mul := 1.0
+	if player != null and not player.dead:
+		if player.warping:
+			speed_mul = 0.5
+		else:
+			speed_mul = lerpf(1.0, 0.62, clampf(player.velocity.length() / GameData.LIGHT_SPEED / 1.2, 0.0, 1.0))
+	camera.zoom = camera.zoom.lerp(Vector2.ONE * target_zoom * speed_mul, 2.5 * delta)
 	if player != null and not player.dead:
 		# look a little ahead of the ship's motion
 		camera.global_position = player.global_position + player.velocity * 0.35
 	elif player != null:
 		camera.global_position = player.global_position
+	# shake decays quickly; the offset is in screen pixels so divide by zoom
+	if shake > 0.0:
+		shake = maxf(shake - delta * 18.0, 0.0)
+		var a := randf() * TAU
+		camera.offset = Vector2(cos(a), sin(a)) * shake * Settings.screen_shake / camera.zoom.x
+	else:
+		camera.offset = Vector2.ZERO
+	if slowmo > 0.0:
+		slowmo -= delta / maxf(Engine.time_scale, 0.01)
+		if slowmo <= 0.0:
+			Engine.time_scale = 1.0
+	intensity_timer -= delta
+	if intensity_timer <= 0.0:
+		intensity_timer = 0.5
+		Music.set_intensity(_combat_intensity())
 
 
 func _physics_process(delta: float) -> void:
@@ -201,6 +229,30 @@ func _physics_process(delta: float) -> void:
 func set_paused(p: bool) -> void:
 	paused = p
 	get_tree().paused = p
+	if p:
+		Engine.time_scale = 1.0
+		slowmo = 0.0
+
+
+func add_shake(amount: float) -> void:
+	shake = minf(shake + amount, 28.0)
+
+
+## What the music should feel like right now.
+func _combat_intensity() -> int:
+	if player == null or player.dead:
+		return Music.Intensity.TENSION
+	var enemy := nearest_enemy_ship(player.global_position, player.race_id, player.sensor_range * 1.5, player)
+	var enemy_dist := 1e9
+	if enemy != null:
+		enemy_dist = player.global_position.distance_to(enemy.global_position)
+	var hurt := elapsed - last_player_damage
+	var fired := elapsed - last_player_fire
+	if hurt < 6.0 or (fired < 4.0 and enemy_dist < 1400.0) or enemy_dist < 800.0:
+		return Music.Intensity.BATTLE
+	if enemy != null or hurt < 15.0:
+		return Music.Intensity.TENSION
+	return Music.Intensity.CRUISE
 
 
 # ---------------------------------------------------------------- physics
@@ -456,9 +508,25 @@ func _collect_powerups() -> void:
 
 # ----------------------------------------------------------- game events
 
+func _on_ship_damaged(s: Ship, amount: float) -> void:
+	if s.is_player:
+		last_player_damage = elapsed
+		add_shake(clampf(amount * 0.04, 1.0, 10.0))
+
+
 func _on_ship_died(s: Ship, killer: Node) -> void:
 	var big := s.size > 40.0
 	fx.explosion(s.global_position, s.size * 1.6, s.race_color(), big)
+	if player != null:
+		# the blast is felt by distance: shake, a dip in the music, and a
+		# beat of slow motion when it was the player's kill
+		var near := 1.0 - clampf(player.global_position.distance_to(s.global_position) / 1800.0, 0.0, 1.0)
+		if near > 0.0:
+			add_shake((16.0 if big else 8.0) * near)
+			Music.duck_for((0.8 if big else 0.5) * near)
+		if killer == player and not s.is_player:
+			Engine.time_scale = 0.25
+			slowmo = 0.12
 	# the wreck leaves modules floating
 	var drops := 1 + (2 if big else 0) + (1 if randf() < 0.5 else 0)
 	var candidates := []

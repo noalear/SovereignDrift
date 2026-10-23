@@ -79,6 +79,15 @@ func _physics_process(_delta: float) -> void:
 		i["strafe"] = strafe
 		i["brake"] = Input.is_action_pressed("brake")
 	i["boost"] = Input.is_action_pressed("boost")
+	# turret aim: right stick when deflected, else the mouse
+	var stick := Vector2(Input.get_action_strength("aim_right") - Input.get_action_strength("aim_left"),
+		Input.get_action_strength("aim_down") - Input.get_action_strength("aim_up"))
+	if stick.length() > 0.3:
+		ship.aim_point = ship.global_position + stick.normalized() * 1000.0
+	elif Settings.mouse_aim:
+		ship.aim_point = world.get_global_mouse_position()
+	else:
+		ship.aim_point = Vector2.INF
 	i["fire_primary"] = Input.is_action_pressed("fire_primary") and not Input.is_key_pressed(KEY_SHIFT)
 	i["fire_secondary"] = Input.is_action_pressed("fire_secondary")
 	i["fire_missile"] = Input.is_action_pressed("fire_missile")
