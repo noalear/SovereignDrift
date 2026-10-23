@@ -335,10 +335,25 @@ func _warp(delta: float) -> void:
 				if is_player:
 					world.notify(self, "Warp dropped: %s is dead ahead." % p.body_name)
 				return
+	# never warp into the Sun's heat, whoever is flying
+	if world != null and "planet_by_name" in world:
+		var sun: Node2D = world.planet_by_name.get("Sol", null)
+		if sun != null and sun != nav_target:
+			var to_sun: Vector2 = sun.global_position - global_position
+			var vdir := velocity.normalized()
+			var ahead := to_sun.dot(vdir)
+			# the Sun is ahead, the line we fly passes inside its safe radius, and it is close
+			if ahead > 0.0 and absf(to_sun.cross(vdir)) < _sun_safe_radius(sun) and ahead < _sun_safe_radius(sun) + wspeed * 1.2:
+				end_warp()
+				warp_block = 4.0
+				if is_player:
+					world.notify(self, "Warp dropped: too close to the Sun.")
+				return
 	if autopilot and nav_target != null and is_instance_valid(nav_target):
 		var to := nav_target.global_position - global_position
 		var dist: float = to.length() - nav_target.radius
-		var desired := to.angle()
+		var leg: Vector2 = _route(to)["to"]
+		var desired := leg.angle()
 		rotation = rotate_toward(rotation, desired, deg_to_rad(turn_speed) * 0.5 * delta)
 		if dist < wspeed * 0.6 + 600.0:
 			end_warp()
@@ -372,28 +387,100 @@ func end_warp() -> void:
 	Sfx.play("warpexit", global_position, 0.8)
 
 
-## Is a planet or moon (other than the destination) between us and `to`?
-## Autopilot then flies there on engines instead of warping into it.
-func _body_in_path(to: Vector2) -> bool:
+## How far autopilot keeps from a body's centre: the Sun's whole heat
+## band plus a margin, a planet or moon 500 beyond its surface.
+func _clearance(body: Node2D) -> float:
+	if body.look == "Sun":
+		var band: float = world.SUN_HEAT_RADII if "SUN_HEAT_RADII" in world else 4.0
+		return body.radius * (1.0 + band) + size + 250.0
+	return body.radius + size + 500.0
+
+
+func _sun_safe_radius(sun: Node2D) -> float:
+	return _clearance(sun)
+
+
+## The first body (other than the destination) whose clearance circle the
+## straight line to `to` cuts, or null when the way is clear.
+func _first_blocker(to: Vector2) -> Node2D:
 	if world == null:
-		return false
+		return null
 	var dir := to.normalized()
 	var length := to.length()
+	var best: Node2D = null
+	var best_along := INF
 	for p in world.planets:
 		if p == nav_target:
 			continue
 		var rel: Vector2 = p.global_position - global_position
 		var along := rel.dot(dir)
-		if along <= 0.0 or along >= length:
+		if along <= 0.0 or along >= length or along >= best_along:
 			continue
-		if absf(rel.cross(dir)) < p.radius + 500.0:
-			return true
-	return false
+		if absf(rel.cross(dir)) < _clearance(p):
+			best = p
+			best_along = along
+	return best
+
+
+func _body_in_path(to: Vector2) -> bool:
+	return _first_blocker(to) != null
+
+
+## The vector autopilot actually flies along: straight to the target, or,
+## when a body lies across that line, to a waypoint beside it that slides
+## round the body as we go.  Inside the Sun's safe radius: straight out.
+func _route(to: Vector2) -> Dictionary:
+	if world == null:
+		return {"to": to, "detour": false}
+	var sun: Node2D = world.planet_by_name.get("Sol", null) if "planet_by_name" in world else null
+	if sun != null and sun != nav_target:
+		var out: Vector2 = global_position - sun.global_position
+		if out.length() < _clearance(sun):
+			return {"to": out.normalized() * 1500.0, "detour": true, "around": sun}
+	var leg := to
+	var around: Node2D = null
+	# the leg to a waypoint can itself cross another body: route round that first
+	for _i in 3:
+		var body := _first_blocker(leg)
+		if body == null or body == around:
+			break
+		around = body
+		var rel: Vector2 = body.global_position - global_position
+		var perp := leg.normalized().orthogonal()
+		if perp.dot(-rel) < 0.0:
+			perp = -perp                # pass on the side we are already on
+		if absf(perp.dot(-rel)) < 1.0 and get_instance_id() % 2 == 0:
+			perp = -perp                # dead on the line: pick a side and keep it
+		leg = body.global_position + perp * _clearance(body) * 1.6 - global_position
+	if around == null:
+		return {"to": to, "detour": false}
+	return {"to": leg, "detour": true, "around": around}
 
 
 func _autopilot(delta: float) -> void:
 	var to := nav_target.global_position - global_position
 	var dist: float = to.length() - nav_target.radius
+	var route := _route(to)
+	if route["detour"]:
+		# fly the detour at speed; arrival logic waits until the way is clear
+		var wv: Vector2 = route["to"]
+		# steer the velocity, not just the nose, so sunward drift is cancelled
+		var want: Vector2 = wv.normalized() * max_speed * 2.0 - velocity
+		var wdiff := wrapf(want.angle() - rotation, -PI, PI)
+		inputs["turn"] = clampf(wdiff * 3.0, -1.0, 1.0)
+		inputs["thrust"] = 1.0 if absf(wdiff) < 0.7 else 0.25
+		inputs["brake"] = false
+		warp_block = maxf(warp_block - delta, 0.0)
+		if wv.length() > 3500.0 and absf(wrapf(wv.angle() - rotation, -PI, PI)) < 0.15 and qdrv > 0.0 and energy > 400.0 \
+				and warp_block <= 0.0 and not _body_in_path(wv):
+			start_warp()
+		var around: Node2D = route["around"]
+		if get_meta("detour_around", null) != around and world != null:
+			set_meta("detour_around", around)
+			world.notify(self, "Autopilot: routing around %s." % ("the Sun" if around.look == "Sun" else around.body_name))
+		return
+	if has_meta("detour_around"):
+		remove_meta("detour_around")
 	var desired := to.angle()
 	var diff := wrapf(desired - rotation, -PI, PI)
 	inputs["turn"] = clampf(diff * 3.0, -1.0, 1.0)

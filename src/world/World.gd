@@ -754,7 +754,8 @@ func _respawns() -> void:
 			Net.host_ship_respawned(s)
 			if s.is_player:
 				player_respawned.emit()
-				notify(s, "Launched from %s." % home.body_name)
+				var base := starbase_of(s.race_id)
+				notify(s, ("Launched from the %s starbase at %s." % [GameData.race(s.race_id)["name"], home.body_name]) if base != null else ("Launched from %s." % home.body_name))
 		else:
 			keep.append(entry)
 	respawn_queue = keep
