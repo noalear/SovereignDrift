@@ -1,4 +1,32 @@
+# Godot 4 cache and editor state
 .godot/
+.import/
+*.tmp
+*.translation
+
+# Export output and per-machine export secrets
 build/
+export_credentials.cfg
+*.pck
+*.exe
+*.zip
+
+# Godot imports: keep the .import sidecars of committed assets
 *.import
 !assets/**/*.import
+
+# C# / Mono (not used yet)
+.mono/
+data_*/
+mono_crash.*.json
+
+# Android build template
+/android/
+
+# OS and editor clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.vscode/
+.idea/

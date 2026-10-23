@@ -1,17 +1,80 @@
 # Stellar Frontier — Remake
 
-A ground-up, modern remake of Stellar Frontier (Stardock, 1997). This branch
-starts clean: none of the original code or art is carried over. The only
-assets brought across are the new music made for the Enhanced Edition.
+A ground-up, modern remake of Stellar Frontier (Stardock, 1997), built in
+Godot 4.5. The gameplay is reimagined rather than ported rule for rule: mouse
+and right-stick aimed turrets, full gamepad support, dynamic music that
+follows combat intensity, and a camera that reacts to speed, warp and hits.
+None of the original code or art is carried over; all ship, planet and effect
+art is procedural, and the only assets brought across are the new music made
+for the Enhanced Edition.
 
-The faithful port lives on other branches of this repository:
+## Branches
 
-- `master` (tag `original-1.0`): the original edition, an exact copy of the
-  1997 game running on Godot 4.
-- `improved`: the Enhanced Edition (launcher, any resolution, Ogg music
-  modes, LAN multiplayer in progress).
+| Branch | What it holds |
+|---|---|
+| `remake` | This remake (Godot 4.5, GDScript). |
+| `master` (tag `original-1.0`) | The original edition, an exact copy of the 1997 game running on Godot 4. |
+| `improved` | The Enhanced Edition: launcher, any resolution, Ogg music modes, LAN multiplayer in progress. |
 
-## Music carried over
+## Running it
+
+1. Install [Godot 4.5](https://godotengine.org/download) (standard build, not .NET).
+2. Open `project.godot` in the editor and press F5, or run
+   `godot --path .` from the repository root.
+
+The project uses the GL Compatibility renderer, so it runs on older GPUs too.
+Press H or F1 in game for the controls card.
+
+### Controls (keyboard and mouse)
+
+| Key | Action |
+|---|---|
+| W / S, A / D, Q / E | Thrust / reverse, turn, strafe |
+| Shift, X, J | Boost, brake, quantum drive (warp) |
+| Mouse | Aim turrets |
+| Space / LMB, Ctrl / RMB | Torpedoes, secondary weapon |
+| F, M, L, C | Seeking missiles, mine, laser, cloak |
+| T / Tab, R, Shift+click | Next target, nearest enemy, target under cursor |
+| N, G, U | Next nav planet, autopilot to it, refit at your starbase |
+| F9, Alt+Enter, Esc | Next song, full screen, menu |
+
+On a gamepad the left stick flies, the right stick aims, RT/LT fire.
+
+## Layout
+
+```
+project.godot          project settings and input map
+src/Main.gd/.tscn      entry scene
+src/autoload/          Settings, GameData (ship/module data), Music, Sfx
+src/ships/             Ship, ShipArt, AIPilot, PlayerController
+src/world/             World, Planet (+ planet.gdshader), Starfield, Fx, Powerup
+src/weapons/           Missile
+src/ui/                MainMenu, HUD
+tools/                 smoke test and screenshot scripts
+assets/music/          Ogg soundtrack (see below)
+```
+
+## Testing
+
+```sh
+# 100-second scripted battle, headless; fails on script errors
+godot --headless --path . -s tools/smoke.gd
+
+# Screenshots of the menu and game screens (needs a display or xvfb-run)
+godot --path . --rendering-driver opengl3 -s tools/screenshot.gd
+```
+
+## Building
+
+Export templates for Godot 4.5 must be installed. Then:
+
+```sh
+godot --headless --path . --export-release "Windows Desktop" build/windows/StellarFrontier.exe
+```
+
+The executable has the game data embedded. `build/` is ignored by git.
+
+## Music
 
 `assets/music/remix/`: genre remixes of the eight original songs.
 
