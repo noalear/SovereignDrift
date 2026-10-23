@@ -159,9 +159,11 @@ func _build_weapons() -> void:
 	has_turret = false
 	for w in design["weapons"]:
 		var m: Dictionary = GameData.MODULES[w[0]]
+		# shots leave from the turret as drawn on the painted hull
+		var spot := ShipArt.weapon_spot(design["name"], race_id, size, w)
 		var entry := {
 			"id": w[0], "name": m["name"], "kind": m["func"],
-			"mount_angle": deg_to_rad(float(w[1])), "mount_radius": float(w[2]) + size * 0.5,
+			"mount_angle": spot.angle(), "mount_radius": spot.length(),
 			"fire_angle": deg_to_rad(float(w[3])),
 			"arc0": deg_to_rad(float(w[4])), "arc1": deg_to_rad(float(w[5])),
 			"cooldown": 0.0, "cost": 0.0, "ammo": -1, "missile": "", "slot": "primary",
