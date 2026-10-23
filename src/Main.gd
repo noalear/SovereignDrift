@@ -18,9 +18,49 @@ func _ready() -> void:
 	ui_layer.layer = 10
 	add_child(ui_layer)
 	_show_menu()
+	Net.session_ended.connect(_on_session_ended)
+	Net.status.connect(_on_net_status)
+	_start_from_command_line()
+
+
+## `--host` hosts a game on port 7777; `--join=1.2.3.4` joins one (after `--`
+## when run from the editor binary).  The Play online screen replaces this.
+func _start_from_command_line() -> void:
+	var args := OS.get_cmdline_user_args() + OS.get_cmdline_args()
+	for a in args:
+		if a == "--host":
+			Net.callsign = Settings.pilot_name
+			if Net.host() == OK:
+				_start_game()
+			return
+		if a.begins_with("--join="):
+			Net.callsign = Settings.pilot_name
+			var target: String = a.substr(7)
+			var port := Net.PORT
+			if ":" in target:
+				port = int(target.get_slice(":", 1))
+				target = target.get_slice(":", 0)
+			if Net.join(target, port) == OK:
+				Net.session_started.connect(_start_game, CONNECT_ONE_SHOT)
+			return
+
+
+func _on_net_status(text: String) -> void:
+	print(text)
+	if world != null:
+		world.notify_all(text, Color(0.7, 0.9, 1.0))
+
+
+func _on_session_ended(reason: String) -> void:
+	print(reason)
+	if world != null:
+		_close_pause()
+		_save_career()
+		_show_menu()
 
 
 func _show_menu() -> void:
+	Net.leave()
 	if world != null:
 		world.queue_free()
 		world = null

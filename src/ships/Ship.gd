@@ -78,6 +78,8 @@ var beam_targets := []             # beams fired this frame, for drawing
 var aim_point := Vector2.INF       # where the pilot wants turrets to point (world)
 var has_turret := false
 var last_hit_angle := 0.0
+var net_id := 0                    # online: the id the host and clients share
+var is_puppet := false             # online: shown from the host's snapshots, not simulated
 
 
 func setup(p_world: Node, p_design: String, p_race: int, p_pilot: String, p_ship_name: String) -> void:
@@ -233,6 +235,9 @@ func visible_to(viewer: Ship) -> bool:
 func _physics_process(delta: float) -> void:
 	if dead:
 		return
+	if is_puppet:
+		_puppet_step(delta)
+		return
 	if invulnerable > 0.0:
 		invulnerable -= delta
 	if hit_flash > 0.0:
@@ -296,6 +301,20 @@ func _fly(delta: float) -> void:
 		var vol := thrust_level * 0.9
 		engine_sound.volume_db = linear_to_db(clampf(vol * Settings.sfx_volume, 0.001, 1.0)) if vol > 0.02 else -80.0
 		engine_sound.pitch_scale = 0.8 + 0.5 * thrust_level + (0.4 if boosting else 0.0)
+
+
+## A puppet only keeps its looks fresh; the host moves it (see Net).
+func _puppet_step(delta: float) -> void:
+	if invulnerable > 0.0:
+		invulnerable -= delta
+	if hit_flash > 0.0:
+		hit_flash -= delta
+	cloak_alpha = lerpf(cloak_alpha, 0.12 if cloaked else 1.0, 4.0 * delta)
+	if engine_sound != null:
+		var vol := thrust_level * 0.9
+		engine_sound.volume_db = linear_to_db(clampf(vol * Settings.sfx_volume, 0.001, 1.0)) if vol > 0.02 else -80.0
+		engine_sound.pitch_scale = 0.8 + 0.5 * thrust_level
+	queue_redraw()
 
 
 func _warp(delta: float) -> void:

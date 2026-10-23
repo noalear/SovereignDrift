@@ -66,7 +66,12 @@ func _ready() -> void:
 	target_zoom = Settings.camera_zoom
 	camera.zoom = Vector2.ONE * target_zoom
 	_build_system()
-	_spawn_pilots()
+	if Net.is_client():
+		Net.client_attach(self)   # the ships come from the host
+	else:
+		_spawn_pilots()
+		if Net.is_host():
+			Net.host_attach(self)
 	camera.make_current()
 
 
@@ -219,6 +224,9 @@ func _physics_process(delta: float) -> void:
 	powerups = powerups.filter(func(p): return is_instance_valid(p))
 	for p in planets:
 		p.update_orbit(delta)
+	if Net.is_client():
+		Net.client_tick(delta)   # the host collides, scores and respawns
+		return
 	_collide_ships(delta)
 	_collide_missiles()
 	_collect_powerups()
@@ -451,10 +459,16 @@ func spawn_missile(owner: Node, missile_id: String, pos: Vector2, vel: Vector2, 
 	var race: int = owner.race_id if owner is Ship else owner.owner_race
 	m.setup(self, owner, race, missile_id, pos, vel, angle, target)
 	missiles.append(m)
+	Net.host_shot(m, owner, missile_id, pos, vel, angle)
 
 
 func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 	var pos := m.global_position
+	if Net.is_client():
+		# only looks; the host decides damage and tells us
+		fx.explosion(pos, (splash * 0.5) if splash > 0.0 else (6.0 + m.radius * 2.0), m.color, m.missile_id == "002")
+		return
+	Net.host_boom(m, pos, splash)
 	var attacker: Node = m.owner_ship if m.owner_ship != null and is_instance_valid(m.owner_ship) else null
 	if attacker == null:
 		attacker = m
@@ -527,6 +541,11 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 		if killer == player and not s.is_player:
 			Engine.time_scale = 0.25
 			slowmo = 0.12
+	if Net.is_client():
+		if s.is_player:
+			player_died.emit()
+		return   # drops, score and respawn are the host's
+	Net.host_ship_died(s, killer)
 	# the wreck leaves modules floating
 	var drops := 1 + (2 if big else 0) + (1 if randf() < 0.5 else 0)
 	var candidates := []
@@ -566,6 +585,7 @@ func _respawns() -> void:
 			else:
 				_place_at_home(s)
 				s.respawn(s.global_position, s.velocity)
+			Net.host_ship_respawned(s)
 			if s.is_player:
 				player_respawned.emit()
 				notify(s, "Launched from %s." % home.body_name)
@@ -668,10 +688,13 @@ func try_refit(s: Ship) -> void:
 func notify(s: Ship, text: String) -> void:
 	if s != null and s.is_player:
 		message.emit(text, Color(0.85, 0.9, 1.0))
+	else:
+		Net.relay_notify(s, text)
 
 
 func notify_all(text: String, color: Color) -> void:
 	message.emit(text, color)
+	Net.relay_notify_all(text, color)
 
 
 func zoom_by(factor: float) -> void:

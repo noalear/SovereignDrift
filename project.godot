@@ -19,6 +19,7 @@ Settings="*res://src/autoload/Settings.gd"
 GameData="*res://src/autoload/GameData.gd"
 Music="*res://src/autoload/Music.gd"
 Sfx="*res://src/autoload/Sfx.gd"
+Net="*res://src/net/Net.gd"
 
 [display]
 
