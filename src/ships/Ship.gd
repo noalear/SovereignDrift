@@ -12,6 +12,8 @@ signal died(ship: Ship, killer: Node)
 signal damaged(ship: Ship, amount: float)
 signal rank_changed(ship: Ship, level: int)
 signal system_failed(ship: Ship, system: Dictionary, attacker: Node)
+signal touched_down(ship: Ship, planet: Planet)
+signal lifted_off(ship: Ship, planet: Planet)
 
 const BOOST_SPEED_MULT := 1.5
 const BOOST_ACCEL_MULT := 2.2
@@ -34,6 +36,16 @@ const ORBIT_MARGIN := 40.0
 ## Share of the crew a hull's worth of damage kills (beams burn through
 ## plating, not people: they pass a tenth of this, as in the original).
 const CREW_LOSS := 0.7
+
+## Landing: how slow (against the body) and how low a ship must be to start
+## down, how long the descent and the climb out take, and how small the
+## ship looks once it sits on the ground.
+const LAND_SPEED := 170.0
+const LAND_ALTITUDE := 360.0
+const DESCENT_TIME := 2.6
+const ASCENT_TIME := 2.0
+const LANDED_SCALE := 0.12
+enum Landing { NONE, DESCENDING, LANDED, ASCENDING }
 
 var world: Node = null
 var design_name := "Scout"
@@ -131,6 +143,18 @@ var shield_bubble: ShieldBubble
 var net_id := 0                    # online: the id the host and clients share
 var is_puppet := false             # online: shown from the host's snapshots, not simulated
 var docked := false                # in the shipyard: controls are off
+
+# landing and colonists
+var landing := Landing.NONE
+var land_body: Planet = null       # the world we are landing on, sitting on or leaving
+var land_t := 0.0                  # 0..1 through the descent or the climb
+var land_from := Vector2.ZERO      # offset from the body's centre where the move began
+var land_spot := Vector2.ZERO      # offset from the body's centre of the landing site
+var land_rot := 0.0
+var land_scale := 1.0              # drawn size: shrinks as the ship flies down into the world
+var colonists := 0.0               # people aboard
+var cabin := 0.0                   # people the hull can carry
+var transfer := 0                  # while landed: +1 boarding colonists, -1 putting them down
 var art_model: Dictionary = {}     # the sprite model, rebuilt on refit
 var hull_race := -1                # whose shipyard built the hull (the painting); -1: race_id
 
@@ -240,6 +264,8 @@ func refit(p_design: Variant) -> void:
 		# station-keeping thrusters only; the mass does the rest
 		thrust_force = mass * 8.0
 		burn_rate = engine_power * BURN_PER_ENGINE * 0.1
+	cabin = float(GameData.COLONIST_CABIN.get(design_name, 60)) * 1e6
+	colonists = minf(colonists, cabin)
 	fuel = fuel_max
 	crew_max = GameData.HULL_CREW.get(design_name, 10)
 	crew = crew_max
@@ -414,6 +440,8 @@ func is_cloaked_to(viewer: Node) -> bool:
 func visible_to(viewer: Ship) -> bool:
 	if viewer == self:
 		return true
+	if landing == Landing.LANDED:
+		return false                   # down on the surface, under the clouds
 	var d := global_position.distance_to(viewer.global_position)
 	if d > viewer.sensor_range * (0.25 if cloaked else 1.0):
 		return false
@@ -432,6 +460,8 @@ func _physics_process(delta: float) -> void:
 		invulnerable -= delta
 	if hit_flash > 0.0:
 		hit_flash -= delta
+	if Net.is_client() and landing != Landing.NONE:
+		_landing_visual(delta)        # the host moves us; we only shrink and grow
 	_systems(delta)
 	_weapons(delta)
 	queue_redraw()
@@ -441,8 +471,11 @@ func _physics_process(delta: float) -> void:
 ## the body (other code may have moved the ship) and apply this frame's
 ## engine and RCS forces.
 func pre_step(delta: float) -> void:
-	body.enabled = not dead
+	body.enabled = not dead and landing == Landing.NONE
 	if dead:
+		return
+	if landing != Landing.NONE:
+		_landing_step(delta)
 		return
 	body.pos = global_position
 	body.vel = velocity
@@ -455,7 +488,7 @@ func pre_step(delta: float) -> void:
 
 ## Called by the world after the step: take the simulated state back.
 func post_step(_delta: float) -> void:
-	if dead:
+	if dead or landing != Landing.NONE:
 		return
 	global_position = body.pos
 	velocity = body.vel
@@ -601,6 +634,8 @@ func _puppet_step(delta: float) -> void:
 	if hit_flash > 0.0:
 		hit_flash -= delta
 	cloak_alpha = lerpf(cloak_alpha, 0.12 if cloaked else 1.0, 4.0 * delta)
+	if landing != Landing.NONE:
+		_landing_visual(delta)
 	if engine_sound != null:
 		engine_sound.update(thrust_level, false, warping, delta)
 	queue_redraw()
@@ -627,6 +662,187 @@ func apply_hit_impulse(j: Vector2, at: Vector2) -> void:
 ## Take fuel aboard, up to the tank.
 func refuel(amount: float) -> void:
 	fuel = minf(fuel + amount, fuel_max)
+
+
+# -------------------------------------------------------------- landing
+
+## Why this ship cannot start down onto a body now, or "" when it can.
+func landing_refusal(p: Planet) -> String:
+	if p == null:
+		return "No world below to land on."
+	if is_station:
+		return "Starbases never land."
+	if not p.has_surface():
+		return ("You cannot land in the Sun." if p.look == "Sun" else "%s is a gas giant: there is no surface to land on." % p.body_name)
+	if warping:
+		return "Drop out of warp to land."
+	var alt := global_position.distance_to(p.global_position) - p.radius
+	if alt > LAND_ALTITUDE + size:
+		return "Too high to land on %s: fly closer." % p.body_name
+	if (velocity - p.velocity).length() > LAND_SPEED:
+		return "Too fast to land on %s: brake first (X)." % p.body_name
+	return ""
+
+
+func is_landed() -> bool:
+	return landing == Landing.LANDED
+
+
+func is_landing() -> bool:
+	return landing != Landing.NONE
+
+
+## Fly down into a world.  The ship rides the body's orbit from here on,
+## shrinking as it drops toward the landing site below it.
+func start_landing(p: Planet) -> void:
+	landing = Landing.DESCENDING
+	land_body = p
+	land_t = 0.0
+	land_from = global_position - p.global_position
+	land_spot = land_from.normalized() * p.radius * 0.72
+	land_rot = rotation
+	autopilot = false
+	transfer = 0
+	if cloaked:
+		set_cloak(false)
+	body.enabled = false
+	Sfx.play("dock", global_position, 0.6, 0.85)
+
+
+## Climb back out to a parking orbit above the landing site.
+func start_takeoff() -> void:
+	if landing != Landing.LANDED:
+		return
+	var p := land_body
+	land_t = 0.0
+	landing = Landing.ASCENDING
+	land_from = land_spot
+	land_spot = land_spot.normalized() * (p.radius + size * 2.0 + 110.0)
+	land_rot = rotation
+	transfer = 0
+	Sfx.play("warpexit", global_position, 0.5, 1.25)
+
+
+static func _ease(x: float) -> float:
+	return x * x * (3.0 - 2.0 * x)
+
+
+func _landing_step(delta: float) -> void:
+	var p := land_body
+	if p == null or not is_instance_valid(p):
+		_end_landing()
+		return
+	for k in inputs.keys():
+		if k != "boost":
+			inputs[k] = false if typeof(inputs[k]) == TYPE_BOOL else 0.0
+	match landing:
+		Landing.DESCENDING:
+			land_t = minf(land_t + delta / DESCENT_TIME, 1.0)
+			var e := _ease(land_t)
+			global_position = p.global_position + land_from.lerp(land_spot, e)
+			# nose down toward the site, engines throttling back
+			rotation = lerp_angle(land_rot, (-land_spot).angle(), minf(land_t * 1.6, 1.0))
+			thrust_level = lerpf(0.6, 0.0, land_t)
+			if land_t >= 1.0:
+				landing = Landing.LANDED
+				touched_down.emit(self, p)
+		Landing.LANDED:
+			global_position = p.global_position + land_spot
+			thrust_level = 0.0
+		Landing.ASCENDING:
+			land_t = minf(land_t + delta / ASCENT_TIME, 1.0)
+			var e := _ease(land_t)
+			global_position = p.global_position + land_from.lerp(land_spot, e)
+			var out := land_spot.normalized()
+			rotation = lerp_angle(land_rot, out.orthogonal().angle(), minf(land_t * 1.4, 1.0))
+			thrust_level = lerpf(1.0, 0.5, land_t)
+			if land_t >= 1.0:
+				_end_landing()
+				# into a parking orbit above the site, under our own power
+				var v := p.velocity
+				if world != null and world.space != null and p.body != null:
+					v = world.space.circular_orbit_velocity(p.body, global_position)
+				velocity = v
+				rotation = (v - p.velocity).angle() if v != p.velocity else out.orthogonal().angle()
+				body.pos = global_position
+				body.vel = velocity
+				body.angle = rotation
+				body.ang_vel = 0.0
+				lifted_off.emit(self, p)
+				return
+	velocity = p.velocity
+	land_scale = _landing_scale()
+	scale = Vector2.ONE * land_scale
+	body.pos = global_position
+	body.vel = velocity
+	if engine_sound != null:
+		engine_sound.update(thrust_level, false, false, delta)
+
+
+## Size on screen through the move: full size up high, a speck on the ground.
+func _landing_scale() -> float:
+	match landing:
+		Landing.DESCENDING:
+			return lerpf(1.0, LANDED_SCALE, _ease(land_t))
+		Landing.LANDED:
+			return LANDED_SCALE
+		Landing.ASCENDING:
+			return lerpf(LANDED_SCALE, 1.0, _ease(land_t))
+	return 1.0
+
+
+## Online clients: the host flies the ship, this only shrinks and grows it.
+func _landing_visual(delta: float) -> void:
+	if landing == Landing.DESCENDING:
+		land_t = minf(land_t + delta / DESCENT_TIME, 1.0)
+	elif landing == Landing.ASCENDING:
+		land_t = minf(land_t + delta / ASCENT_TIME, 1.0)
+		if land_t >= 1.0:
+			landing = Landing.NONE
+	land_scale = _landing_scale()
+	scale = Vector2.ONE * land_scale
+
+
+## Back in space at once, in orbit above the site (a human takes the seat
+## of a computer pilot that was down on a world).
+func leave_ground_now() -> void:
+	if landing == Landing.NONE:
+		return
+	var p := land_body
+	var out := land_spot.normalized() if land_spot != Vector2.ZERO else Vector2.RIGHT
+	_end_landing()
+	if p == null or not is_instance_valid(p):
+		return
+	global_position = p.global_position + out * (p.radius + size * 2.0 + 110.0)
+	velocity = world.space.circular_orbit_velocity(p.body, global_position) if world != null and p.body != null else p.velocity
+	rotation = out.orthogonal().angle()
+	body.pos = global_position
+	body.vel = velocity
+	body.angle = rotation
+	body.ang_vel = 0.0
+
+
+func _end_landing() -> void:
+	landing = Landing.NONE
+	land_t = 0.0
+	land_scale = 1.0
+	scale = Vector2.ONE
+	transfer = 0
+	body.enabled = not dead
+
+
+## How hot the air is on the way down, 0..1, for the re-entry glow.
+func reentry_heat() -> float:
+	if land_body == null or landing == Landing.NONE or landing == Landing.LANDED:
+		return 0.0
+	var air: float = 0.0
+	match land_body.look:
+		"Venus", "Titan": air = 1.0
+		"Earth": air = 0.85
+		"Mars": air = 0.4
+		_: air = 0.0
+	var e := land_t if landing == Landing.DESCENDING else 1.0 - land_t
+	return air * clampf(sin(e * PI) * 1.4, 0.0, 1.0)
 
 
 func _warp(delta: float) -> void:
@@ -911,7 +1127,7 @@ func _weapons(delta: float) -> void:
 					want = inputs["fire_mine"]
 				"beam":
 					want = inputs["fire_beam"]
-		if not want or warping:
+		if not want or warping or landing != Landing.NONE:
 			continue
 		if systems.is_offline("w%d" % w["index"]):
 			continue
@@ -1023,6 +1239,8 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_mult: float = 1.0, focus: String = "", crew_mult: float = 1.0) -> void:
 	if dead or invulnerable > 0.0:
 		return
+	if land_scale < 0.5:
+		return                         # down in the atmosphere, out of the fight
 	if attacker is Ship and attacker != self:
 		last_attacker = attacker
 		last_attacked_at = Time.get_ticks_msec() / 1000.0
@@ -1095,6 +1313,10 @@ func _die(killer: Node) -> void:
 	boarding = null
 	board_progress = 0.0
 	boarded_by = null
+	colonists = 0.0                    # the colonists go down with the ship
+	if landing != Landing.NONE:
+		_end_landing()
+		body.enabled = false
 	set_cloak(false)
 	warping = false
 	if engine_sound != null:
@@ -1109,6 +1331,8 @@ func _die(killer: Node) -> void:
 func respawn(at: Vector2, vel: Vector2) -> void:
 	dead = false
 	captured = false
+	if landing != Landing.NONE:
+		_end_landing()
 	refit(design)
 	global_position = at
 	velocity = vel
@@ -1260,6 +1484,18 @@ func _draw() -> void:
 		draw_line(Vector2.ZERO, to, c, 3.0, true)
 		draw_line(Vector2.ZERO, to, Color(1, 1, 1, 0.5), 1.0, true)
 	# the shield is drawn by shield_bubble
+	if is_player and landing == Landing.LANDED:
+		# where you are on the ground: a beacon round the speck
+		var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 220.0)
+		var bc := race_color()
+		bc.a = 0.5 + 0.4 * pulse
+		draw_arc(Vector2.ZERO, size * (2.6 + pulse * 0.8), 0, TAU, 32, bc, size * 0.35, true)
+	var heat := reentry_heat()
+	if heat > 0.01:
+		# re-entry: a hot bow wave on the leading face, toward the ground
+		for i in 3:
+			var hc := Color(1.0, 0.55 - i * 0.12, 0.2, heat * (0.55 - i * 0.15))
+			draw_arc(Vector2.ZERO, size * (1.05 + i * 0.22), -0.9 + i * 0.1, 0.9 - i * 0.1, 20, hc, size * (0.16 - i * 0.03), true)
 	# turret arcs for the pilot's own ship
 	if is_player and Settings.mouse_aim and aim_point != Vector2.INF:
 		for w in weapons:

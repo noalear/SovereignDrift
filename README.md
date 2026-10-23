@@ -36,6 +36,7 @@ Press H or F1 in game for the controls card.
 | F, M, L, C | Seeking missiles, mine, laser, cloak |
 | T / Tab, R, Shift+click | Next target, nearest enemy, target under cursor |
 | N, G, U | Next nav planet, autopilot to it, refit at your starbase |
+| B, 1, 2 | Land on the world below / lift off; take colonists on; put them down (join, settle, invade). In flight 1 and 2 select weapon groups |
 | K | Board a disabled target (shoot out its engines or reactor first) |
 | V | Flight assist on/off (the thrusters hold your turn and stop a tumble) |
 | F9, Alt+Enter, Esc | Next song, full screen, menu |

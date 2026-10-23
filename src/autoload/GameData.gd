@@ -313,6 +313,47 @@ const COLONY_DESIGNS := {
 ## Where each race's starbase sits (a moon or planet of theirs).
 const STARBASES := {0: "Titan", 1: "Earth", 2: "Mars"}
 
+# ------------------------------------------------------------ colonists
+# The original moved populations as colonies carried in a ship's dock: a
+# pilot orbited a friendly colony, took colonists aboard, and dropped them
+# on another world, where they settled it, joined the colony there, or
+# fought its people.  Here a ship lands to take them on or put them down.
+
+## Temperature (K) each race thrives at; habitability falls away from it.
+const RACE_PREF_TEMP := {0: 160, 1: 300, 2: 380, 3: 180}
+## Colonists a hull's cabin holds, in millions.  Starbases never land.
+const COLONIST_CABIN := {
+	"Scout": 40, "Destroyer": 80, "Raider": 80, "Marauder": 100, "Cruiser": 160,
+	"BattleCruiser": 200, "Battleship": 250, "Dreadnought": 400, "Freighter": 800, "Starbase": 0,
+}
+## An invading colony fights as if it were this many times its size (the
+## original's offensive_factor of 200%).  Defenders behind their shields
+## fight it on even terms.
+const OFFENSIVE_FACTOR := 2.0
+## A colony this small dies out; one this big runs Minor, then Major defences.
+const MIN_COLONY := 1000000
+const MINOR_COLONY := 150000000
+const MAJOR_COLONY := 1000000000
+
+
+## People shown the way the original did: 3.0 B, 250 M, 40 K.
+static func fmt_pop(n: float) -> String:
+	if n >= 1e9:
+		return "%.1f B" % (n / 1e9)
+	if n >= 1e6:
+		return "%d M" % int(round(n / 1e6))
+	if n >= 1e3:
+		return "%d K" % int(round(n / 1e3))
+	return str(int(n))
+
+
+## How well a race lives at a temperature, 0.02..1: the original's
+## temperature correlation, softened so harsh worlds still hold a few.
+static func climate(race_id: int, temperature: float) -> float:
+	var pref: float = RACE_PREF_TEMP.get(race_id, 300)
+	var off := absf(log(maxf(temperature, 1.0) / pref))
+	return clampf(1.0 - off * 1.2, 0.02, 1.0)
+
 
 static func race(id: int) -> Dictionary:
 	return RACES[clampi(id, 0, RACES.size() - 1)]

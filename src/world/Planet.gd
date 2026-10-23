@@ -1,8 +1,21 @@
 ## Planet -- a star, planet, moon or asteroid.  Orbits its parent, pulls
-## with gravity, and, when colonised, shoots at enemies and can be
-## captured.
+## with gravity, and, when colonised, grows its people, shoots at enemies,
+## and can be knocked out and invaded.  Ships land on bodies with a
+## surface to take colonists on or put them down (see Ship.start_landing).
 class_name Planet
 extends Node2D
+
+## Seconds a colony's defences stay down after its hull falls (bombardment
+## keeps them down).
+const SILENCE_TIME := 30.0
+## The capture rule: false means a colony whose hull falls is only knocked
+## out, and changes hands when colonists land and win; true brings back
+## the old surrender on the spot.
+const SURRENDER_ON_HULL := false
+## Logistic growth toward the world's optimum, per second.
+const GROWTH_RATE := 0.004
+## Share of the people killed per point of damage once the defences are down.
+const POP_KILL_PER_DAMAGE := 0.00004
 
 const WHITE_TEX_SIZE := 4
 static var white_tex: ImageTexture = null
@@ -19,7 +32,7 @@ var mass := 1.0
 var radius := 40.0
 var look := "Mercury"
 var temperature := 300
-var habitable := 0
+var habitable := 0              # hydrosphere, percent (the original's hydpc): 100 is a gas giant
 var velocity := Vector2.ZERO    # orbital velocity, for leading shots
 var accel := Vector2.ZERO       # the rail's acceleration (centripetal, plus the parent's)
 var body: PhysicsBody = null    # the world's solid, kinematic circle for this body
@@ -27,7 +40,9 @@ var body: PhysicsBody = null    # the world's solid, kinematic circle for this b
 # colony
 var owner_race := -1
 var colony_design := ""
-var population := 0
+var population := 0.0
+var silenced := 0.0             # defences down for this many seconds
+var _tier_pop := 0.0            # population when the defences were last fitted
 var shield := 0.0
 var shield_max := 0.0
 var hull := 0.0
@@ -145,10 +160,38 @@ func quad_extent() -> float:
 	return 2.6 if look == "Sun" else 1.5
 
 
-func set_colony(race: int, design: String, pop: int) -> void:
+## Solid ground to land on: not the Sun, not a gas giant.
+func has_surface() -> bool:
+	return look != "Sun" and habitable < 100
+
+
+## How many of a race this world can support: the original's size and
+## hydrosphere formula, times how well the race takes the climate.
+func optimal_population(race_id: int) -> float:
+	if not has_surface():
+		return 0.0
+	var size := radius * radius * radius * (100.0 - habitable) * (4.0 if habitable > 0 else 1.0)
+	return size * 134.0 * GameData.climate(race_id, temperature)
+
+
+static func design_for(pop: float) -> String:
+	if pop >= GameData.MAJOR_COLONY:
+		return "Major"
+	if pop >= GameData.MINOR_COLONY:
+		return "Minor"
+	return "Outpost"
+
+
+static func _tier(design: String) -> int:
+	return ["Outpost", "Minor", "Major"].find(design)
+
+
+func set_colony(race: int, design: String, pop: float) -> void:
 	owner_race = race
 	colony_design = design
 	population = pop
+	_tier_pop = pop
+	silenced = 0.0
 	weapons.clear()
 	if design == "":
 		shield_max = 0.0
@@ -175,6 +218,45 @@ func set_colony(race: int, design: String, pop: int) -> void:
 
 func is_colonised() -> bool:
 	return owner_race >= 0 and colony_design != ""
+
+
+## The colony died out or was wiped out: an empty world again.
+func clear_colony() -> void:
+	set_colony(-1, "", 0.0)
+
+
+## Settlers found a colony here.
+func found_colony(race: int, pop: float) -> void:
+	set_colony(race, design_for(pop), pop)
+	hull = hull_max * 0.5
+	shield = shield_max * 0.5
+
+
+## Defences down: the guns are silent and the shields are out.
+func is_defenceless() -> bool:
+	return is_colonised() and (silenced > 0.0 or hull <= 0.0)
+
+
+## A growing colony earns better defences; the hull keeps its share.
+func _check_tier() -> void:
+	var want := design_for(population)
+	if _tier(want) <= _tier(colony_design) or _tier(want) <= _tier(design_for(_tier_pop)):
+		return
+	var hf := hull / maxf(hull_max, 1.0)
+	var sf := shield / maxf(shield_max, 1.0)
+	var keep_silence := silenced
+	set_colony(owner_race, want, population)
+	hull = hull_max * hf
+	shield = shield_max * sf
+	silenced = keep_silence
+
+
+## The host grows the people toward the optimum (never past it).
+func _grow(delta: float) -> void:
+	var opt := optimal_population(owner_race)
+	if opt <= 0.0 or population >= opt or silenced > 0.0:
+		return
+	population = minf(population + GROWTH_RATE * population * (1.0 - population / opt) * delta, opt)
 
 
 func update_orbit(delta: float) -> void:
@@ -208,8 +290,13 @@ func _process(delta: float) -> void:
 		var l := (-global_position).normalized() if look != "Sun" else Vector2.RIGHT
 		material_.set_shader_parameter("light_dir", Vector2(l.x, -l.y))
 	if is_colonised():
+		if silenced > 0.0:
+			silenced = maxf(silenced - delta, 0.0)
+		if not Net.is_client():
+			_grow(delta)
+			_check_tier()
 		_defend(delta)
-		if shield < shield_max and under_attack <= 0.0:
+		if shield < shield_max and under_attack <= 0.0 and silenced <= 0.0:
 			shield = minf(shield + shield_max * 0.04 * delta, shield_max)
 		if hull < hull_max and under_attack <= 0.0:
 			hull = minf(hull + hull_max * 0.01 * delta, hull_max)
@@ -219,6 +306,8 @@ func _process(delta: float) -> void:
 func _defend(delta: float) -> void:
 	if "practice" in world and world.practice:
 		return                          # practice: the colonies hold their fire
+	if is_defenceless():
+		return                          # knocked out: the guns are silent
 	var enemy: Ship = world.nearest_enemy_ship(global_position, owner_race, defence_range + radius)
 	for w in weapons:
 		w["cooldown"] -= delta
@@ -263,22 +352,38 @@ func take_damage(amount: float, attacker: Node, _at: Vector2 = Vector2.ZERO) -> 
 		var absorbed := minf(shield, remaining)
 		shield -= absorbed
 		remaining -= absorbed
-	if remaining > 0.0:
+	if remaining <= 0.0:
+		return
+	var winner: int = attacker.race_id if attacker is Ship else -1
+	if hull > 0.0:
 		hull -= remaining
-	if hull <= 0.0:
-		var winner: int = attacker.race_id if attacker is Ship else -1
-		if winner >= 0:
-			world.planet_captured(self, winner, attacker)
+		if hull <= 0.0:
+			hull = 0.0
+			if SURRENDER_ON_HULL:
+				if winner >= 0:
+					world.planet_captured(self, winner, attacker)
+			else:
+				silenced = SILENCE_TIME
+				shield = 0.0
+				if world.has_method("colony_knocked_out"):
+					world.colony_knocked_out(self, attacker)
+		return
+	# defences down: the shots fall on the cities, and keep the guns quiet
+	silenced = SILENCE_TIME
+	if Net.is_client():
+		return
+	population -= maxf(population * POP_KILL_PER_DAMAGE * remaining, 2000.0 * remaining)
+	if population < GameData.MIN_COLONY and world.has_method("colony_wiped_out"):
+		world.colony_wiped_out(self, attacker)
 
 
-func surrender_to(race: int) -> void:
-	owner_race = race
-	hull = hull_max * 0.4
-	shield = shield_max * 0.3
-	population = int(population * 0.6)
+## New owners: by invasion (`pop` is what is left of the invaders) or by
+## the old surrender rule (the people stay, fewer of them).
+func surrender_to(race: int, pop: float = -1.0) -> void:
+	var people := pop if pop >= 0.0 else population * 0.6
 	under_attack = 0.0
 	# the new owners rebuild the defences in their own colours
-	set_colony(race, colony_design, population)
+	set_colony(race, design_for(people) if pop >= 0.0 else colony_design, people)
 	hull = hull_max * 0.4
 	shield = shield_max * 0.3
 
@@ -296,7 +401,15 @@ func _draw() -> void:
 		if hit_flash > 0.0:
 			rc = rc.lerp(Color.WHITE, 0.6)
 		rc.a = 0.9
-		draw_arc(Vector2.ZERO, radius + 10.0, 0, TAU, 64, rc, 2.5, true)
+		if is_defenceless():
+			# knocked out: the ring breaks up and flickers
+			var flick := 0.35 + 0.25 * sin(Time.get_ticks_msec() / 90.0)
+			var dc := Color(rc.r, rc.g, rc.b, flick)
+			for i in 12:
+				var a0 := TAU * i / 12.0
+				draw_arc(Vector2.ZERO, radius + 10.0, a0, a0 + TAU / 24.0, 8, dc, 2.5, true)
+		else:
+			draw_arc(Vector2.ZERO, radius + 10.0, 0, TAU, 64, rc, 2.5, true)
 		# colony lights
 		var dots := 3 if colony_design == "Outpost" else (5 if colony_design == "Minor" else 8)
 		for i in dots:

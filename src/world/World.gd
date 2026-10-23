@@ -359,6 +359,8 @@ func _make_ship(pilot: String, race_id: int, design: String, ship_name: String, 
 	s.damaged.connect(_on_ship_damaged)
 	s.rank_changed.connect(_on_rank_changed)
 	s.system_failed.connect(_on_system_failed)
+	s.touched_down.connect(_on_touched_down)
+	s.lifted_off.connect(_on_lifted_off)
 	ships.append(s)
 	space.add_body(s.body)
 	return s
@@ -526,6 +528,7 @@ func _physics_process(delta: float) -> void:
 	_sun_warning(delta)
 	_collide_missiles()
 	_collect_powerups()
+	_landed_ships(delta)
 	_refuel(delta)
 	capture.tick(delta)
 	_respawns()
@@ -616,7 +619,7 @@ func nearest_enemy_ship(pos: Vector2, race_id: int, range_px: float, viewer: Shi
 	var best: Ship = null
 	var best_d := range_px
 	for s in ships:
-		if s.dead or s.race_id == race_id:
+		if s.dead or s.race_id == race_id or s.is_landing():
 			continue
 		if s.spoken_for(race_id):
 			continue      # a friend is taking that one alive
@@ -637,7 +640,7 @@ func nearest_known_enemy(viewer: Ship, range_px: float = 16000.0) -> Ship:
 	var best: Ship = null
 	var best_d := range_px
 	for s in ships:
-		if s.dead or s.race_id == viewer.race_id or s.is_station:
+		if s.dead or s.race_id == viewer.race_id or s.is_station or s.is_landing():
 			continue
 		var d := viewer.global_position.distance_to(s.global_position)
 		if d >= best_d:
@@ -660,7 +663,7 @@ func ship_at(pos: Vector2, tolerance: float) -> Ship:
 	var best: Ship = null
 	var best_d := INF
 	for s in ships:
-		if s.dead:
+		if s.dead or s.is_landed():
 			continue
 		var d := pos.distance_to(s.global_position)
 		if d < s.size + tolerance and d < best_d:
@@ -789,7 +792,7 @@ func _collide_missiles() -> void:
 			continue
 		var hit := false
 		for s in ships:
-			if s.dead or s == m.owner_ship:
+			if s.dead or s == m.owner_ship or s.is_landing():
 				continue
 			if s.race_id == m.owner_race:
 				continue      # no friendly fire, mines included
@@ -820,7 +823,7 @@ func raycast_beam(shooter: Node, origin: Vector2, dir: Vector2, range_px: float)
 	var best: Node2D = null
 	var shooter_race: int = shooter.race_id if "race_id" in shooter else shooter.owner_race
 	for s in ships:
-		if s.dead or s == shooter or s.race_id == shooter_race or s.warping:
+		if s.dead or s == shooter or s.race_id == shooter_race or s.warping or s.is_landing():
 			continue
 		var t := space.ray_body(origin, dir, s.body, best_t)
 		if t >= 0.0 and t < best_t:
@@ -1011,6 +1014,8 @@ func _refuel(delta: float) -> void:
 			s.crew = minf(s.crew + hands * delta, s.crew_max)
 			if s.is_player and was_crew < s.crew_max and s.crew >= s.crew_max:
 				notify(s, "Crew at full strength (%d)." % s.crew_max)
+		if s.is_landed() and s.land_body.is_colonised() and s.land_body.owner_race == s.race_id:
+			rate = maxf(rate, 0.15)       # the colony's spaceport fills the tanks
 		if rate > 0.0 and s.fuel < s.fuel_max:
 			s.refuelling = true
 			var was := s.fuel
@@ -1024,7 +1029,7 @@ func _collect_powerups() -> void:
 		if not is_instance_valid(p):
 			continue
 		for s in ships:
-			if s.dead or s.is_station:
+			if s.dead or s.is_station or s.is_landing():
 				continue
 			if s.global_position.distance_to(p.global_position) < s.size * 0.8 + 10.0:
 				var taken := false
@@ -1240,9 +1245,9 @@ func _on_rank_changed(s: Ship, level: int) -> void:
 		Settings.save_settings()
 
 
-func planet_captured(p: Planet, winner: int, attacker: Node) -> void:
+func planet_captured(p: Planet, winner: int, attacker: Node, people: float = -1.0) -> void:
 	var old := p.owner_race
-	p.surrender_to(winner)
+	p.surrender_to(winner, people)
 	Net.host_planet_captured(p, winner)
 	var mult := round_rules.bonus_multiplier() if round_rules != null else 1.0
 	if attacker is Ship:
@@ -1252,6 +1257,7 @@ func planet_captured(p: Planet, winner: int, attacker: Node) -> void:
 			var bonus := int(200 * mult)
 			attacker.earn(bonus)
 			notify(attacker, "Capture bonus: %d credits." % bonus)
+	Net.host_colony_changed(p)
 	if round_rules != null:
 		round_rules.on_capture(winner, p.body_name, old)
 	notify_all("%s surrendered to the %s%s." % [p.body_name, GameData.race(winner)["name"],
@@ -1307,6 +1313,211 @@ func _on_round_finished(result: Dictionary) -> void:
 	Sfx.play_ui("rankup", 1.0)
 	Net.host_round_over(result)
 	round_over.emit(result)
+
+
+# ------------------------------------------------- landing and colonists
+
+## The world a ship would land on: the nearest body's surface.
+func landing_body(s: Ship) -> Planet:
+	if s.is_landing():
+		return s.land_body
+	return nearest_body(s.global_position)
+
+
+## B: land on the world below, or lift off from it.  Computer pilots name
+## the world they mean (a moon can sit closer to its planet than the ship).
+func try_land(s: Ship, onto: Planet = null) -> void:
+	if s.dead:
+		return
+	if Net.is_client():
+		Net.client_command("land")
+		return
+	if s.is_landed():
+		s.start_takeoff()
+		notify(s, "Lifting off from %s." % s.land_body.body_name)
+		return
+	if s.is_landing():
+		return
+	var p := onto if onto != null else landing_body(s)
+	var why := s.landing_refusal(p)
+	if not why.is_empty():
+		notify(s, why)
+		return
+	s.start_landing(p)
+	Net.host_landing(s)
+	notify(s, "Landing on %s." % p.body_name)
+
+
+## 1 / 2 on the ground: take colonists aboard, or put them down.
+func colonist_command(s: Ship, boarding: bool) -> void:
+	if Net.is_client():
+		Net.client_command("colonists_board" if boarding else "colonists_unload")
+		return
+	if not s.is_landed():
+		notify(s, "Land on a world first (B).")
+		return
+	var p := s.land_body
+	var friendly := p.is_colonised() and p.owner_race == s.race_id
+	if boarding:
+		if not friendly:
+			notify(s, "Colonists only board from your own colonies.")
+		elif s.colonists >= s.cabin - 1.0:
+			notify(s, "The cabin is full: %s aboard." % GameData.fmt_pop(s.colonists))
+		elif spare_colonists(p) <= 0.0:
+			notify(s, "%s cannot spare any colonists (it needs %s to keep going)." % [p.body_name, GameData.fmt_pop(_colony_reserve(p))])
+		else:
+			s.transfer = 1
+			notify(s, "Colonists boarding from %s." % p.body_name)
+	else:
+		if s.colonists <= 0.0:
+			notify(s, "No colonists aboard. Take some on at one of your colonies (land, then 1).")
+		elif friendly:
+			s.transfer = -1
+			notify(s, "Colonists going ashore to join %s." % p.body_name)
+		else:
+			deliver_colonists(s, p)
+
+
+## What a colony keeps for itself: a quarter of what the world could hold.
+func _colony_reserve(p: Planet) -> float:
+	return maxf(10e6, p.optimal_population(p.owner_race) * 0.25)
+
+
+func spare_colonists(p: Planet) -> float:
+	if not p.is_colonised():
+		return 0.0
+	return maxf(p.population - _colony_reserve(p), 0.0)
+
+
+func _on_touched_down(s: Ship, p: Planet) -> void:
+	Net.host_landing(s)
+	Sfx.play("dock", s.global_position, 0.5, 0.7)
+	var friendly := p.is_colonised() and p.owner_race == s.race_id
+	if friendly:
+		if s.colonists <= 0.0 and s.cabin > 0.0 and spare_colonists(p) > 0.0:
+			s.transfer = 1
+			notify(s, "Landed on %s. Colonists are boarding (2 puts them back, B lifts off)." % p.body_name)
+		elif s.colonists > 0.0:
+			notify(s, "Landed on %s with %s colonists aboard: 2 puts them down here, 1 takes more on." % [p.body_name, GameData.fmt_pop(s.colonists)])
+		else:
+			notify(s, "Landed on %s: refuelling and repairing." % p.body_name)
+	elif s.colonists > 0.0:
+		deliver_colonists(s, p)
+	elif p.is_colonised():
+		notify(s, "Landed on the %s colony %s (%s people). Bring colonists to invade it." % [GameData.race(p.owner_race)["adj"], p.body_name, GameData.fmt_pop(p.population)])
+	else:
+		notify(s, "Landed on %s. Nobody lives here: bring colonists to settle it (room for %s)." % [p.body_name, GameData.fmt_pop(p.optimal_population(s.race_id))])
+
+
+func _on_lifted_off(s: Ship, _p: Planet) -> void:
+	Net.host_landing(s)
+
+
+## Landed ships: colonists board or go ashore, and a friendly spaceport
+## patches up the hull.
+func _landed_ships(delta: float) -> void:
+	for s in ships:
+		if s.dead or not s.is_landed():
+			continue
+		var p := s.land_body
+		var friendly := p.is_colonised() and p.owner_race == s.race_id
+		if friendly and s.hull < s.hull_max:
+			s.hull = minf(s.hull + s.hull_max * 0.03 * delta, s.hull_max)
+		if s.transfer == 0:
+			continue
+		if not friendly:
+			s.transfer = 0
+			continue
+		var step := s.cabin / 3.0 * delta
+		if s.transfer > 0:
+			var n := minf(minf(step, s.cabin - s.colonists), spare_colonists(p))
+			s.colonists += n
+			p.population -= n
+			if s.colonists >= s.cabin - 1.0 or spare_colonists(p) <= 0.0:
+				s.transfer = 0
+				notify(s, "%s colonists aboard%s. Land them on an empty world to settle it, or on an enemy colony to invade." % [GameData.fmt_pop(s.colonists),
+					"" if s.colonists >= s.cabin - 1.0 else " (all %s can spare)" % p.body_name])
+				Net.host_colony_changed(p)
+		else:
+			var n := minf(step, s.colonists)
+			s.colonists -= n
+			p.population += n
+			s.set_meta("delivered", float(s.get_meta("delivered", 0.0)) + n)
+			if s.colonists <= 0.0:
+				s.colonists = 0.0
+				s.transfer = 0
+				var total: float = s.get_meta("delivered", 0.0)
+				s.remove_meta("delivered")
+				var pay := int(total / 1e6)
+				s.earn(pay)
+				s.add_score(maxi(int(total / 20e6), 1), false)
+				notify(s, "%s colonists joined %s (now %s). %d credits." % [GameData.fmt_pop(total), p.body_name, GameData.fmt_pop(p.population), pay])
+				Net.host_colony_changed(p)
+
+
+## The colonists aboard land all at once on a world that is not ours: they
+## settle it if nobody lives there, or fight the people who do.
+func deliver_colonists(s: Ship, p: Planet) -> void:
+	var people := s.colonists
+	if people <= 0.0:
+		return
+	var mult := round_rules.bonus_multiplier() if round_rules != null else 1.0
+	var race_name: String = GameData.race(s.race_id)["name"]
+	s.colonists = 0.0
+	s.transfer = 0
+	if not p.is_colonised():
+		p.found_colony(s.race_id, people)
+		s.add_score(40, false)
+		s.captures += 1
+		var bonus := int(150 * mult)
+		s.earn(bonus)
+		notify(s, "Colony founded on %s: %s settlers. %d credits." % [p.body_name, GameData.fmt_pop(people), bonus])
+		notify_all("%s settled %s for the %s." % [s.pilot_name, p.body_name, race_name], GameData.race(s.race_id)["color"])
+		Sfx.play_ui("captured", 0.6)
+		if round_rules != null:
+			round_rules.on_settle(s.race_id, p.body_name)
+		Net.host_colony_changed(p)
+		planet_owner_changed.emit(p)
+		return
+	# invasion: the landing force fights at the offensive factor once the
+	# defences are down, on even terms against shields and guns
+	var factor := GameData.OFFENSIVE_FACTOR if p.is_defenceless() else 1.0
+	var attack := people * factor
+	if attack > p.population:
+		var survivors := maxf(people - p.population / factor, GameData.MIN_COLONY)
+		notify(s, "Invasion of %s succeeded: %s colonists hold it." % [p.body_name, GameData.fmt_pop(survivors)])
+		planet_captured(p, s.race_id, s, survivors)
+		return
+	p.population -= attack
+	var defenders: String = GameData.race(p.owner_race)["adj"]
+	if p.population < GameData.MIN_COLONY:
+		notify(s, "The invasion of %s failed, but it took the %s colony with it." % [p.body_name, defenders])
+		colony_wiped_out(p, s)
+		return
+	notify(s, "The invasion of %s was beaten back: %s defenders are left.%s" % [p.body_name, GameData.fmt_pop(p.population),
+		"" if p.is_defenceless() else " Knock its defences out first: invaders fight twice as hard then."])
+	Net.host_colony_changed(p)
+
+
+## A colony's hull fell: its guns go quiet and it can be invaded.
+func colony_knocked_out(p: Planet, attacker: Node) -> void:
+	if attacker is Ship:
+		attacker.add_score(10, false)
+	notify_all("%s's defences are down: land colonists on it to take it." % p.body_name, GameData.race(attacker.race_id)["color"] if attacker is Ship else Color(0.9, 0.9, 0.9))
+	Sfx.play("hit", p.global_position, 0.6, 0.6)
+	Net.host_colony_changed(p)
+
+
+## Bombarded or out-fought down to nobody: the world is empty again.
+func colony_wiped_out(p: Planet, by: Node) -> void:
+	var old := p.owner_race
+	p.clear_colony()
+	notify_all("The %s colony on %s is gone%s." % [GameData.race(old)["adj"], p.body_name,
+		(" (%s)" % by.pilot_name) if by is Ship else ""], Color(0.9, 0.75, 0.6))
+	if round_rules != null:
+		round_rules.note("%s colony on %s wiped out" % [GameData.race(old)["adj"], p.body_name], old)
+	Net.host_colony_changed(p)
+	planet_owner_changed.emit(p)
 
 
 # ----------------------------------------------------------- player aids
