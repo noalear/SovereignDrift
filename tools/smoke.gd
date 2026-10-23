@@ -62,6 +62,8 @@ func _process(_delta: float) -> bool:
 			_exercise_shipyard(w, p)
 		if frames == 2500:
 			_exercise_tactical_map(w)
+	if frames == 3000:
+		_check_starbases(w)
 	if frames == 5000:
 		_exercise_round(w)
 	if frames % 1000 == 0:
@@ -200,3 +202,18 @@ func _click(at: Vector2) -> void:
 		ev.position = at
 		ev.global_position = at
 		root.push_input(ev, true)
+
+
+## Starbases keep station by their home world, well outside the Sun's heat,
+## and a pilot who strays into the outer heat has seconds to turn away.
+func _check_starbases(w: World) -> void:
+	var sun: Planet = w.planet_by_name["Sol"]
+	var edge: float = sun.radius * (1.0 + w.SUN_HEAT_RADII)
+	for s in w.ships:
+		if s.is_station and not s.dead:
+			var home: Planet = w.planet_by_name[main.get_node("/root/GameData").STARBASES[s.race_id]]
+			var dh := s.global_position.distance_to(home.global_position)
+			var ds := s.global_position.distance_to(sun.global_position)
+			assert(dh < home.radius + 600.0, "%s drifted from its planet (%d)" % [s.pilot_name, dh])
+			assert(ds > edge, "%s is in the Sun's heat (%d)" % [s.pilot_name, ds])
+	print("starbases: on station, clear of the Sun's heat (edge %d)" % edge)

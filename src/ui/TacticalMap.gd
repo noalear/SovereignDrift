@@ -93,7 +93,8 @@ func _draw() -> void:
 		draw_arc(centre, p.orbit_radius * s, 0, TAU, 96, Color(0.3, 0.4, 0.6, 0.18), 1.0, true)
 	# the asteroid belt as one soft band
 	draw_arc(c, GameData.UNIVERSE_RADIUS * 0.268 * s, 0, TAU, 128, Color(0.5, 0.45, 0.35, 0.07), GameData.UNIVERSE_RADIUS * 0.03 * s, true)
-	# planets
+	# planets; labels are placed afterwards so they can dodge each other
+	var labels := []
 	for p in world.planets:
 		var pos := to_map(p.global_position)
 		var r := clampf(p.radius * s * 2.2, 2.0, 13.0)
@@ -111,7 +112,8 @@ func _draw() -> void:
 		if p == hover_planet or (player != null and p == player.nav_target):
 			draw_arc(pos, r + 8.0, 0, TAU, 32, Color.WHITE, 1.2, true)
 		if p.is_colonised() or p.body_class == "Planet" or p == hover_planet:
-			draw_string(font, pos + Vector2(r + 4.0, 4.0), p.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.85, 0.9, 1.0, 0.85 if p.is_colonised() else 0.5))
+			labels.append([p, pos, r])
+	_draw_labels(labels)
 	# what your own sensors reach: ships show only inside this circle;
 	# starbases are charted and always on the map
 	if player != null and not player.dead:
@@ -145,6 +147,39 @@ func _draw() -> void:
 	# the right column
 	_draw_side(Rect2(mr.end.x + 20.0, mr.position.y, vp.x - mr.end.x - 50.0, mr.size.y))
 	draw_string(font, Vector2(mr.position.x, mr.end.y + 24.0), "TACTICAL MAP   ships show inside your sensor range   click a planet to set the nav target   Tab closes", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DIM)
+
+
+## Planet names: planets first, then moons, each tried right, left, below
+## and above its dot; a moon whose name fits nowhere is left unlabelled
+## until hovered.
+func _draw_labels(labels: Array) -> void:
+	labels.sort_custom(func(a, b): return (0 if a[0].body_class == "Planet" else 1) < (0 if b[0].body_class == "Planet" else 1))
+	var taken: Array[Rect2] = []
+	for e in labels:
+		var p: Planet = e[0]
+		var pos: Vector2 = e[1]
+		var r: float = e[2]
+		taken.append(Rect2(pos - Vector2(r, r), Vector2(r, r) * 2.0))
+	for e in labels:
+		var p: Planet = e[0]
+		var pos: Vector2 = e[1]
+		var r: float = e[2]
+		var w := font.get_string_size(p.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+		var spots := [Vector2(r + 4.0, 4.0), Vector2(-r - 4.0 - w, 4.0), Vector2(-w * 0.5, r + 14.0), Vector2(-w * 0.5, -r - 5.0)]
+		var placed := false
+		for off in spots:
+			var rect := Rect2(pos + off + Vector2(0, -11), Vector2(w, 13))
+			var clash := false
+			for t in taken:
+				if t.intersects(rect) and not t.has_point(pos):
+					clash = true
+					break
+			if clash and p != hover_planet:
+				continue
+			taken.append(rect)
+			draw_string(font, pos + off, p.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.85, 0.9, 1.0, 0.85 if p.is_colonised() else 0.5))
+			placed = true
+			break
 
 
 func _dashed(a: Vector2, b: Vector2, col: Color) -> void:

@@ -171,10 +171,18 @@ func _choice(y: float, label: String, options: Array, current: Variant, setter: 
 	var x := vp.x * 0.5 - 300.0
 	draw_string(font, Vector2(x, y + 27), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(0.85, 0.9, 1.0))
 	var bx := x + 220.0
+	# numbers set by other means (the mouse-wheel zoom) light the nearest option
+	var match_value: Variant = current
+	if typeof(current) == TYPE_FLOAT:
+		var best := INF
+		for o in options:
+			if typeof(o[0]) in [TYPE_FLOAT, TYPE_INT] and absf(float(o[0]) - current) < best:
+				best = absf(float(o[0]) - current)
+				match_value = o[0]
 	for o in options:
 		var w := 20.0 + font.get_string_size(str(o[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
 		var rect := Rect2(bx, y, w, 40)
-		var selected: bool = o[0] == current
+		var selected: bool = o[0] == match_value
 		var idx := buttons.size()
 		buttons.append([rect, o[1], setter.bind(o[0]), true])
 		var lit := hover == idx or focus == idx

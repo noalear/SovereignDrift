@@ -265,7 +265,7 @@ func _fly(delta: float) -> void:
 	if s != 0.0:
 		acc += fwd.orthogonal() * a * 0.7 * s
 	if inputs["brake"] and velocity.length() > 1.0:
-		var brake := velocity.normalized() * a * brake_power * 1.5
+		var brake := velocity.normalized() * maxf(a * brake_power * 1.5, 170.0 * brake_power)
 		if brake.length() * delta > velocity.length():
 			velocity = Vector2.ZERO
 		else:
@@ -324,9 +324,13 @@ func _warp(delta: float) -> void:
 	if world != null:
 		var p: Node2D = world.nearest_body(global_position)
 		if p != null:
-			var d: float = global_position.distance_to(p.global_position) - p.radius
-			if d < wspeed * 0.35:
+			var to_body: Vector2 = p.global_position - global_position
+			var d: float = to_body.length() - p.radius
+			# only a body ahead of us stops the warp; leaving one is fine
+			if d < wspeed * 0.35 and velocity.dot(to_body) > 0.0:
 				end_warp()
+				if is_player:
+					world.notify(self, "Warp dropped: %s is dead ahead." % p.body_name)
 				return
 	if autopilot and nav_target != null and is_instance_valid(nav_target):
 		var to := nav_target.global_position - global_position
@@ -338,7 +342,18 @@ func _warp(delta: float) -> void:
 
 
 func start_warp() -> void:
-	if qdrv <= 0.0 or warping or cloaked or energy < 200.0:
+	if warping:
+		return
+	var why := ""
+	if qdrv <= 0.0:
+		why = "No quantum drive fitted."
+	elif cloaked:
+		why = "Can't warp while cloaked."
+	elif energy < 200.0:
+		why = "Not enough energy to warp (needs 200)."
+	if not why.is_empty():
+		if is_player and world != null:
+			world.notify(self, why)
 		return
 	warping = true
 	warp_charge = 0.0

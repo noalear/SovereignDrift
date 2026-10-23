@@ -344,8 +344,10 @@ func _draw_music(vp: Vector2) -> void:
 	draw_string(font, Vector2(vp.x * 0.5 - 300, vp.y - 36), text, HORIZONTAL_ALIGNMENT_CENTER, 600, 13, Color(0.9, 0.85, 1.0, a * 0.85))
 
 
-## An arrow on the screen edge to the current target when it is off
-## screen (R picks a fleet contact when nothing is in your own range).
+## Arrows on the screen edge when they are off screen: the current
+## target (red for an enemy), and your own starbase in green so you can
+## always find the shipyard.  Arrows slide inward to stay clear of the
+## HUD panels.
 func _draw_pointers(p: Ship, vp: Vector2) -> void:
 	if p.dead:
 		return
@@ -353,24 +355,46 @@ func _draw_pointers(p: Ship, vp: Vector2) -> void:
 	var marks := []
 	if p.target != null and is_instance_valid(p.target) and p.target is Ship and not p.target.dead:
 		var hostile: bool = p.target.race_id != p.race_id
-		marks.append([p.target, Color(1.0, 0.35, 0.3) if hostile else Color(1.0, 0.9, 0.4)])
+		marks.append([p.target, Color(1.0, 0.35, 0.3) if hostile else Color(1.0, 0.9, 0.4), p.target.pilot_name])
+	var base: Ship = world.starbase_of(p.race_id)
+	if base != null and base != p.target:
+		marks.append([base, Color(0.45, 1.0, 0.6), "Starbase"])
+	var panels := [
+		Rect2(vp.x - 345, 0, 345, 140),            # target panel
+		Rect2(0, vp.y - 190, 640, 190),            # status and weapons
+		Rect2(vp.x - 300, vp.y - 310, 300, 310),   # radar
+		Rect2(vp.x * 0.5 - 330, 0, 660, 95),       # planets, clock, hold bar
+	]
 	var centre := vp * 0.5
 	for mk in marks:
-		var t: Ship = mk[0]
+		var t: Node2D = mk[0]
 		var sp: Vector2 = xf * t.global_position
 		if Rect2(Vector2(40, 40), vp - Vector2(80, 80)).has_point(sp):
 			continue
 		var dir := (sp - centre).normalized()
-		# clamp to an inset rectangle
-		var half := vp * 0.5 - Vector2(70, 70)
+		var half := vp * 0.5 - Vector2(40, 40)
 		var k := minf(absf(half.x / maxf(absf(dir.x), 0.001)), absf(half.y / maxf(absf(dir.y), 0.001)))
 		var at := centre + dir * k
+		var label := "%s  %d" % [mk[2], int(p.global_position.distance_to(t.global_position))]
+		var tries := 0
+		while tries < 80:
+			var lp := at - dir * 30.0
+			var lrect := Rect2(lp + Vector2(-64, -12), Vector2(128, 20))
+			var blocked := false
+			for r in panels:
+				if r.grow(6).has_point(at) or r.intersects(lrect):
+					blocked = true
+					break
+			if not blocked:
+				break
+			at -= dir * 10.0
+			tries += 1
 		var col: Color = mk[1]
 		var side := dir.orthogonal()
 		draw_colored_polygon(PackedVector2Array([at + dir * 16.0, at - dir * 6.0 + side * 10.0, at - dir * 6.0 - side * 10.0]), col)
-		var dist := int(p.global_position.distance_to(t.global_position) / 10.0)
-		draw_string_outline(font, at - dir * 28.0 + Vector2(-60, 5), "%s  %d km" % [t.pilot_name, dist], HORIZONTAL_ALIGNMENT_CENTER, 120, 12, 3, Color(0, 0, 0, 0.8))
-		draw_string(font, at - dir * 28.0 + Vector2(-60, 5), "%s  %d km" % [t.pilot_name, dist], HORIZONTAL_ALIGNMENT_CENTER, 120, 12, col)
+		var lpos := at - dir * 30.0 + Vector2(-64, 5)
+		draw_string_outline(font, lpos, label, HORIZONTAL_ALIGNMENT_CENTER, 128, 12, 3, Color(0, 0, 0, 0.8))
+		draw_string(font, lpos, label, HORIZONTAL_ALIGNMENT_CENTER, 128, 12, col)
 
 
 ## The Sun's heat: an orange wash at the edges and a warning that grows.

@@ -29,7 +29,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			var known: Ship = world.nearest_known_enemy(ship)
 			if known != null:
 				ship.target = known
-				world.notify(ship, "Fleet contact: %s, %d km away. Follow the arrow." % [known.pilot_name, int(ship.global_position.distance_to(known.global_position) / 10.0)])
+				world.notify(ship, "Fleet contact: %s, range %d. Follow the arrow." % [known.pilot_name, int(ship.global_position.distance_to(known.global_position))])
 			else:
 				world.notify(ship, "No enemy contacts. Tab shows the system.")
 	elif event.is_action_pressed("nav_next"):
@@ -45,12 +45,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif ship.warping:
 			ship.end_warp()
 		else:
-			if ship.qdrv <= 0.0:
-				world.notify(ship, "No quantum drive fitted.")
-			elif ship.energy < 200.0:
-				world.notify(ship, "Not enough energy for the quantum drive.")
-			else:
-				ship.start_warp()
+			ship.start_warp()   # says why when it cannot
 	elif event.is_action_pressed("refit"):
 		if Net.is_client():
 			Net.client_command("refit")
@@ -87,6 +82,7 @@ func _physics_process(_delta: float) -> void:
 		world.notify(ship, "Manual control.")
 	if manual and ship.warping and (absf(turn) > 0.0 or thrust < 0.0):
 		ship.end_warp()
+		world.notify(ship, "Warp ended: turning or reversing drops you out.")
 	if not ship.autopilot:
 		i["thrust"] = thrust
 		i["turn"] = turn

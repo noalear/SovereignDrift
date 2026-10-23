@@ -40,6 +40,7 @@ var last_player_fire := -100.0
 var income_timer := 60.0         # planets pay their empire every minute
 var round_rules: Round = null     # the Conquest rules; the host runs them
 const START_CREDITS := 250
+const SUN_HEAT_RADII := 4.0       # the heat zone reaches this many Sun radii above the surface
 const BASE_ZOOM := 1.3            # "Normal" camera: ships read clearly at 1080p and 4K
 var sun_heat := 0.0              # 0..1, how close the player is to burning in the Sun
 var _heat_alarm := 0.0
@@ -191,9 +192,43 @@ func _make_ship(pilot: String, race_id: int, design: String, ship_name: String, 
 func _place_at_home(s: Ship) -> void:
 	var home := _home_planet(s.race_id)
 	var a := randf() * TAU
+	# pilots launch from their starbase when it stands
+	var base := starbase_of(s.race_id)
+	if base != null and not s.is_station:
+		var off := Vector2(cos(a), sin(a)) * (base.size * 1.4 + 120.0)
+		s.global_position = base.global_position + off
+		s.velocity = base.velocity + off.normalized() * 30.0
+		s.rotation = off.angle()
+		return
 	s.global_position = home.global_position + Vector2(cos(a), sin(a)) * (home.radius + 260.0)
 	s.velocity = home.velocity + Vector2(cos(a), sin(a)) * 20.0
 	s.rotation = a                  # nose away from the planet, so thrust is safe
+
+
+func starbase_of(race_id: int) -> Ship:
+	for s in ships:
+		if s.is_station and s.race_id == race_id and not s.dead:
+			return s
+	return null
+
+
+## Starbases hold a fixed spot beside their home world instead of falling
+## free around the Sun (with only the planet's velocity they drifted
+## sunward, which put the Terran base deep in the heat).
+func _keep_station() -> void:
+	for s in ships:
+		if not s.is_station or s.dead:
+			continue
+		var home: Planet = planet_by_name.get(GameData.STARBASES.get(s.race_id, ""), null)
+		if home == null:
+			continue
+		if not s.has_meta("station_angle"):
+			# on the side of the planet away from the Sun
+			s.set_meta("station_angle", home.global_position.angle() + randf_range(-0.6, 0.6))
+		var ang: float = s.get_meta("station_angle")
+		var r := home.radius + 420.0
+		s.global_position = home.global_position + Vector2(cos(ang), sin(ang)) * r
+		s.velocity = home.velocity
 
 
 # ------------------------------------------------------------ main loop
@@ -243,6 +278,7 @@ func _physics_process(delta: float) -> void:
 		Net.client_tick(delta)   # the host collides, scores and respawns
 		return
 	sun_heat = 0.0
+	_keep_station()
 	_collide_ships(delta)
 	_sun_warning(delta)
 	_collide_missiles()
@@ -392,19 +428,21 @@ func _collide_ships(delta: float) -> void:
 				# heat ramps up over two radii above the surface: a warning
 				# first, then real damage, then a scorching bounce off the
 				# corona rather than an instant death
-				var heat := clampf(1.0 - (d - p.radius) / (p.radius * 2.2), 0.0, 1.0)
+				var heat := clampf(1.0 - (d - p.radius) / (p.radius * SUN_HEAT_RADII), 0.0, 1.0)
 				if a == player:
 					sun_heat = heat
-				if heat > 0.25:
-					var t := (heat - 0.25) / 0.75
-					a.take_damage((30.0 + 1100.0 * t * t) * delta, p)
+				# the outer third only warns; inside it heat builds slowly
+				# enough that turning away in a few seconds always saves you
+				if heat > 0.35:
+					var t := (heat - 0.35) / 0.65
+					a.take_damage((15.0 + 320.0 * t * t) * delta, p)
 				if d < min_d:
 					var n := to.normalized() if d > 0.001 else Vector2.RIGHT
 					a.global_position = p.global_position + n * min_d
 					var vn := a.velocity.dot(n)
 					if vn < 0.0:
 						a.velocity -= n * vn * 1.6
-					a.take_damage(900.0 * delta + 120.0, p)
+					a.take_damage(400.0 * delta, p)
 				continue
 			if d < min_d:
 				var n := to.normalized()
@@ -444,8 +482,10 @@ func _collide_ships(delta: float) -> void:
 							a_ram = a.ram_power
 						if b.ram_power > 0.0 and b.forward().dot(-n) > 0.7:
 							b_ram = b.ram_power
-						a.take_damage(dmg * (b.mass / total) * 2.0 * b_ram / a_ram, b, a.global_position + n * a.size)
-						b.take_damage(dmg * (a.mass / total) * 2.0 * a_ram / b_ram, a, b.global_position - n * b.size)
+						# wingmates bump without credit for the crash
+						var allies := a.race_id == b.race_id
+						a.take_damage(dmg * (b.mass / total) * 2.0 * b_ram / a_ram * (0.5 if allies else 1.0), null if allies else b, a.global_position + n * a.size)
+						b.take_damage(dmg * (a.mass / total) * 2.0 * a_ram / b_ram * (0.5 if allies else 1.0), null if allies else a, b.global_position - n * b.size)
 						if a_ram > 1.0 or b_ram > 1.0:
 							add_shake(6.0 if a.is_player or b.is_player else 0.0)
 
@@ -459,8 +499,8 @@ func _sun_warning(delta: float) -> void:
 	if _heat_alarm <= 0.0:
 		_heat_alarm = lerpf(1.6, 0.35, sun_heat)
 		Sfx.play_ui("alarm", 0.35 + 0.5 * sun_heat)
-		if sun_heat < 0.3:
-			notify(player, "Warning: close to the Sun. Turn away.")
+		if sun_heat < 0.35:
+			notify(player, "Warning: the Sun's heat. Turn away before it burns through the hull.")
 
 
 func _collide_missiles() -> void:
@@ -471,10 +511,8 @@ func _collide_missiles() -> void:
 		for s in ships:
 			if s.dead or s == m.owner_ship:
 				continue
-			if m.armed > 0.0 and s.race_id == m.owner_race:
-				continue
-			if s.race_id == m.owner_race and m.missile_id != "002":
-				continue
+			if s.race_id == m.owner_race:
+				continue      # no friendly fire, mines included
 			if m.check_hit(s, s.size * 0.8):
 				m.explode(s)
 				hit = true
@@ -560,7 +598,7 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		return
 	# area damage falls off with distance
 	for s in ships:
-		if s.dead:
+		if s.dead or s.race_id == m.owner_race:
 			continue
 		var d := pos.distance_to(s.global_position) - s.size * 0.5
 		if d < splash:
@@ -678,6 +716,8 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 		var a := randf() * TAU
 		spawn_powerup("bp:" + flavour[randi() % flavour.size()], s.global_position, s.velocity * 0.3 + Vector2(cos(a), sin(a)) * 50.0)
 	var killer_ship: Ship = killer as Ship
+	if killer_ship != null and killer_ship.race_id == s.race_id:
+		killer_ship = null        # never credit a kill on your own side
 	if round_rules != null and killer_ship != null and killer_ship != s:
 		round_rules.on_kill(killer_ship.race_id)
 	if killer_ship != null and killer_ship != s and not killer_ship.dead:
