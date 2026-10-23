@@ -278,16 +278,24 @@ func open_builder(ship: Ship, base: Ship) -> void:
 	if builder != null or pause_panel != null or scoreboard != null:
 		return
 	_close_tactical()
-	world.set_paused(true)
+	if Net.is_active():
+		ship.docked = true       # online the round goes on; the ship sits at the dock
+	else:
+		world.set_paused(true)
 	world.visible = false
 	builder = Builder.new()
 	ui_layer.add_child(builder)
 	builder.open(ship, base, world)
-	builder.closed.connect(func(_launched: bool):
+	builder.closed.connect(func(launched: bool):
 		builder = null
 		if world != null:
 			world.visible = true
-			world.set_paused(false))
+			if Net.is_active():
+				ship.docked = false
+				if Net.is_client() and not launched:
+					Net.client_command("undock")
+			else:
+				world.set_paused(false))
 
 
 func _close_pause() -> void:

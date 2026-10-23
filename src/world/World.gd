@@ -882,6 +882,9 @@ func nearest_base(s: Ship) -> Ship:
 
 ## Apply a shipyard build to a ship where it sits.
 func apply_build(s: Ship, design: Dictionary) -> void:
+	if Net.is_client():
+		Net.client_build(s, design)   # the host fits it and tells everyone
+		return
 	var pos := s.global_position
 	var vel := s.velocity
 	var rot := s.rotation

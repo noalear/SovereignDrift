@@ -96,6 +96,7 @@ var has_turret := false
 var last_hit_angle := 0.0
 var net_id := 0                    # online: the id the host and clients share
 var is_puppet := false             # online: shown from the host's snapshots, not simulated
+var docked := false                # in the shipyard: controls are off
 var art_model: Dictionary = {}     # the sprite model, rebuilt on refit
 
 

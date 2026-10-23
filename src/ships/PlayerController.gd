@@ -13,7 +13,7 @@ func setup(p_ship: Ship, p_world: Node) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if ship == null or ship.dead or world.paused:
+	if ship == null or ship.dead or world.paused or ship.docked:
 		return
 	if event.is_action_pressed("cloak"):
 		if Net.is_client():
@@ -67,7 +67,7 @@ func _physics_process(_delta: float) -> void:
 	if ship == null or ship.dead:
 		return
 	var i := ship.inputs
-	if world.paused:
+	if world.paused or ship.docked:
 		for k in i.keys():
 			i[k] = false if typeof(i[k]) == TYPE_BOOL else 0.0
 		return

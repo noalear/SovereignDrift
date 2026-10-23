@@ -11,7 +11,7 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 3
+const PROTOCOL := 4
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -303,6 +303,25 @@ func _rpc_input(data: PackedByteArray) -> void:
 	inputs_received += 1
 
 
+## A pilot's build from the shipyard.  Friends' co-op: the host checks the
+## design is buildable and the purse is not negative, and fits it.
+@rpc("any_peer", "reliable")
+func _rpc_build(design: Dictionary, credits: int, hold: Array, blueprints: Array) -> void:
+	if not is_host():
+		return
+	var s: Node = ships_by_id.get(seats.get(multiplayer.get_remote_sender_id(), 0), null)
+	if s == null or not is_instance_valid(s) or s.dead:
+		return
+	s.docked = false
+	if credits < 0 or not design.has("name") or not design.has("weapons") or not design.has("modules"):
+		world.notify(s, "The shipyard refused that build.")
+		return
+	s.credits = credits
+	s.hold = hold
+	s.blueprints = blueprints
+	world.apply_build(s, design)
+
+
 @rpc("any_peer", "unreliable")
 func _rpc_ping(sent_ms: int) -> void:
 	if is_host():
@@ -331,15 +350,26 @@ func _rpc_command(cmd: String) -> void:
 		"cloak":
 			s.set_cloak(not s.cloaked)
 		"refit":
-			# the shipyard needs the pilot's purse and parts, which only the host
-			# holds so far; until that is shared, say so
-			world.notify(s, "The shipyard is not open to online pilots yet.")
+			var base: Node = world.nearest_base(s)
+			if base == null:
+				world.notify(s, "The shipyard is at your starbase (fly within docking range and press U).")
+			elif s.speed() > 220.0:
+				world.notify(s, "Too fast to dock: brake first (X).")
+			else:
+				# the pilot docks: controls off, and their purse goes with the invitation
+				s.docked = true
+				for k in s.inputs.keys():
+					s.inputs[k] = false if typeof(s.inputs[k]) == TYPE_BOOL else 0.0
+				s.inputs["brake"] = true
+				_rpc_open_shipyard.rpc_id(multiplayer.get_remote_sender_id(), base.net_id, s.credits, s.hold, s.blueprints)
+		"undock":
+			s.docked = false
 
 
 func _apply_remote_inputs() -> void:
 	for peer_id in remote_inputs:
 		var s: Node = ships_by_id.get(seats.get(peer_id, 0), null)
-		if s == null or not is_instance_valid(s) or s.dead:
+		if s == null or not is_instance_valid(s) or s.dead or s.docked:
 			continue
 		var d: Dictionary = remote_inputs[peer_id]
 		for k in d["inputs"]:
@@ -458,6 +488,36 @@ func client_attach(p_world: Node) -> void:
 func client_command(cmd: String) -> void:
 	if is_client():
 		_rpc_command.rpc_id(1, cmd)
+
+
+## The Builder's launch on a client: the host fits the build.
+func client_build(s: Node, design: Dictionary) -> void:
+	if is_client():
+		_rpc_build.rpc_id(1, design, s.credits, s.hold, s.blueprints)
+
+
+@rpc("authority", "reliable")
+func _rpc_purse(credits: int, hold: Array, blueprints: Array) -> void:
+	var s: Node = ships_by_id.get(local_net_id, null)
+	if s == null or not is_instance_valid(s) or s.docked:
+		return   # not while the shipyard is open on this purse
+	s.credits = credits
+	s.hold = hold
+	s.blueprints = blueprints
+
+
+@rpc("authority", "reliable")
+func _rpc_open_shipyard(base_id: int, credits: int, hold: Array, blueprints: Array) -> void:
+	if world == null:
+		return
+	var s: Node = ships_by_id.get(local_net_id, null)
+	var base: Node = ships_by_id.get(base_id, null)
+	if s == null or base == null or not is_instance_valid(s) or not is_instance_valid(base):
+		return
+	s.credits = credits
+	s.hold = hold
+	s.blueprints = blueprints
+	world.shipyard_requested.emit(s, base)
 
 
 @rpc("authority", "reliable")
@@ -721,6 +781,8 @@ func _rpc_refit(net_id: int, design: Dictionary) -> void:
 	s.velocity = vel
 	s.rotation = rot
 	Sfx.play("dock", pos, 0.8)
+	if net_id == local_net_id:
+		s.docked = false      # the host fitted our build: back to the controls
 
 
 @rpc("authority", "reliable")
@@ -767,3 +829,7 @@ func _physics_process(delta: float) -> void:
 	if stats_timer <= 0.0:
 		stats_timer = STATS_EVERY
 		_rpc_stats.rpc(_stats(), _round_state())
+		for peer_id in seats:
+			var s: Node = ships_by_id.get(seats[peer_id], null)
+			if s != null and is_instance_valid(s):
+				_rpc_purse.rpc_id(peer_id, s.credits, s.hold, s.blueprints)

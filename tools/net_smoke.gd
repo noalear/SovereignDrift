@@ -13,6 +13,9 @@ var peak_ships := 0
 var moved := 0.0
 var start_pos := Vector2.INF
 var net: Node
+var shipyard_opened := false
+var build_sent := false
+var hooked := false
 
 
 func _init() -> void:
@@ -35,7 +38,30 @@ func _process(_delta: float) -> bool:
 	frames += 1
 	var w = main.world if main != null else null
 	var p = w.player if w != null else null
-	if p != null and not p.dead and not p.is_puppet:
+	if w != null and not hooked:
+		hooked = true
+		w.shipyard_requested.connect(func(s, _b):
+			shipyard_opened = true
+			print("[%s] shipyard opened for %s with %d credits" % [_tag(), s.pilot_name, s.credits]))
+	if is_host and w != null and frames == 1200:
+		# park the joiner at their starbase so the shipyard lets them in
+		for s in w.ships:
+			if s.pilot_name == "Joiner":
+				var base = w.nearest_base(s)
+				for o in w.ships:
+					if o.is_station and o.race_id == s.race_id and not o.dead:
+						base = o
+				if base != null:
+					s.global_position = base.global_position + Vector2(base.size + 100.0, 0)
+					s.velocity = base.velocity
+					print("[host] parked the joiner at the starbase")
+	if not is_host and p != null and frames == 900:
+		net.client_command("refit")   # the host parked us at the base a moment ago
+	if not is_host and shipyard_opened and not build_sent and p != null:
+		build_sent = true
+		net.client_build(p, p.design)
+		print("[%s] build sent" % _tag())
+	if p != null and not p.dead and not p.is_puppet and not p.docked:
 		# fly in a slow circle and shoot
 		p.inputs["thrust"] = 1.0
 		p.inputs["turn"] = 0.4
@@ -50,7 +76,7 @@ func _process(_delta: float) -> bool:
 			_tag(), Time.get_ticks_msec(), Engine.get_physics_frames(), frames / 60, (w.ships.size() if w else -1), (w.missiles.size() if w else -1),
 			net.snapshots_received, net.inputs_received, net.seats.size(),
 			(p.pilot_name if p else "none"), (p.global_position.round() if p else Vector2.ZERO)] + ("  ping=%dms corr=%.1fpx pickups=%d" % [int(net.ping_ms), (net.client.correction_px if net.client else 0.0), (w.powerups.size() if w else 0)] if not is_host else ""))
-	var limit := 30 * 60 if is_host else 20 * 60
+	var limit := 45 * 60 if is_host else 20 * 60
 	if frames >= limit:
 		_finish(w)
 		quit(1 if failed else 0)
@@ -86,6 +112,8 @@ func _finish(w) -> void:
 				moving += 1
 		_check(moving > 3, "puppets move from snapshots (%d)" % moving)
 		_check(net.ping_ms > 0.0, "ping measured (%d ms)" % int(net.ping_ms))
+		_check(shipyard_opened, "shipyard opened for the joiner")
+		_check(build_sent and not w.player.docked, "build accepted and the joiner undocked")
 		var rd = w.round_rules
 		_check(rd != null and rd.elapsed > 5.0 and rd.phase != "", "round clock arrived (%s, %s)" % [(rd.clock_text() if rd else "-"), (rd.phase if rd else "-")])
 		_check(net.client != null and net.client.correction_px < 60.0, "reconciliation error small (%.1f px)" % (net.client.correction_px if net.client else -1.0))
