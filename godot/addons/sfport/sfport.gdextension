@@ -1,0 +1,13 @@
+; Stellar Frontier port: the native bridge to the original program.
+; NEW FILE, added 2026-10-12.  Source: src/godot_ext, src/ipc.
+
+[configuration]
+
+entry_symbol = "sfport_library_init"
+compatibility_minimum = "4.5"
+reloadable = false
+
+[libraries]
+
+linux.x86_64 = "res://addons/sfport/bin/libsfport.linux.x86_64.so"
+windows.x86_64 = "res://addons/sfport/bin/sfport.windows.x86_64.dll"

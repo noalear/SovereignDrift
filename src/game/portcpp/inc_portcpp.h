@@ -1,0 +1,8 @@
+#include "enum.h"
+#include "const.h"
+#include "macros.h"
+#include "extern_gui.h"
+#include "extern_portcpp.h"
+#include "sound.h"
+#include "trek.h"
+#include "global.h"

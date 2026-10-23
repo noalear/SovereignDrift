@@ -1,0 +1,8 @@
+gamedata/*
+!gamedata/music*/
+build/
+*.o
+*.exe
+*.dll
+*.so
+.godot/
