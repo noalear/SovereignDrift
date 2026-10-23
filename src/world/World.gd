@@ -1,5 +1,6 @@
 ## World -- the Sol system scenario: bodies, ships, missiles, pickups,
-## collisions, scoring, respawns and planet capture.
+## wreckage and asteroids, the physics step, scoring, respawns and planet
+## capture.
 class_name World
 extends Node2D
 
@@ -12,11 +13,20 @@ signal round_over(result: Dictionary)
 
 const MISSILE_SCRIPT := preload("res://src/weapons/Missile.gd")
 const RESPAWN_DELAY := 4.0
+## Momentum carried per point of weapon damage (mass units * px/s): a
+## torpedo nudges a Scout by about 6 px/s, a mine throws it at 70.
+const IMPULSE_PER_DAMAGE := 180.0
+## Closing speed below which a bump does no damage.
+const IMPACT_THRESHOLD := 60.0
+const MAX_WRECKAGE := 90
 
+var space: PhysicsSpace
 var planets: Array[Planet] = []
 var ships: Array[Ship] = []
 var missiles: Array = []
 var powerups: Array = []
+var debris: Array = []           # Debris nodes: wreckage and rocks
+var sun: Planet = null
 var camera: Camera2D
 var fx: Fx
 var starfield: Starfield
@@ -26,6 +36,7 @@ var elapsed := 0.0
 var respawn_queue: Array = []   # [ship, time]
 var planet_by_name := {}
 var bodies_layer: Node2D
+var debris_layer: Node2D
 var ships_layer: Node2D
 var missiles_layer: Node2D
 var pickups_layer: Node2D
@@ -53,6 +64,9 @@ func _ready() -> void:
 	pickups_layer = Node2D.new()
 	pickups_layer.name = "Pickups"
 	add_child(pickups_layer)
+	debris_layer = Node2D.new()
+	debris_layer.name = "Debris"
+	add_child(debris_layer)
 	ships_layer = Node2D.new()
 	ships_layer.name = "Ships"
 	add_child(ships_layer)
@@ -73,7 +87,10 @@ func _ready() -> void:
 	starfield.camera = camera
 	target_zoom = Settings.camera_zoom
 	camera.zoom = Vector2.ONE * target_zoom * BASE_ZOOM
+	space = PhysicsSpace.new()
+	space.filter = Callable(self, "_can_collide")
 	_build_system()
+	_spawn_rocks()
 	if Net.is_client():
 		# the ships come from the host, and so does the round: this Round
 		# never ticks, Net fills its fields for the HUD and the map
@@ -110,6 +127,77 @@ func _build_system() -> void:
 	# settle orbits so moons sit in place
 	for p in planets:
 		p.update_orbit(0.0)
+		if p.look == "Sun":
+			sun = p
+		var b := PhysicsBody.new()
+		b.kind = PhysicsBody.Kind.PLANET
+		b.node = p
+		b.set_circle(p.radius)
+		b.is_sun = p.look == "Sun"
+		b.gm = PhysicsSpace.gm_for(p.look, p.body_class, p.radius)
+		b.restitution = 0.3
+		b.friction = 0.5
+		b.pos = p.global_position
+		b.vel = p.velocity
+		b.accel = p.accel
+		p.body = b
+		space.add_body(b)
+	var belt: Planet = planet_by_name.get("Ceres", null)
+	if belt != null:
+		space.belt_omega = belt.orbit_speed
+	space.sun_pos = sun.global_position
+
+
+## The asteroid belt: clumps of rock in a ring between Mars's and
+## Jupiter's gravity, turning with the belt's minor bodies.
+func _spawn_rocks() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+	var band_lo := 6340.0
+	var band_hi := 6520.0
+	var centres := []
+	for p in planets:
+		if p.body_class == "Minor" and p.orbit_radius >= band_lo - 150.0 and p.orbit_radius <= band_hi + 150.0:
+			centres.append(p.global_position.normalized() * (band_lo + band_hi) * 0.5)
+	while centres.size() < 12:
+		var a := rng.randf() * TAU
+		centres.append(Vector2(cos(a), sin(a)) * (band_lo + band_hi) * 0.5)
+	var placed := []
+	for c in centres:
+		var n := 7 + rng.randi() % 4
+		for i in n:
+			var r := rng.randf_range(6.0, 22.0)
+			var pos := Vector2.ZERO
+			var ok := false
+			for attempt in 12:
+				var a := rng.randf() * TAU
+				pos = c + Vector2(cos(a), sin(a)) * rng.randf_range(0.0, 520.0)
+				pos = pos.normalized() * clampf(pos.length(), band_lo, band_hi)
+				ok = true
+				for q in placed:
+					if pos.distance_to(q[0]) < r + q[1] + 12.0:
+						ok = false
+						break
+				for p in planets:
+					if p.look != "Sun" and pos.distance_to(p.global_position) < PhysicsSpace.reach_of(p.body) + p.radius + 60.0:
+						ok = false
+						break
+				if ok:
+					break
+			if not ok:
+				continue
+			placed.append([pos, r])
+			var vel := space.belt_velocity(pos) + Vector2(rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0))
+			spawn_rock(pos, vel, r, rng.randi())
+
+
+func spawn_rock(pos: Vector2, vel: Vector2, r: float, seed_value: int) -> Debris:
+	var d := Debris.new()
+	debris_layer.add_child(d)
+	d.setup_rock(self, pos, vel, r, seed_value)
+	debris.append(d)
+	space.add_body(d.body)
+	return d
 
 
 func _spawn_pilots() -> void:
@@ -127,8 +215,8 @@ func _spawn_pilots() -> void:
 	for race_id in GameData.STARBASES:
 		var home: Planet = planet_by_name[GameData.STARBASES[race_id]]
 		var base := _make_ship("%s Command" % GameData.race(race_id)["name"], race_id, "Starbase", GameData.race(race_id)["name"] + " Starbase", false)
-		base.global_position = home.global_position + Vector2(home.radius + 420.0, 0).rotated(randf() * TAU)
-		base.velocity = home.velocity
+		base.global_position = _station_spot(home)
+		base.velocity = space.circular_orbit_velocity(home.body, base.global_position)
 		var ai := AIPilot.new()
 		base.add_child(ai)
 		ai.setup(base, self, home, 14)
@@ -153,9 +241,8 @@ func _spawn_pilots() -> void:
 		s.add_child(ai)
 		var home: Planet = _home_planet(race_id)
 		ai.setup(s, self, home, rank)
-		_place_at_home(s)
 		# spread the pilots out so the fight does not start on top of the player
-		s.global_position += Vector2(randf_range(-1400, 1400), randf_range(-1400, 1400))
+		_place_at_home(s, 1400.0)
 		per_race[race_id] += 1
 	_spawn_pirate_scouts()
 
@@ -197,6 +284,15 @@ func _design_for_rank(level: int, race_id: int) -> String:
 	return options[options.size() - 1]
 
 
+## Where a starbase sits: off its planet, on the side away from the
+## planet's parent so a moon's base is never inside the planet.
+func _station_spot(home: Planet) -> Vector2:
+	var a := randf() * TAU
+	if home.parent_body != null:
+		a = (home.global_position - home.parent_body.global_position).angle() + randf_range(-0.6, 0.6)
+	return home.global_position + Vector2(cos(a), sin(a)) * (home.radius + 420.0)
+
+
 func _home_planet(race_id: int) -> Planet:
 	var name: String = GameData.STARBASES.get(race_id, GameData.race(race_id)["home"])
 	return planet_by_name.get(name, planets[0])
@@ -212,23 +308,36 @@ func _make_ship(pilot: String, race_id: int, design: String, ship_name: String, 
 	s.damaged.connect(_on_ship_damaged)
 	s.rank_changed.connect(_on_rank_changed)
 	ships.append(s)
+	space.add_body(s.body)
 	return s
 
 
-func _place_at_home(s: Ship) -> void:
+## Put a ship beside its home world, optionally scattered up to `spread`
+## px away, moving with the planet (in a parking orbit when close enough).
+func _place_at_home(s: Ship, spread: float = 0.0) -> void:
 	var home := _home_planet(s.race_id)
 	var a := randf() * TAU
 	# pilots launch from their starbase when it stands
 	var base := starbase_of(s.race_id)
 	if base != null and not s.is_station:
 		var off := Vector2(cos(a), sin(a)) * (base.size * 1.4 + 120.0)
+		if spread > 0.0:
+			off += Vector2(randf_range(-spread, spread), randf_range(-spread, spread))
+			if off.length() < base.size * 1.4 + 120.0:
+				off = off.normalized() * (base.size * 1.4 + 120.0)
 		s.global_position = base.global_position + off
 		s.velocity = base.velocity + off.normalized() * 30.0
 		s.rotation = off.angle()
 		return
-	s.global_position = home.global_position + Vector2(cos(a), sin(a)) * (home.radius + 260.0)
-	s.velocity = home.velocity + Vector2(cos(a), sin(a)) * 20.0
-	s.rotation = a                  # nose away from the planet, so thrust is safe
+	# otherwise a parking orbit well inside the planet's gravity
+	var alt := minf(home.radius + 260.0, PhysicsSpace.reach_of(home.body) * 0.6)
+	s.global_position = home.global_position + Vector2(cos(a), sin(a)) * maxf(alt, home.radius + 60.0)
+	if spread > 0.0:
+		s.global_position += Vector2(randf_range(-spread, spread), randf_range(-spread, spread))
+		if s.global_position.distance_to(home.global_position) < home.radius + 80.0:
+			s.global_position = home.global_position + (s.global_position - home.global_position).normalized() * (home.radius + 80.0)
+	s.velocity = space.circular_orbit_velocity(home.body, s.global_position)
+	s.rotation = (s.velocity - home.velocity).angle() if s.velocity != home.velocity else a
 
 
 func starbase_of(race_id: int) -> Ship:
@@ -240,7 +349,8 @@ func starbase_of(race_id: int) -> Ship:
 
 ## Starbases hold a fixed spot beside their home world instead of falling
 ## free around the Sun (with only the planet's velocity they drifted
-## sunward, which put the Terran base deep in the heat).
+## sunward, which put the Terran base deep in the heat).  Their bodies are
+## kinematic, so ships bounce off them and nothing moves them.
 func _keep_station() -> void:
 	for s in ships:
 		if not s.is_station or s.dead:
@@ -300,15 +410,37 @@ func _physics_process(delta: float) -> void:
 	powerups = powerups.filter(func(p): return is_instance_valid(p))
 	for p in planets:
 		p.update_orbit(delta)
+		p.sync_body()
 	if Net.is_client():
 		Net.client_tick(delta)   # the host collides, scores and respawns
 		return
 	sun_heat = 0.0
 	_keep_station()
-	_collide_ships(delta)
+	# everything that flies fills in its forces, the space moves it, and
+	# then each node takes its new state back
+	for s in ships:
+		s.pre_step(delta)
+	for m in missiles:
+		m.pre_step(delta)
+	for p in powerups:
+		p.pre_step(delta)
+	for d in debris:
+		d.pre_step(delta)
+	space.step(delta)
+	for s in ships:
+		s.post_step(delta)
+	for m in missiles:
+		m.post_step(delta)
+	for p in powerups.duplicate():
+		p.post_step(delta)
+	for d in debris.duplicate():
+		d.post_step(delta)
+	_handle_contacts()
+	_sun_hazard(delta)
 	_sun_warning(delta)
 	_collide_missiles()
 	_collect_powerups()
+	_refuel(delta)
 	_respawns()
 	_score_planets(delta)
 
@@ -344,26 +476,37 @@ func _combat_intensity() -> int:
 
 # ---------------------------------------------------------------- physics
 
-func gravity_at(pos: Vector2, _mass: float) -> Vector2:
-	var g := Vector2.ZERO
-	for p in planets:
-		var to := p.global_position - pos
-		var d := to.length()
-		if d < 1.0:
-			continue
-		var strength := 0.0
-		if p.look == "Sun":
-			# the sun pulls across the inner system
-			strength = 2.2e8 / maxf(d * d, 1.0)
-			if d < p.radius * 3.0:
-				strength *= 2.0
-		else:
-			var reach := p.radius * 7.0
-			if d > reach:
-				continue
-			strength = p.radius * 55.0 / maxf(d, p.radius) * (1.0 - d / reach)
-		g += to.normalized() * minf(strength, 400.0)
-	return g
+func gravity_at(pos: Vector2, _mass: float = 0.0) -> Vector2:
+	return space.gravity_at(pos)
+
+
+## Which pairs of bodies may touch.  Planets are solid to everything but
+## shots (the world handles those, since colonies take damage); shots skip
+## their owner and their own side; floating modules are never solid.
+func _can_collide(a: PhysicsBody, b: PhysicsBody) -> bool:
+	var ka := a.kind
+	var kb := b.kind
+	if ka == PhysicsBody.Kind.PICKUP or kb == PhysicsBody.Kind.PICKUP:
+		return false
+	if ka == PhysicsBody.Kind.PROJECTILE or kb == PhysicsBody.Kind.PROJECTILE:
+		var shot := a if ka == PhysicsBody.Kind.PROJECTILE else b
+		var other := b if ka == PhysicsBody.Kind.PROJECTILE else a
+		if not shot.bullet:
+			return false
+		if other.kind != PhysicsBody.Kind.SHIP and other.kind != PhysicsBody.Kind.ROCK:
+			return false
+		var m: Missile = shot.node
+		if m == null or m.exploded or m.armed > 0.0:
+			return false
+		if other.kind == PhysicsBody.Kind.SHIP:
+			var t: Ship = other.node
+			if t == m.owner_ship or t.race_id == m.owner_race:
+				return false
+		return true
+	if ka == PhysicsBody.Kind.PLANET or kb == PhysicsBody.Kind.PLANET:
+		var p: Planet = (a if ka == PhysicsBody.Kind.PLANET else b).node
+		return p.look != "Sun"
+	return true
 
 
 func nearest_body(pos: Vector2) -> Planet:
@@ -440,80 +583,85 @@ func enemy_planets(race_id: int) -> Array:
 	return out
 
 
-func _collide_ships(delta: float) -> void:
-	for i in ships.size():
-		var a := ships[i]
+## Turn the step's contacts into damage, sound and shake.
+func _handle_contacts() -> void:
+	for c in space.contacts:
+		var v: float = c["speed"]
+		if v < IMPACT_THRESHOLD:
+			continue
+		var a: PhysicsBody = c["a"]
+		var b: PhysicsBody = c["b"]
+		var point: Vector2 = c["point"]
+		_impact(a, b, v, point)
+		_impact(b, a, v, point)
+		var loud := clampf((v - IMPACT_THRESHOLD) / 300.0, 0.25, 0.8)
+		if a.kind == PhysicsBody.Kind.SHIP or b.kind == PhysicsBody.Kind.SHIP:
+			Sfx.play("hit", point, loud, 0.7)
+		if player != null and (a.node == player or b.node == player):
+			add_shake(clampf((v - IMPACT_THRESHOLD) * 0.05, 2.0, 14.0))
+
+
+func _impact(victim: PhysicsBody, other: PhysicsBody, v: float, point: Vector2) -> void:
+	var node := victim.node
+	if node == null or not is_instance_valid(node):
+		return
+	# the lighter party takes the bigger share; a planet takes none
+	var share := 1.0
+	if other.inv_mass > 0.0:
+		share = 2.0 * other.mass / (victim.mass + other.mass)
+	var dmg := (v - IMPACT_THRESHOLD) * 0.6 * share
+	if node is Ship:
+		var attacker: Node = other.node
+		if other.node is Ship:
+			# a ram prow turns a collision into a weapon when it hits nose first
+			var o: Ship = other.node
+			var n := (node.global_position - o.global_position).normalized()
+			if o.ram_power > 0.0 and o.forward().dot(n) > 0.7:
+				dmg *= o.ram_power
+			if node.ram_power > 0.0 and node.forward().dot(-n) > 0.7:
+				dmg /= node.ram_power
+			# wingmates bump without credit for the crash
+			if o.race_id == node.race_id:
+				dmg *= 0.5
+				attacker = null
+		node.take_damage(dmg, attacker, point)
+	elif node is Debris and node.is_rock:
+		node.take_damage(dmg * 0.5, other.node, point)
+
+
+## The sun burns anything that comes close and swallows what touches it.
+func _sun_hazard(delta: float) -> void:
+	if sun == null:
+		return
+	for a in ships:
 		if a.dead:
 			continue
-		# planets and the sun
-		for p in planets:
-			var to := a.global_position - p.global_position
-			var d := to.length()
-			var min_d := p.radius + a.size * 0.7
-			if p.look == "Sun":
-				# heat ramps up over two radii above the surface: a warning
-				# first, then real damage, then a scorching bounce off the
-				# corona rather than an instant death
-				var heat := clampf(1.0 - (d - p.radius) / (p.radius * SUN_HEAT_RADII), 0.0, 1.0)
-				if a == player:
-					sun_heat = heat
-				# the outer third only warns; inside it heat builds slowly
-				# enough that turning away in a few seconds always saves you
-				if heat > 0.35:
-					var t := (heat - 0.35) / 0.65
-					a.take_damage((15.0 + 320.0 * t * t) * delta, p)
-				if d < min_d:
-					var n := to.normalized() if d > 0.001 else Vector2.RIGHT
-					a.global_position = p.global_position + n * min_d
-					var vn := a.velocity.dot(n)
-					if vn < 0.0:
-						a.velocity -= n * vn * 1.6
-					a.take_damage(400.0 * delta, p)
-				continue
-			if d < min_d:
-				var n := to.normalized()
-				a.global_position = p.global_position + n * min_d
-				var vn := (a.velocity - p.velocity).dot(n)
-				if vn < 0.0:
-					a.velocity -= n * vn * 1.4
-					var impact := -vn
-					if impact > 60.0:
-						a.take_damage((impact - 60.0) * 0.6, p, a.global_position)
-						Sfx.play("collide", a.global_position, clampf(impact / 200.0, 0.4, 1.0))
-		# other ships
-		for j in range(i + 1, ships.size()):
-			var b := ships[j]
-			if b.dead:
-				continue
-			var to := b.global_position - a.global_position
-			var d := to.length()
-			var min_d := (a.size + b.size) * 0.75
-			if d < min_d and d > 0.001:
-				var n := to.normalized()
-				var rel := (b.velocity - a.velocity).dot(n)
-				var total := a.mass + b.mass
-				var push := (min_d - d)
-				a.global_position -= n * push * (b.mass / total)
-				b.global_position += n * push * (a.mass / total)
-				if rel < 0.0:
-					var impulse := -rel * 1.1
-					a.velocity -= n * impulse * (b.mass / total)
-					b.velocity += n * impulse * (a.mass / total)
-					if impulse > 90.0:
-						var dmg := (impulse - 90.0) * 0.5
-						# a ram prow turns a collision into a weapon when it hits nose first
-						var a_ram := 1.0
-						var b_ram := 1.0
-						if a.ram_power > 0.0 and a.forward().dot(n) > 0.7:
-							a_ram = a.ram_power
-						if b.ram_power > 0.0 and b.forward().dot(-n) > 0.7:
-							b_ram = b.ram_power
-						# wingmates bump without credit for the crash
-						var allies := a.race_id == b.race_id
-						a.take_damage(dmg * (b.mass / total) * 2.0 * b_ram / a_ram * (0.5 if allies else 1.0), null if allies else b, a.global_position + n * a.size)
-						b.take_damage(dmg * (a.mass / total) * 2.0 * a_ram / b_ram * (0.5 if allies else 1.0), null if allies else a, b.global_position - n * b.size)
-						if a_ram > 1.0 or b_ram > 1.0:
-							add_shake(6.0 if a.is_player or b.is_player else 0.0)
+		var d := a.global_position.distance_to(sun.global_position)
+		# heat ramps up over the radii above the surface: a warning first,
+		# then real damage, then a scorching bounce off the corona rather
+		# than an instant death
+		var heat := clampf(1.0 - (d - sun.radius) / (sun.radius * SUN_HEAT_RADII), 0.0, 1.0)
+		if a == player:
+			sun_heat = heat
+		# the outer third only warns; inside it heat builds slowly enough
+		# that turning away in a few seconds always saves you
+		if heat > 0.35:
+			var t := (heat - 0.35) / 0.65
+			a.take_damage((15.0 + 320.0 * t * t) * delta, sun)
+		var min_d := sun.radius + a.size * 0.7
+		if d < min_d:
+			var n := (a.global_position - sun.global_position).normalized() if d > 0.001 else Vector2.RIGHT
+			a.global_position = sun.global_position + n * min_d
+			var vn := a.velocity.dot(n)
+			if vn < 0.0:
+				a.velocity -= n * vn * 1.6
+			a.take_damage(400.0 * delta, sun)
+	for d in debris.duplicate():
+		if d.global_position.distance_to(sun.global_position) < sun.radius:
+			remove_debris(d)
+	for m in missiles:
+		if not m.exploded and m.global_position.distance_to(sun.global_position) < sun.radius:
+			m._free()
 
 
 ## Beep and say so while the player is in the Sun's heat.
@@ -530,8 +678,20 @@ func _sun_warning(delta: float) -> void:
 
 
 func _collide_missiles() -> void:
+	# fast shots: whatever the sweep touched first
+	for hit in space.bullet_hits:
+		var m: Missile = hit["bullet"].node
+		if m == null or not is_instance_valid(m) or m.exploded:
+			continue
+		var target: Node2D = hit["body"].node
+		if target == null or not is_instance_valid(target):
+			continue
+		m.hit_point = hit["point"]
+		m.hit_normal = hit["normal"]
+		m.explode(target)
+	# proximity fuses: grenades and mines go off near any enemy hull
 	for m: Missile in missiles:
-		if not is_instance_valid(m) or m.exploded:
+		if not is_instance_valid(m) or m.exploded or m.data["trigger"] != "prox":
 			continue
 		var hit := false
 		for s in ships:
@@ -539,21 +699,25 @@ func _collide_missiles() -> void:
 				continue
 			if s.race_id == m.owner_race:
 				continue      # no friendly fire, mines included
-			if m.check_hit(s, s.size * 0.8):
+			if m.check_hit(s.body):
+				m.hit_point = Vector2.INF
 				m.explode(s)
 				hit = true
 				break
 		if hit:
 			continue
+	for m: Missile in missiles:
+		if not is_instance_valid(m) or m.exploded:
+			continue
 		for p in planets:
 			var d := m.global_position.distance_to(p.global_position)
 			if d < p.radius + m.radius:
 				if p.is_colonised() and p.owner_race != m.owner_race:
+					m.hit_point = m.global_position
 					m.explode(p)
 				else:
-					m.exploded = true
 					fx.spark(m.global_position, 3, m.color)
-					m.queue_free()
+					m._free()
 				break
 
 
@@ -562,12 +726,19 @@ func raycast_beam(shooter: Node, origin: Vector2, dir: Vector2, range_px: float)
 	var best: Node2D = null
 	var shooter_race: int = shooter.race_id if "race_id" in shooter else shooter.owner_race
 	for s in ships:
-		if s.dead or s == shooter or s.race_id == shooter_race:
+		if s.dead or s == shooter or s.race_id == shooter_race or s.warping:
 			continue
-		var t := _ray_circle(origin, dir, s.global_position, s.size * 0.8)
+		var t := space.ray_body(origin, dir, s.body, best_t)
 		if t >= 0.0 and t < best_t:
 			best_t = t
 			best = s
+	for d in debris:
+		if not d.is_rock:
+			continue
+		var t := space.ray_body(origin, dir, d.body, best_t)
+		if t >= 0.0 and t < best_t:
+			best_t = t
+			best = d
 	for p in planets:
 		var t := _ray_circle(origin, dir, p.global_position, p.radius)
 		if t >= 0.0 and t < best_t:
@@ -600,6 +771,23 @@ func spawn_missile(owner: Node, missile_id: String, pos: Vector2, vel: Vector2, 
 	m.setup(self, owner, race, missile_id, pos, vel, angle, target)
 	missiles.append(m)
 	Net.host_shot(m, owner, missile_id, pos, vel, angle)
+	space.add_body(m.body)
+
+
+func release_body(b: PhysicsBody) -> void:
+	if b != null:
+		space.remove_body(b)
+
+
+## Shove a node's body and keep the node's copy of the state in step.
+func push_node(node: Node2D, j: Vector2, at: Vector2) -> void:
+	if node is Ship:
+		node.apply_hit_impulse(j, at)
+	elif node is Debris:
+		node.body.apply_impulse(j, at)
+	elif node is Powerup or node is Missile:
+		node.body.apply_impulse(j, at)
+		node.velocity = node.body.vel
 
 
 func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
@@ -615,11 +803,15 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		m.set_meta("race_id", m.owner_race)
 	if splash <= 0.0:
 		if hit != null:
-			hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else m.owner_ship, pos)
+			var at := m.hit_point if m.hit_point != Vector2.INF else pos
+			hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else m.owner_ship, at)
 			if hit is Ship and m.data.has("drain"):
 				hit.energy = maxf(hit.energy - m.data["drain"], 0.0)
 				if hit.cloaked:
 					hit.set_cloak(false)
+			# the shot's momentum and the blast kick the target
+			var dir := m.velocity.normalized() if m.velocity.length_squared() > 1.0 else -m.hit_normal
+			push_node(hit, dir * m.warhead * IMPULSE_PER_DAMAGE + m.momentum(), at)
 		fx.explosion(pos, 6.0 + m.radius * 2.0, m.color, false, "impact")
 		return
 	# area damage falls off with distance
@@ -635,7 +827,26 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		if d < splash and p.is_colonised():
 			var f := 1.0 - maxf(d, 0.0) / splash
 			p.take_damage(m.warhead * f * 0.5, attacker if attacker is Ship else null)
+	for d: Debris in debris:
+		if d.is_rock:
+			var dd: float = pos.distance_to(d.global_position) - d.rock_radius
+			if dd < splash:
+				d.take_damage(m.warhead * (1.0 - maxf(dd, 0.0) / splash) * 0.5, attacker, d.global_position)
+	blast(pos, splash, m.warhead * IMPULSE_PER_DAMAGE * 0.6)
 	fx.explosion(pos, splash * 0.5, m.color, m.missile_id == "002", "explode")
+
+
+## A pressure wave that throws ships, wreckage, rocks and loot outward.
+func blast(pos: Vector2, range_px: float, impulse: float) -> void:
+	var kinds := [PhysicsBody.Kind.SHIP, PhysicsBody.Kind.DEBRIS, PhysicsBody.Kind.ROCK, PhysicsBody.Kind.PICKUP]
+	for b: PhysicsBody in space.bodies_near(pos, range_px, kinds):
+		var surf: Vector2 = b.closest_surface_point(pos)
+		var f := 1.0 - clampf(surf.distance_to(pos) / range_px, 0.0, 1.0)
+		if f <= 0.0:
+			continue
+		var dir := b.pos - pos
+		dir = dir.normalized() if dir.length_squared() > 1e-6 else Vector2.RIGHT
+		push_node(b.node, dir * impulse * f, surf.lerp(b.pos, 0.5))
 
 
 func spawn_sparks(pos: Vector2, n: int, color: Color) -> void:
@@ -646,8 +857,108 @@ func spawn_powerup(id: String, pos: Vector2, vel: Vector2) -> void:
 	var p := Powerup.new()
 	pickups_layer.add_child(p)
 	p.setup(id, pos, vel)
+	p.world = self
 	powerups.append(p)
 	Net.host_powerup_spawned(p)
+	space.add_body(p.body)
+
+
+# -------------------------------------------------------------- wreckage
+
+## Break a dead ship's hull into tumbling chunks that keep its momentum.
+func spawn_wreck(s: Ship) -> void:
+	var hull: PackedVector2Array = s.body.hull
+	var n := hull.size()
+	if n < 3:
+		return
+	var chunks := 4 + (2 if s.size > 40.0 else 0)
+	var per := maxi(n / chunks, 2)
+	var total_area := absf(PhysicsBody._signed_area(hull))
+	var i := 0
+	while i < n:
+		var j := mini(i + per, n)
+		if n - j < 2:
+			j = n
+		var pts := PackedVector2Array([Vector2.ZERO])
+		for k in range(i, j + 1):
+			pts.append(hull[k % n])
+		var c := Vector2.ZERO
+		for p in pts:
+			c += p
+		c /= pts.size()
+		var local := PackedVector2Array()
+		for p in pts:
+			local.append(p - c)
+		var area := absf(PhysicsBody._signed_area(local))
+		var world_c := s.global_position + c.rotated(s.rotation)
+		var burst := c.rotated(s.rotation).normalized() * randf_range(40.0, 140.0)
+		var vel := s.velocity + burst + Vector2(randf_range(-30, 30), randf_range(-30, 30))
+		var chunk_mass := maxf(s.mass * (area / maxf(total_area, 1.0)) * 0.5, 20.0)
+		var d := Debris.new()
+		debris_layer.add_child(d)
+		d.setup_wreck(self, local, world_c, vel, s.rotation, s.angular_velocity + randf_range(-3.0, 3.0), chunk_mass, s.race_color())
+		debris.append(d)
+		space.add_body(d.body)
+		i = j
+	_trim_wreckage()
+
+
+func _trim_wreckage() -> void:
+	var count := 0
+	for d in debris:
+		if not d.is_rock:
+			count += 1
+	for d in debris.duplicate():
+		if count <= MAX_WRECKAGE:
+			break
+		if not d.is_rock:
+			remove_debris(d)
+			count -= 1
+
+
+func remove_debris(d: Debris) -> void:
+	if not is_instance_valid(d):
+		return
+	space.remove_body(d.body)
+	debris.erase(d)
+	d.queue_free()
+
+
+## A rock shot to bits: big ones split, small ones turn to dust.
+func break_rock(d: Debris) -> void:
+	var pos := d.global_position
+	var vel: Vector2 = d.body.vel
+	var r := d.rock_radius
+	fx.explosion(pos, r * 1.2, Color(0.7, 0.65, 0.6))
+	remove_debris(d)
+	if r >= 9.0:
+		var pieces := 2 + (1 if r > 15.0 else 0)
+		for i in pieces:
+			var a := TAU * i / pieces + randf() * 0.5
+			var off := Vector2(cos(a), sin(a))
+			var child := spawn_rock(pos + off * r * 0.6, vel + off * randf_range(15.0, 45.0), r * 0.58, randi())
+			child.body.ang_vel = randf_range(-2.0, 2.0)
+
+
+## Friendly bases and colonies top up a ship's tanks when it sits close.
+func _refuel(delta: float) -> void:
+	for s in ships:
+		s.refuelling = false
+		if s.dead or s.fuel >= s.fuel_max:
+			continue
+		var rate := 0.0
+		for o in ships:
+			if o.is_station and not o.dead and o.race_id == s.race_id and o != s and o.global_position.distance_to(s.global_position) < o.size + 260.0:
+				rate = maxf(rate, 0.12)
+		for p in planets:
+			if p.is_colonised() and p.owner_race == s.race_id and p.global_position.distance_to(s.global_position) < p.radius + 220.0:
+				rate = maxf(rate, 0.04)
+		if rate > 0.0:
+			s.refuelling = true
+			var was := s.fuel
+			s.refuel(s.fuel_max * rate * delta)
+			if s.is_player and was < s.fuel_max * 0.25 and s.fuel >= s.fuel_max * 0.25:
+				notify(s, "Refuelling.")
 
 
 func _collect_powerups() -> void:
@@ -684,6 +995,7 @@ func _collect_powerups() -> void:
 				if taken:
 					Sfx.play("pickup", s.global_position, 0.7)
 					Net.host_powerup_taken(p, s)
+					release_body(p.body)
 					p.queue_free()
 				break
 
@@ -699,6 +1011,8 @@ func _on_ship_damaged(s: Ship, amount: float) -> void:
 func _on_ship_died(s: Ship, killer: Node) -> void:
 	var big := s.size > 40.0
 	fx.explosion(s.global_position, s.size * 1.6, s.race_color(), big)
+	spawn_wreck(s)
+	blast(s.global_position, s.size * 5.0, s.mass * 25.0)
 	if player != null:
 		# the blast is felt by distance: shake, a dip in the music, and a
 		# beat of slow motion when it was the player's kill
@@ -771,7 +1085,8 @@ func _respawns() -> void:
 		if elapsed >= entry[1]:
 			var home := _home_planet(s.race_id)
 			if s.is_station:
-				s.respawn(home.global_position + Vector2(home.radius + 420.0, 0).rotated(randf() * TAU), home.velocity)
+				var at := _station_spot(home)
+				s.respawn(at, space.circular_orbit_velocity(home.body, at))
 			else:
 				_place_at_home(s)
 				s.respawn(s.global_position, s.velocity)

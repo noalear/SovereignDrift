@@ -10,6 +10,7 @@ var mouse_steer := false
 func setup(p_ship: Ship, p_world: Node) -> void:
 	ship = p_ship
 	world = p_world
+	ship.flight_assist = Settings.flight_assist
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -51,6 +52,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			Net.client_command("refit")
 		else:
 			world.try_refit(ship)
+	elif event.is_action_pressed("flight_assist"):
+		ship.flight_assist = not ship.flight_assist
+		Settings.flight_assist = ship.flight_assist
+		Settings.save_settings()
+		world.notify(ship, "Flight assist on: the thrusters hold your turn." if ship.flight_assist else "Flight assist off: you spin until you stop yourself.")
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and event.shift_pressed:
 		var pos: Vector2 = world.get_global_mouse_position()
 		var s: Ship = world.ship_at(pos, 40.0 / world.camera.zoom.x)

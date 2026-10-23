@@ -4,6 +4,8 @@
 class_name Powerup
 extends Node2D
 
+var world: Node = null
+var body: PhysicsBody = null
 var module_id := "5002"
 var velocity := Vector2.ZERO
 var age := 0.0
@@ -33,14 +35,31 @@ func setup(id: String, pos: Vector2, vel: Vector2) -> void:
 		life = 25.0
 	else:
 		label = GameData.MODULES[id]["name"]
+	body = PhysicsBody.new()
+	body.kind = PhysicsBody.Kind.PICKUP
+	body.node = self
+	body.set_circle(8.0)
+	body.set_mass(40.0)
+	body.gravity_scale = 0.3
+	body.sun_gravity = false
+	body.pos = pos
+	body.vel = vel
 
 
-func _physics_process(delta: float) -> void:
+func pre_step(_delta: float) -> void:
+	body.pos = global_position
+	body.vel = velocity
+
+
+func post_step(delta: float) -> void:
+	global_position = body.pos
+	velocity = body.vel
 	age += delta
-	global_position += velocity * delta
 	velocity *= 1.0 - 0.4 * delta
 	rotation += 0.8 * delta
 	if age > life:
+		if world != null:
+			world.release_body(body)
 		queue_free()
 	queue_redraw()
 

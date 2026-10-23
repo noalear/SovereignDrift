@@ -1,8 +1,13 @@
 ## Missile -- torpedoes, plasma bolts, grenades, mines, seekers and shells.
+## Each one is a small PhysicsBody: fast shots are swept against hulls so
+## nothing tunnels through, and every hit carries momentum into its target.
 class_name Missile
 extends Node2D
 
 var world: Node
+var body: PhysicsBody = null
+var hit_point := Vector2.INF     # where the last sweep touched, set by the world
+var hit_normal := Vector2.ZERO
 var owner_ship: Node = null
 var owner_race := -1
 var missile_id := "001"
@@ -34,6 +39,17 @@ func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vecto
 	armed = 0.35 if data["trigger"] == "prox" else 0.05
 	if p_id == "002":
 		armed = 1.5
+	body = PhysicsBody.new()
+	body.kind = PhysicsBody.Kind.PROJECTILE
+	body.node = self
+	body.set_circle(radius)
+	body.set_mass(radius * radius * 2.0)
+	body.bullet = p_id != "002"
+	body.gravity_scale = 0.0 if p_id == "002" else 1.0
+	body.pos = p_pos
+	body.prev_pos = p_pos
+	body.vel = p_vel
+	body.angle = p_angle
 	if data["guided"]:
 		Sfx.attach_loop(self, "rocket_loop", 0.5)
 	var rc: Color = GameData.race(p_race)["color"]
@@ -56,7 +72,7 @@ func _physics_process(delta: float) -> void:
 		if data["trigger"] == "prox" or missile_id == "002":
 			explode(null)
 		else:
-			queue_free()
+			_free()
 		return
 	if data["guided"]:
 		_seek(delta)
@@ -65,10 +81,34 @@ func _physics_process(delta: float) -> void:
 		velocity = velocity.normalized() * cap
 	if missile_id == "002":
 		velocity = velocity.lerp(Vector2.ZERO, 1.5 * delta)
-	global_position += velocity * delta
 	if data["look"] != "mine":
 		rotation = velocity.angle()
 	queue_redraw()
+
+
+func pre_step(_delta: float) -> void:
+	body.enabled = not exploded
+	body.pos = global_position
+	body.vel = velocity
+	body.angle = rotation
+
+
+func post_step(_delta: float) -> void:
+	global_position = body.pos
+	velocity = body.vel
+	rotation = body.angle
+
+
+## Momentum this shot carries into whatever it hits.
+func momentum() -> Vector2:
+	return velocity * body.mass
+
+
+func _free() -> void:
+	exploded = true
+	if world != null:
+		world.release_body(body)
+	queue_free()
 
 
 func _seek(delta: float) -> void:
@@ -86,12 +126,12 @@ func _seek(delta: float) -> void:
 	velocity += dir * accel * delta
 
 
-func check_hit(body: Node2D, body_radius: float) -> bool:
+## Proximity check against a ship's hull (for grenades and mines).
+func check_hit(target_body: PhysicsBody) -> bool:
 	if exploded or armed > 0.0:
 		return false
-	var d := global_position.distance_to(body.global_position)
 	var prox: float = data.get("prox", 0.0)
-	return d <= body_radius + radius + prox
+	return target_body.surface_distance(global_position) <= radius + prox
 
 
 func explode(hit: Node2D) -> void:
@@ -104,6 +144,7 @@ func explode(hit: Node2D) -> void:
 	elif missile_id == "004":
 		splash = 90.0
 	world.missile_detonated(self, hit, splash)
+	world.release_body(body)
 	queue_free()
 
 

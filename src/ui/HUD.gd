@@ -104,10 +104,16 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 	var w := 300.0
 	draw_rect(Rect2(x - 10, y - 34, w + 20, 134), Color(0.02, 0.04, 0.08, 0.6))
 	draw_string(font, Vector2(x, y - 12), "%s   %s" % [p.ship_name, p.design_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, p.race_color())
-	_bar(Vector2(x, y), w, 22, p.shield / maxf(p.shield_max, 1.0), Color(0.3, 0.6, 1.0, 0.85), "Shields", "%d / %d" % [int(p.shield), int(p.shield_max)])
-	_bar(Vector2(x, y + 26), w, 22, p.hull / maxf(p.hull_max, 1.0), Color(0.95, 0.55, 0.25, 0.85) if p.hull / p.hull_max > 0.3 else Color(1, 0.2, 0.2, 0.9), "Hull", "%d / %d" % [int(p.hull), int(p.hull_max)])
-	_bar(Vector2(x, y + 52), w, 22, p.energy / maxf(p.energy_max, 1.0), Color(0.95, 0.85, 0.3, 0.85), "Energy", "%d" % int(p.energy))
+	_bar(Vector2(x, y), w, 19, p.shield / maxf(p.shield_max, 1.0), Color(0.3, 0.6, 1.0, 0.85), "Shields", "%d / %d" % [int(p.shield), int(p.shield_max)])
+	_bar(Vector2(x, y + 22), w, 19, p.hull / maxf(p.hull_max, 1.0), Color(0.95, 0.55, 0.25, 0.85) if p.hull / p.hull_max > 0.3 else Color(1, 0.2, 0.2, 0.9), "Hull", "%d / %d" % [int(p.hull), int(p.hull_max)])
+	_bar(Vector2(x, y + 44), w, 19, p.energy / maxf(p.energy_max, 1.0), Color(0.95, 0.85, 0.3, 0.85), "Energy", "%d" % int(p.energy))
+	var fuel_col := Color(0.4, 0.9, 0.6, 0.85) if p.fuel_fraction() > 0.2 else Color(1, 0.35, 0.2, 0.9)
+	_bar(Vector2(x, y + 66), w, 19, p.fuel_fraction(), fuel_col, "Fuel", "%d%%%s" % [int(p.fuel_fraction() * 100.0), "  refuelling" if p.refuelling else ""])
 	var flags := []
+	if p.fuel <= 0.0:
+		flags.append("NO FUEL")
+	if not p.flight_assist:
+		flags.append("ASSIST OFF")
 	if p.cloaked:
 		flags.append("CLOAKED")
 	if p.warping:
@@ -116,7 +122,7 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 		flags.append("AUTOPILOT")
 	if p.inputs["boost"] and p.has_boost and p.inputs["thrust"] > 0.0:
 		flags.append("BOOST")
-	draw_string(font, Vector2(x, y + 94), "Speed %4d   %s" % [int(p.speed()), "  ".join(flags)], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.95, 1.0))
+	draw_string(font, Vector2(x, y + 94), "Speed %4d   %s" % [int(p.local_velocity().length()), "  ".join(flags)], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.95, 1.0))
 
 
 func _draw_weapons(p: Ship, vp: Vector2) -> void:
@@ -469,7 +475,7 @@ func _draw_help(vp: Vector2) -> void:
 		["FLIGHT", ""],
 		["W / Up", "thrust"], ["S / Down", "reverse"], ["A D / Left Right", "turn"], ["Q E", "strafe"],
 		["Shift", "boost (with thrust)"], ["X", "brake"], ["J", "quantum drive (warp)"],
-		["Mouse", "aims the turrets"],
+		["Mouse", "aims the turrets"], ["V", "flight assist on / off"],
 		["", ""],
 		["SYSTEM", ""],
 		["H / F1", "this card"], ["Esc", "menu"], ["F9", "next song"], ["Alt+Enter", "full screen"],

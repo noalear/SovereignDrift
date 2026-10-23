@@ -21,6 +21,8 @@ var look := "Mercury"
 var temperature := 300
 var habitable := 0
 var velocity := Vector2.ZERO    # orbital velocity, for leading shots
+var accel := Vector2.ZERO       # the rail's acceleration (centripetal, plus the parent's)
+var body: PhysicsBody = null    # the world's solid, kinematic circle for this body
 
 # colony
 var owner_race := -1
@@ -65,9 +67,14 @@ func setup(p_world: Node, row: Array, parent: Planet, seed_value: int) -> void:
 	rng.seed = seed_value
 	orbit_angle = rng.randf() * TAU
 	if orbit_radius > 0.0:
-		# slow, real-feeling periods: inner planets a few minutes, moons faster
-		var period := 240.0 + orbit_radius * 0.12 if body_class != "Moon" else 60.0 + orbit_radius * 0.08
-		orbit_speed = TAU / period
+		if body_class == "Moon":
+			# Kepler: a moon's rail uses the GM ships feel from its planet, so
+			# a ship matching the moon's velocity really is in that orbit
+			var parent_gm := PhysicsSpace.gm_for(parent.look, parent.body_class, parent.radius)
+			orbit_speed = sqrt(parent_gm / (orbit_radius * orbit_radius * orbit_radius))
+		else:
+			# slow, real-feeling periods: inner planets a few minutes
+			orbit_speed = TAU / (240.0 + orbit_radius * 0.12)
 	_ensure_resources()
 	material_ = ShaderMaterial.new()
 	material_.shader = planet_shader
@@ -178,8 +185,18 @@ func update_orbit(delta: float) -> void:
 	velocity = (global_position - old) / maxf(delta, 0.0001) if delta > 0.0 else Vector2.ZERO
 	if parent_body != null:
 		velocity = parent_body.velocity + Vector2(-sin(orbit_angle), cos(orbit_angle)) * orbit_speed * orbit_radius
+		accel = parent_body.accel - (global_position - centre) * orbit_speed * orbit_speed
 	elif orbit_radius > 0.0:
 		velocity = Vector2(-sin(orbit_angle), cos(orbit_angle)) * orbit_speed * orbit_radius
+		accel = -(global_position - centre) * orbit_speed * orbit_speed
+
+
+## Hand the rail's state to the body the physics space collides with.
+func sync_body() -> void:
+	if body != null:
+		body.pos = global_position
+		body.vel = velocity
+		body.accel = accel
 
 
 func _process(delta: float) -> void:
