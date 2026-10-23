@@ -79,6 +79,38 @@ const MODULES := {
 	"9202": {"name": "Booster II", "vol": 140, "mass": 700, "power": -150, "hp": 100, "func": "boost", "p": [1200, 200, 50]},
 	"9203": {"name": "Booster III", "vol": 160, "mass": 800, "power": -180, "hp": 100, "func": "boost", "p": [1400, 250, 70]},
 	"9301": {"name": "Docking tractor", "vol": 400, "mass": 1000, "power": -100, "hp": 100, "func": "dock", "p": [400, 2400, 200]},
+	# remake parts with an empire flavour: Arcean regeneration and drones,
+	# Terran repair, Drengin rams and disruptors
+	"5101": {"name": "Regenerator I", "vol": 60, "mass": 300, "power": -150, "hp": 80, "func": "regen", "p": [6]},
+	"5102": {"name": "Regenerator II", "vol": 120, "mass": 500, "power": -250, "hp": 120, "func": "regen", "p": [14]},
+	"5201": {"name": "Repair bay I", "vol": 80, "mass": 900, "power": -100, "hp": 150, "func": "repair", "p": [10]},
+	"5202": {"name": "Repair bay II", "vol": 160, "mass": 1500, "power": -150, "hp": 250, "func": "repair", "p": [22]},
+	"5601": {"name": "Ram prow", "vol": 120, "mass": 2500, "power": 0, "hp": 400, "func": "ram", "p": [3]},
+	"4020": {"name": "Disruptor", "vol": 45, "mass": 120, "power": -400, "hp": 120, "func": "tube", "p": [40, 5000, 600, "020"]},
+	"4021": {"name": "Drone bay", "vol": 50, "mass": 200, "power": -300, "hp": 150, "func": "tube", "p": [40, 6000, 40, "021"]},
+}
+
+## Which empire's shipyard sells a part.  Parts not listed are common.
+## Another empire's part needs a blueprint, salvaged from its wrecks.
+const MODULE_RACE := {
+	"5005": 0, "5006": 0, "7003": 0, "5101": 0, "5102": 0, "4021": 0,
+	"5502": 1, "5503": 1, "4008": 1, "4009": 1, "5201": 1, "5202": 1,
+	"9101": 2, "9203": 2, "5601": 2, "4020": 2, "4018": 2,
+}
+
+## Parts only a station carries.
+const STATION_ONLY := ["0001", "1006", "4011", "4503", "5007", "9301", "2004"]
+
+## Internal bay volume of each hull.
+const HULL_BAYS := {
+	"Scout": 1300, "Destroyer": 1500, "Raider": 1500, "Marauder": 2100, "Cruiser": 1600,
+	"BattleCruiser": 3000, "Battleship": 2200, "Dreadnought": 3000, "Starbase": 20000, "Freighter": 1800,
+}
+
+## Credits for a hull at the shipyard.
+const HULL_PRICE := {
+	"Scout": 0, "Destroyer": 400, "Marauder": 900, "Cruiser": 1500,
+	"BattleCruiser": 2600, "Battleship": 3600, "Dreadnought": 6000,
 }
 
 # ------------------------------------------------------------- missiles
@@ -95,12 +127,14 @@ const MISSILES := {
 	"010": {"name": "rapid torpedo", "warhead": 100, "fire_v": 0.70, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.80, "life": 3.2, "radius": 3, "look": "bolt"},
 	"011": {"name": "rapid plasma", "warhead": 400, "fire_v": 0.80, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.00, "life": 3.2, "radius": 5, "look": "plasma"},
 	"018": {"name": "cannon shell", "warhead": 750, "fire_v": 0.40, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "shell"},
+	"020": {"name": "disruptor bolt", "warhead": 220, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320},
+	"021": {"name": "drone", "warhead": 90, "fire_v": 0.25, "guided": true, "trigger": "impact", "seek_range": 700, "max_v": 0.5, "life": 9.0, "radius": 4, "look": "drone", "turn": 4.5, "accel": 260},
 }
 
 ## Seconds between shots for each tube missile.
 const TUBE_COOLDOWN := {
 	"001": 0.28, "002": 1.0, "003": 0.5, "004": 0.55, "008": 0.7, "009": 0.9,
-	"010": 0.09, "011": 0.09, "018": 0.45,
+	"010": 0.09, "011": 0.09, "018": 0.45, "020": 0.4, "021": 0.5,
 }
 
 # ------------------------------------------------------- ship designs
@@ -110,29 +144,29 @@ const TUBE_COOLDOWN := {
 
 const SHIPS := {
 	"Scout": {"rank": 0, "speed": 0.25, "size": 22, "turn": 200.0,
-		"modules": ["1001", "5003", "2002", "3003", "7003", "9201", "9101", "4004"],
+		"modules": ["1001", "5003", "2002", "3003", "7003", "9201", "9101"],
 		"dock": [180, 0],
-		"weapons": [["4501", 0, 0, 0, -120, 120], ["4001", 0, 0, 0, -50, 50]]},
+		"weapons": [["4501", 0, 0, 0, -120, 120], ["4001", 0, 0, 0, -50, 50], ["4002", 180, 0, 180, 170, 190]]},
 	"Destroyer": {"rank": 2, "speed": 0.23, "size": 28, "turn": 170.0,
-		"modules": ["1002", "5002", "2002", "3002", "7001", "9201", "9101", "4004"],
+		"modules": ["1002", "5002", "2002", "3002", "7001", "9201", "9101"],
 		"dock": [180, 0],
-		"weapons": [["4501", 0, 0, 0, -120, 120], ["4001", 40, 0, 0, -90, 90], ["4001", -40, 0, 0, -90, 90]]},
+		"weapons": [["4501", 0, 0, 0, -120, 120], ["4001", 40, 0, 0, -90, 90], ["4001", -40, 0, 0, -90, 90], ["4002", 180, 0, 180, 170, 190]]},
 	"Raider": {"rank": 2, "speed": 0.27, "size": 28, "turn": 180.0, "pirate": true,
-		"modules": ["1002", "5002", "2002", "3002", "7001", "9201", "9101", "4004"],
+		"modules": ["1002", "5002", "2002", "3002", "7001", "9201", "9101"],
 		"dock": [180, 0],
 		"weapons": [["4501", 0, 0, 0, -120, 120], ["4001", 40, 0, 0, -90, 90], ["4001", -40, 0, 0, -90, 90]]},
 	"Cruiser": {"rank": 6, "speed": 0.21, "size": 36, "turn": 130.0,
-		"modules": ["1003", "5002", "2003", "3001", "7002", "9201", "4004"],
+		"modules": ["1003", "5002", "2003", "3001", "7002", "9201"],
 		"dock": [180, 0],
-		"weapons": [["4501", 0, 0, 0, -120, 120], ["4001", 0, 0, 0, -50, 50], ["4010", 50, 18, 0, -30, 150], ["4010", -50, 18, 0, -150, 30]]},
+		"weapons": [["4501", 0, 0, 0, -120, 120], ["4001", 0, 0, 0, -50, 50], ["4010", 50, 18, 0, -30, 150], ["4010", -50, 18, 0, -150, 30], ["4002", 180, 0, 180, 170, 190]]},
 	"Battleship": {"rank": 10, "speed": 0.19, "size": 44, "turn": 100.0,
-		"modules": ["1003", "5003", "2003", "3001", "7002", "9201", "4004"],
+		"modules": ["1003", "5003", "2003", "3001", "7002", "9201"],
 		"dock": [180, 0],
-		"weapons": [["4501", 0, 0, 0, -120, 120], ["4003", 0, 0, 0, -30, 30], ["4001", 40, 0, 0, -30, 30], ["4001", -40, 0, 0, -30, 30]]},
+		"weapons": [["4501", 0, 0, 0, -120, 120], ["4003", 0, 0, 0, -30, 30], ["4001", 40, 0, 0, -30, 30], ["4001", -40, 0, 0, -30, 30], ["4002", 180, 0, 180, 170, 190]]},
 	"Dreadnought": {"rank": 12, "speed": 0.17, "size": 56, "turn": 75.0,
-		"modules": ["1004", "5004", "2003", "3002", "7003", "9201", "4004"],
+		"modules": ["1004", "5004", "2003", "3002", "7003", "9201"],
 		"dock": [180, 0],
-		"weapons": [["4501", 0, 0, 0, -120, 120], ["4003", 50, 18, 0, -30, 150], ["4003", -50, 18, 0, -150, 30], ["4001", 0, 0, 0, 0, 350]]},
+		"weapons": [["4501", 0, 0, 0, -120, 120], ["4003", 50, 18, 0, -30, 150], ["4003", -50, 18, 0, -150, 30], ["4001", 0, 0, 0, 0, 350], ["4002", 180, 0, 180, 170, 190]]},
 	"Starbase": {"rank": 14, "speed": 0.10, "size": 110, "turn": 20.0,
 		"modules": ["1006", "5007", "2004", "7002", "0001"],
 		"dock": [60, 0],
@@ -142,13 +176,13 @@ const SHIPS := {
 		"dock": [180, 0],
 		"weapons": [["4001", 0, 0, 0, -50, 50]]},
 	"Marauder": {"rank": 0, "speed": 0.25, "size": 30, "turn": 170.0, "aces": true,
-		"modules": ["1005", "5004", "2003", "3003", "7003", "9203", "9101", "4018"],
+		"modules": ["1005", "5004", "2003", "3003", "7003", "9203", "9101"],
 		"dock": [180, 0],
-		"weapons": [["4501", 0, 0, 0, -120, 120], ["4003", 40, 0, 0, -90, 90], ["4003", -40, 0, 0, -90, 90]]},
+		"weapons": [["4501", 0, 0, 0, -120, 120], ["4018", 0, 0, 0, -40, 40], ["4003", 40, 0, 0, -90, 90], ["4003", -40, 0, 0, -90, 90]]},
 	"BattleCruiser": {"rank": 8, "speed": 0.22, "size": 46, "turn": 110.0, "aces": true,
-		"modules": ["1005", "5005", "2004", "3003", "7003", "9203", "4004"],
+		"modules": ["1005", "5005", "2003", "3003", "7003", "9203"],
 		"dock": [180, 0],
-		"weapons": [["4501", 0, 0, 0, -120, 120], ["4010", 0, 0, 0, -50, 50], ["4003", 50, 18, 0, -30, 150], ["4003", -50, 18, 0, -150, 30]]},
+		"weapons": [["4501", 0, 0, 0, -120, 120], ["4010", 0, 0, 0, -50, 50], ["4003", 50, 18, 0, -30, 150], ["4003", -50, 18, 0, -150, 30], ["4002", 180, 0, 180, 170, 190]]},
 }
 
 ## Ships a pilot may refit to at a friendly starbase, in rank order.
@@ -285,6 +319,200 @@ static func rank_for(score: int, kills: int) -> int:
 
 static func rank_name(level: int) -> String:
 	return RANKS[clampi(level, 0, RANKS.size() - 1)]["name"]
+
+
+# --------------------------------------------------- shipyard helpers
+
+## Tier of a part (I..V) for pricing and pickups.
+static func tier(id: String) -> int:
+	var m: Dictionary = MODULES[id]
+	if m["func"] in ["power", "eng", "shield", "armor", "sensor", "boost", "qdrv", "regen", "repair", "beam"]:
+		return maxi(int(id.substr(3, 1)), 1)
+	return 1
+
+
+## The empire that sells a part, or -1 when every shipyard does.
+static func part_race(id: String) -> int:
+	return MODULE_RACE.get(id, -1)
+
+
+## Credits a part costs at the shipyard.
+static func price(id: String) -> int:
+	var m: Dictionary = MODULES[id]
+	var base: float = 30.0 + m["vol"] * 0.5 + absf(m["power"]) * 0.06 + m["hp"] * 0.25 + m["mass"] * 0.004
+	if m["func"] == "tube":
+		var md: Dictionary = MISSILES[m["p"][3]]
+		base += md["warhead"] * 0.12 + (120.0 if md["guided"] else 0.0)
+	base *= 1.0 + 0.35 * (tier(id) - 1)
+	if part_race(id) >= 0:
+		base *= 1.2
+	return int(round(base / 5.0)) * 5
+
+
+## Weapon size class: a hardpoint takes its own class and anything lighter.
+static func weapon_class(id: String) -> int:
+	var v: int = MODULES[id]["vol"]
+	if v <= 50:
+		return 0     # light
+	if v <= 150:
+		return 1     # medium
+	return 2         # heavy
+
+
+static func class_name_of(c: int) -> String:
+	return ["light", "medium", "heavy"][clampi(c, 0, 2)]
+
+
+## Hardpoints of a hull: [angle, radius, fire angle, arc0, arc1, class].
+static func hull_hardpoints(hull: String) -> Array:
+	var d: Dictionary = SHIPS[hull]
+	var out := []
+	var i := 0
+	for w in d["weapons"]:
+		var c := weapon_class(w[0])
+		if hull != "Starbase":
+			if d["rank"] >= 6 and i > 0 and c == 0 and w[2] > 0:
+				c = 1          # cruisers and up carry medium turrets
+			if d["rank"] >= 10 and c == 0:
+				c = 1
+			if d["rank"] >= 12 and w[2] > 0:
+				c = 2          # dreadnought turrets are heavy
+			if w[1] == 180:
+				c = 0          # the rear mine rack stays small
+		out.append([w[1], w[2], w[3], w[4], w[5], c])
+		i += 1
+	return out
+
+
+## A fresh copy of a stock design as a buildable design dictionary.
+static func stock_design(hull: String) -> Dictionary:
+	var d: Dictionary = SHIPS[hull]
+	var weapons := []
+	for w in d["weapons"]:
+		weapons.append(w.duplicate())
+	return {
+		"name": hull, "rank": d["rank"], "speed": d["speed"], "turn": d["turn"], "size": d["size"],
+		"dock": d.get("dock", [180, 0]), "modules": d["modules"].duplicate(), "weapons": weapons,
+		"pirate": d.get("pirate", false), "aces": d.get("aces", false),
+	}
+
+
+## Mass of a hull's stock fit, the reference for turn and speed penalties.
+static func stock_mass(hull: String) -> float:
+	var d: Dictionary = SHIPS[hull]
+	var m := 0.0
+	for id in d["modules"]:
+		m += MODULES[id]["mass"]
+	for w in d["weapons"]:
+		m += MODULES[w[0]]["mass"]
+	return maxf(m, 1.0)
+
+
+## Can a part go in an internal bay (as opposed to a hardpoint)?
+static func is_bay_part(id: String) -> bool:
+	var f: String = MODULES[id]["func"]
+	return f not in ["tube", "beam", "factory", "dock"]
+
+
+## Parts a shipyard of this empire sells to a pilot with these blueprints.
+static func catalogue(race_id: int, blueprints: Array, for_station: bool = false) -> Array:
+	var out := []
+	for id in MODULES:
+		if id in STATION_ONLY and not for_station:
+			continue
+		var r := part_race(id)
+		if r >= 0 and r != race_id and not blueprints.has(id):
+			continue
+		out.append(id)
+	out.sort_custom(func(a, b):
+		var fa: String = MODULES[a]["func"]
+		var fb: String = MODULES[b]["func"]
+		if fa != fb:
+			return fa < fb
+		return a < b)
+	return out
+
+
+## Everything a design adds up to; shared by the ship and the shipyard so
+## the numbers on the screen are the numbers in flight.
+static func stats_for(design: Dictionary) -> Dictionary:
+	var st := {
+		"mass": 0.0, "energy_max": 0.0, "energy_regen": 0.0, "shield_max": 0.0, "shield_regen": 0.0,
+		"hull_max": 0.0, "armor": 0.0, "sensor_range": 800.0, "can_cloak": false, "has_boost": false,
+		"qdrv": 0.0, "brake_power": 0.6, "regen": 0.0, "repair": 0.0, "ram": 0.0,
+		"power_gen": 0.0, "power_draw": 0.0, "overload": 1.0, "module_levels": {}, "bay_used": 0,
+		"bay_cap": int(HULL_BAYS.get(design["name"], 2000)), "engines": 0, "eng": 0.0,
+	}
+	var is_station: bool = design["name"] == "Starbase"
+	for id in design["modules"]:
+		var m: Dictionary = MODULES[id]
+		st["mass"] += m["mass"]
+		st["hull_max"] += m["hp"]
+		st["bay_used"] += m["vol"]
+		if m["power"] > 0:
+			st["power_gen"] += m["power"]
+		else:
+			# continuous draw; a quantum drive only pulls hard while it is charging
+			st["power_draw"] += -m["power"] * (0.05 if m["func"] == "qdrv" else 0.35)
+		var level := tier(id)
+		st["module_levels"][m["func"]] = maxi(st["module_levels"].get(m["func"], 0), level)
+		match m["func"]:
+			"power":
+				st["energy_max"] += m["power"] * 5.0
+				st["energy_regen"] += m["power"] * 0.45
+			"eng":
+				st["eng"] += m["p"][0]
+				st["engines"] += 1
+			"shield":
+				st["shield_max"] += m["p"][0]
+				st["shield_regen"] += m["p"][0] * 0.06
+			"armor":
+				st["armor"] += m["p"][0]
+				st["hull_max"] += m["p"][0] * 4
+			"sensor":
+				st["sensor_range"] = maxf(st["sensor_range"], 600.0 + m["p"][0] * 40.0)
+			"stealth":
+				st["can_cloak"] = true
+			"boost":
+				st["has_boost"] = true
+			"qdrv":
+				st["qdrv"] = maxf(st["qdrv"], float(m["p"][0]))
+			"brake":
+				st["brake_power"] = 1.6
+			"regen":
+				st["regen"] += m["p"][0]
+			"repair":
+				st["repair"] += m["p"][0]
+			"ram":
+				st["ram"] = maxf(st["ram"], float(m["p"][0]))
+				st["hull_max"] += 200
+			"factory":
+				st["energy_regen"] += 400.0
+	for w in design["weapons"]:
+		var m: Dictionary = MODULES[w[0]]
+		st["mass"] += m["mass"]
+		st["hull_max"] += m["hp"] * 0.5
+		st["power_draw"] += absf(m["power"]) * 0.25
+	if is_station:
+		st["hull_max"] *= 4.0
+		st["shield_max"] *= 2.5
+		st["sensor_range"] = 2600.0
+	# the reactor budget: drawing more than it makes slows everything down
+	if st["power_gen"] > 0.0 and st["power_draw"] > st["power_gen"]:
+		st["overload"] = st["power_draw"] / st["power_gen"]
+		st["energy_regen"] /= st["overload"]
+	elif st["power_gen"] <= 0.0:
+		st["overload"] = 3.0
+	# mass against the hull's stock fit decides handling
+	var ratio: float = stock_mass(design["name"]) / maxf(st["mass"], 1.0)
+	st["turn"] = design["turn"] * clampf(pow(ratio, 0.5), 0.55, 1.25)
+	st["max_speed"] = design["speed"] * LIGHT_SPEED * clampf(pow(ratio, 0.3), 0.75, 1.12)
+	st["accel"] = clampf(st["eng"] * 0.9 * (3000.0 / maxf(st["mass"], 1500.0)), 40.0, 420.0)
+	if is_station:
+		st["accel"] = 12.0
+		st["turn"] = design["turn"]
+		st["max_speed"] = design["speed"] * LIGHT_SPEED
+	return st
 
 
 static func missile_display_name(race_id: int, missile_id: String) -> String:

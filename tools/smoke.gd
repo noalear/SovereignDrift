@@ -50,6 +50,8 @@ func _process(_delta: float) -> bool:
 		if frames == 1500:
 			w.try_refit(p)
 			p.set_cloak(true)
+		if frames == 2000:
+			_exercise_shipyard(w, p)
 	if frames % 1000 == 0:
 		var alive := 0
 		for s in w.ships:
@@ -64,3 +66,46 @@ func _process(_delta: float) -> bool:
 		print("total kills=", kills, " planets per race=", w.planet_counts)
 		main._show_menu()
 	return false
+
+
+## Open the shipyard next to the pilot's starbase, buy and fit parts from
+## the catalogue and the hold, change hull, launch, and check the result.
+func _exercise_shipyard(w: World, p: Ship) -> void:
+	var base: Ship = null
+	for s in w.ships:
+		if s.is_station and s.race_id == p.race_id and not s.dead:
+			base = s
+	assert(base != null, "no friendly starbase")
+	p.global_position = base.global_position + Vector2(200, 0)
+	p.velocity = base.velocity
+	p.credits = 9000
+	p.hold = ["5503", "4003", "7001"]
+	p.score = 30000
+	p.kills = 2500
+	p.rank = 11
+	w.try_refit(p)
+	assert(main.builder != null, "shipyard did not open")
+	var b: Builder = main.builder
+	# a bigger hull, then parts
+	b._switch_hull("Cruiser")
+	print("shipyard: after hull switch hull=%s status=%s credits=%d" % [b.hull, b.status, b.credits])
+	assert(b.hull == "Cruiser", "hull switch failed")
+	b._select("bay", b.modules.size())
+	b._mount("5503")                 # armour from the hold
+	assert(not b.hold.has("5503"), "hold part not used")
+	b._select("bay", b.modules.size())
+	b._mount("1004")                 # bought power plant
+	b._select("hp", 1)
+	b._mount("4003")                 # grenade launcher from the hold
+	b._select("hp", 0)
+	b._remove_selected()
+	var before := b.credits
+	b._select("hold", 0)
+	b._sell_hold(0)
+	assert(b.credits > before, "sell did not pay")
+	print("shipyard: problems=", b._problems(), " credits=", b.credits, " bays=", main.get_node("/root/GameData").stats_for(b.current_design())["bay_used"])
+	b._launch()
+	assert(main.builder == null, "shipyard did not close on launch")
+	assert(p.design_name == "Cruiser", "launch did not refit")
+	assert(p.design["modules"].has("5503") and p.design["modules"].has("1004"), "parts not fitted")
+	print("shipyard: launched ", p.design_name, " modules=", p.design["modules"], " weapons=", p.design["weapons"].size(), " turn=", p.turn_speed, " accel=", p.accel, " overload=", p.overload)

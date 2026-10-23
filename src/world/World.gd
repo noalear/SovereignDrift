@@ -7,6 +7,7 @@ signal message(text: String, color: Color)
 signal player_died()
 signal player_respawned()
 signal planet_owner_changed(planet: Planet)
+signal shipyard_requested(ship: Ship, base: Ship)
 
 const MISSILE_SCRIPT := preload("res://src/weapons/Missile.gd")
 const RESPAWN_DELAY := 4.0
@@ -36,6 +37,8 @@ var slowmo := 0.0                # seconds of kill slow-motion left
 var intensity_timer := 0.0
 var last_player_damage := -100.0
 var last_player_fire := -100.0
+var income_timer := 60.0         # planets pay their empire every minute
+const START_CREDITS := 250
 
 
 func _ready() -> void:
@@ -103,6 +106,7 @@ func _spawn_pilots() -> void:
 	player.score = Settings.career["score"]
 	player.kills = Settings.career["kills"]
 	player.rank = GameData.rank_for(player.score, player.kills)
+	player.credits = START_CREDITS
 	var pc := PlayerController.new()
 	pc.name = "Controller"
 	player.add_child(pc)
@@ -192,7 +196,7 @@ func _process(delta: float) -> void:
 		if player.warping:
 			speed_mul = 0.5
 		else:
-			speed_mul = lerpf(1.0, 0.62, clampf(player.velocity.length() / GameData.LIGHT_SPEED / 1.2, 0.0, 1.0))
+			speed_mul = lerpf(1.0, 0.72, clampf(player.velocity.length() / GameData.LIGHT_SPEED / 1.2, 0.0, 1.0))
 	camera.zoom = camera.zoom.lerp(Vector2.ONE * target_zoom * speed_mul, 2.5 * delta)
 	if player != null and not player.dead:
 		# look a little ahead of the ship's motion
@@ -383,8 +387,17 @@ func _collide_ships(delta: float) -> void:
 					b.velocity += n * impulse * (a.mass / total)
 					if impulse > 90.0:
 						var dmg := (impulse - 90.0) * 0.5
-						a.take_damage(dmg * (b.mass / total) * 2.0, b, a.global_position + n * a.size)
-						b.take_damage(dmg * (a.mass / total) * 2.0, a, b.global_position - n * b.size)
+						# a ram prow turns a collision into a weapon when it hits nose first
+						var a_ram := 1.0
+						var b_ram := 1.0
+						if a.ram_power > 0.0 and a.forward().dot(n) > 0.7:
+							a_ram = a.ram_power
+						if b.ram_power > 0.0 and b.forward().dot(-n) > 0.7:
+							b_ram = b.ram_power
+						a.take_damage(dmg * (b.mass / total) * 2.0 * b_ram / a_ram, b, a.global_position + n * a.size)
+						b.take_damage(dmg * (a.mass / total) * 2.0 * a_ram / b_ram, a, b.global_position - n * b.size)
+						if a_ram > 1.0 or b_ram > 1.0:
+							add_shake(6.0 if a.is_player or b.is_player else 0.0)
 
 
 func _collide_missiles() -> void:
@@ -476,6 +489,10 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 	if splash <= 0.0:
 		if hit != null:
 			hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else m.owner_ship, pos)
+			if hit is Ship and m.data.has("drain"):
+				hit.energy = maxf(hit.energy - m.data["drain"], 0.0)
+				if hit.cloaked:
+					hit.set_cloak(false)
 		fx.explosion(pos, 6.0 + m.radius * 2.0, m.color, false, "impact")
 		return
 	# area damage falls off with distance
@@ -514,8 +531,30 @@ func _collect_powerups() -> void:
 			if s.dead or s.is_station:
 				continue
 			if s.global_position.distance_to(p.global_position) < s.size * 0.8 + 10.0:
-				if s.try_pickup(p.module_id):
-					notify(s, "Picked up %s." % p.label)
+				var taken := false
+				match p.kind:
+					"credits":
+						if s.is_player:
+							s.credits += p.amount
+							notify(s, "Salvaged %d credits." % p.amount)
+							taken = true
+					"blueprint":
+						if s.is_player:
+							if not s.blueprints.has(p.module_id):
+								s.blueprints.append(p.module_id)
+								notify(s, "Blueprint: %s can now be bought at your shipyard." % GameData.MODULES[p.module_id]["name"])
+							else:
+								s.credits += 60
+								notify(s, "Duplicate blueprint sold for 60 credits.")
+							taken = true
+					_:
+						if s.try_pickup(p.module_id):
+							if s.is_player:
+								notify(s, "Salvaged %s (hold %d/%d)." % [p.label, s.hold.size(), Ship.HOLD_SIZE])
+							taken = true
+						elif s.is_player:
+							notify(s, "Hold full: %s left behind." % p.label)
+				if taken:
 					Sfx.play("pickup", s.global_position, 0.7)
 					Net.host_powerup_taken(p, s)
 					p.queue_free()
@@ -561,10 +600,28 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 		var id: String = candidates[randi() % candidates.size()]
 		var a := randf() * TAU
 		spawn_powerup(id, s.global_position + Vector2(cos(a), sin(a)) * s.size * 0.5, s.velocity * 0.4 + Vector2(cos(a), sin(a)) * randf_range(30.0, 90.0))
+	# the purse spills: a credit chip, and now and then a blueprint of an
+	# empire part the wreck carried
+	var purse := 20 + s.rank * 6 + (200 if s.is_station else 0)
+	spawn_powerup("cr:%d" % purse, s.global_position + Vector2(randf_range(-20, 20), randf_range(-20, 20)), s.velocity * 0.3 + Vector2(randf_range(-40, 40), randf_range(-40, 40)))
+	var flavour := []
+	for id in s.design["modules"]:
+		if GameData.part_race(id) == s.race_id:
+			flavour.append(id)
+	for w in s.design["weapons"]:
+		if GameData.part_race(w[0]) == s.race_id:
+			flavour.append(w[0])
+	if not flavour.is_empty() and randf() < (0.35 if big else 0.2):
+		var a := randf() * TAU
+		spawn_powerup("bp:" + flavour[randi() % flavour.size()], s.global_position, s.velocity * 0.3 + Vector2(cos(a), sin(a)) * 50.0)
 	var killer_ship: Ship = killer as Ship
 	if killer_ship != null and killer_ship != s and not killer_ship.dead:
 		var points := 10 + s.rank * 2 + (40 if s.is_station else 0)
 		killer_ship.add_score(points, true)
+		if killer_ship.is_player:
+			var bounty := 30 + s.rank * 8 + (300 if s.is_station else 0)
+			killer_ship.credits += bounty
+			notify(killer_ship, "Bounty: %d credits." % bounty)
 		notify_all("%s (%s) destroyed %s (%s)." % [killer_ship.pilot_name, GameData.race(killer_ship.race_id)["name"], s.pilot_name, GameData.race(s.race_id)["name"]],
 			killer_ship.race_color() if killer_ship.is_player or s.is_player else Color(0.8, 0.8, 0.8))
 	else:
@@ -611,6 +668,9 @@ func planet_captured(p: Planet, winner: int, attacker: Node) -> void:
 	Net.host_planet_captured(p, winner)
 	if attacker is Ship:
 		attacker.add_score(50, false)
+		if attacker.is_player:
+			attacker.credits += 200
+			notify(attacker, "Capture bonus: 200 credits.")
 	notify_all("%s surrendered to the %s%s." % [p.body_name, GameData.race(winner)["name"],
 		(" (was %s)" % GameData.race(old)["name"]) if old >= 0 else ""], GameData.race(winner)["color"])
 	Sfx.play_ui("captured", 0.7)
@@ -622,6 +682,15 @@ func _score_planets(delta: float) -> void:
 	for p in planets:
 		if p.is_colonised():
 			planet_counts[p.owner_race] = planet_counts.get(p.owner_race, 0) + 1
+	# held planets pay their empire's pilots every minute
+	income_timer -= delta
+	if income_timer <= 0.0:
+		income_timer = 60.0
+		if player != null:
+			var n: int = planet_counts.get(player.race_id, 0)
+			if n > 0:
+				player.credits += n * 10
+				notify(player, "Planet income: %d credits from %d worlds." % [n * 10, n])
 	# a race holding every colony for a minute wins the round
 	var holders := 0
 	var who := -1
@@ -662,30 +731,38 @@ func cycle_nav(s: Ship) -> void:
 	notify(s, "Navigation: %s." % s.nav_target.body_name)
 
 
+## Open the shipyard: needs a friendly starbase within docking range.
 func try_refit(s: Ship) -> void:
-	# must be close to a friendly starbase
-	var base: Ship = null
-	for o in ships:
-		if o.is_station and not o.dead and o.race_id == s.race_id and o.global_position.distance_to(s.global_position) < o.size + 260.0:
-			base = o
+	var base := nearest_base(s)
 	if base == null:
-		notify(s, "Refits are done at your starbase (fly within docking range and press U).")
+		notify(s, "The shipyard is at your starbase (fly within docking range and press U).")
 		return
-	var options := GameData.ship_names_for_rank(s.rank)
-	var idx := options.find(s.design_name)
-	var next: String = options[(idx + 1) % options.size()]
-	if next == s.design_name:
-		notify(s, "No other hull available at your rank.")
+	if s.speed() > 220.0:
+		notify(s, "Too fast to dock: brake first (X).")
 		return
+	shipyard_requested.emit(s, base)
+
+
+## The friendly starbase this ship could dock at, if any.
+func nearest_base(s: Ship) -> Ship:
+	for o in ships:
+		if o.is_station and not o.dead and o.race_id == s.race_id and o.global_position.distance_to(s.global_position) < o.size + 320.0:
+			return o
+	return null
+
+
+## Apply a shipyard build to a ship where it sits.
+func apply_build(s: Ship, design: Dictionary) -> void:
 	var pos := s.global_position
 	var vel := s.velocity
 	var rot := s.rotation
-	s.refit(next)
+	s.refit(design)
 	s.global_position = pos
 	s.velocity = vel
 	s.rotation = rot
+	s.invulnerable = 2.0
 	Sfx.play("dock", pos, 0.8)
-	notify(s, "Refitted to a %s." % next)
+	notify(s, "Launched: %s." % design["name"])
 
 
 func notify(s: Ship, text: String) -> void:

@@ -9,6 +9,7 @@ var world: World = null
 var hud: HUD = null
 var ui_layer: CanvasLayer
 var pause_panel: Control = null
+var builder: Builder = null
 var font: Font
 
 
@@ -90,6 +91,9 @@ func _join_game(address: String) -> void:
 
 func _show_menu() -> void:
 	Net.leave()
+	if builder != null:
+		builder.queue_free()
+		builder = null
 	if world != null:
 		world.queue_free()
 		world = null
@@ -133,6 +137,7 @@ func _start_game() -> void:
 	hud = HUD.new()
 	ui_layer.add_child(hud)
 	hud.attach(world)
+	world.shipyard_requested.connect(open_builder)
 	world.notify_all("Welcome, %s. You launch from %s. Press H for the controls." % [Settings.pilot_name, GameData.STARBASES.get(Settings.race_id, "home")], Color(1, 0.95, 0.8))
 
 
@@ -140,7 +145,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("fullscreen"):
 		Settings.toggle_fullscreen()
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("pause_menu") and world != null:
+	elif event.is_action_pressed("pause_menu") and world != null and builder == null:
 		if pause_panel == null:
 			_open_pause()
 		else:
@@ -209,6 +214,21 @@ func _open_pause() -> void:
 		get_tree().quit())
 	box.add_child(b5)
 	b1.grab_focus()
+
+
+func open_builder(ship: Ship, base: Ship) -> void:
+	if builder != null or pause_panel != null:
+		return
+	world.set_paused(true)
+	world.visible = false
+	builder = Builder.new()
+	ui_layer.add_child(builder)
+	builder.open(ship, base, world)
+	builder.closed.connect(func(_launched: bool):
+		builder = null
+		if world != null:
+			world.visible = true
+			world.set_paused(false))
 
 
 func _close_pause() -> void:

@@ -11,12 +11,28 @@ var life := 40.0
 var label := ""
 
 
+## kind: "part" (a module id), "blueprint" ("bp:" + module id) or
+## "credits" ("cr:" + amount).
+var kind := "part"
+var amount := 0
+
+
 func setup(id: String, pos: Vector2, vel: Vector2) -> void:
 	module_id = id
 	global_position = pos
 	velocity = vel
-	label = GameData.MODULES[id]["name"]
 	rotation = randf() * TAU
+	if id.begins_with("bp:"):
+		kind = "blueprint"
+		module_id = id.substr(3)
+		label = "%s blueprint" % GameData.MODULES[module_id]["name"]
+	elif id.begins_with("cr:"):
+		kind = "credits"
+		amount = int(id.substr(3))
+		label = "%d credits" % amount
+		life = 25.0
+	else:
+		label = GameData.MODULES[id]["name"]
 
 
 func _physics_process(delta: float) -> void:
@@ -31,7 +47,23 @@ func _physics_process(delta: float) -> void:
 
 func _draw() -> void:
 	var fade := clampf((life - age) / 5.0, 0.0, 1.0)
-	var c := Color(0.8, 0.9, 1.0, fade)
-	draw_rect(Rect2(-7, -7, 14, 14), Color(0.2, 0.3, 0.45, fade))
-	draw_rect(Rect2(-7, -7, 14, 14), c, false, 1.5)
-	draw_circle(Vector2.ZERO, 3.0 + sin(age * 6.0), Color(1, 1, 1, fade))
+	match kind:
+		"credits":
+			var g := Color(1.0, 0.85, 0.3, fade)
+			var d := PackedVector2Array([Vector2(0, -8), Vector2(7, 0), Vector2(0, 8), Vector2(-7, 0)])
+			draw_colored_polygon(d, Color(0.5, 0.35, 0.05, fade))
+			d.append(d[0])
+			draw_polyline(d, g, 1.5, true)
+			draw_circle(Vector2.ZERO, 2.0 + sin(age * 6.0), Color(1, 1, 0.8, fade))
+		"blueprint":
+			var c := Color(0.4, 1.0, 1.0, fade)
+			draw_rect(Rect2(-8, -8, 16, 16), Color(0.05, 0.3, 0.35, fade))
+			draw_rect(Rect2(-8, -8, 16, 16), c, false, 1.5)
+			draw_line(Vector2(-4, -3), Vector2(4, -3), c, 1.0)
+			draw_line(Vector2(-4, 0), Vector2(4, 0), c, 1.0)
+			draw_line(Vector2(-4, 3), Vector2(2, 3), c, 1.0)
+		_:
+			var c := Color(0.8, 0.9, 1.0, fade)
+			draw_rect(Rect2(-7, -7, 14, 14), Color(0.2, 0.3, 0.45, fade))
+			draw_rect(Rect2(-7, -7, 14, 14), c, false, 1.5)
+			draw_circle(Vector2.ZERO, 3.0 + sin(age * 6.0), Color(1, 1, 1, fade))

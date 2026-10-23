@@ -76,6 +76,32 @@ func _process(_delta: float) -> bool:
 		if frames == 420:
 			_shot("game_pause")
 			main._close_pause()
-		if frames == 430:
+		if frames == 425:
+			# the shipyard, with some salvage and credits to show
+			var base: Ship = null
+			for s in w.ships:
+				if s.is_station and s.race_id == p.race_id:
+					base = s
+			p.global_position = base.global_position + Vector2(200, 0)
+			p.velocity = base.velocity
+			p.credits = 3200
+			p.hold = ["5502", "4003", "9202"]
+			p.score = 1200
+			p.kills = 160
+			p.rank = 7
+			w.try_refit(p)
+		if frames == 440:
+			_shot("shipyard")
+			main.builder._switch_hull("Cruiser")
+			main.builder._select("hp", 2)
+		if frames == 455:
+			_shot("shipyard_cruiser")
+			main.builder._mount("4003")
+			main.builder._select("bay", main.builder.modules.size())
+			main.builder._mount("5502")
+			main.builder._launch()
+		if frames == 470:
+			_shot("game_rebuilt")
+		if frames == 480:
 			quit()
 	return false

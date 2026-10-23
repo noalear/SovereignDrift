@@ -52,6 +52,19 @@ var warping := false
 var warp_charge := 0.0
 var brake_power := 0.6
 var module_levels := {}            # func -> level (for pickups)
+var regen_rate := 0.0              # hull repaired per second (Arcean regenerators)
+var repair_rate := 0.0             # hull repaired per second for energy (Terran repair bays)
+var ram_power := 0.0               # Drengin ram prow: collision damage multiplier
+var power_gen := 0.0
+var power_draw := 0.0
+var overload := 1.0                # >1 when the reactor cannot feed everything
+var stats: Dictionary = {}
+
+# the pilot's purse and salvage, used at the shipyard
+var credits := 0
+var hold: Array = []               # module ids salvaged from wrecks
+var blueprints: Array = []         # enemy parts this pilot may buy
+const HOLD_SIZE := 16
 
 var weapons: Array = []            # see _build_weapons
 var inputs := {
@@ -80,6 +93,7 @@ var has_turret := false
 var last_hit_angle := 0.0
 var net_id := 0                    # online: the id the host and clients share
 var is_puppet := false             # online: shown from the host's snapshots, not simulated
+var art_model: Dictionary = {}     # the sprite model, rebuilt on refit
 
 
 func setup(p_world: Node, p_design: String, p_race: int, p_pilot: String, p_ship_name: String) -> void:
@@ -93,74 +107,45 @@ func setup(p_world: Node, p_design: String, p_race: int, p_pilot: String, p_ship
 	engine_sound.setup(self)
 
 
-## Rebuild the ship from a design, keeping career and name.
-func refit(p_design: String) -> void:
-	design_name = p_design
-	design = GameData.SHIPS[p_design]
-	is_station = p_design == "Starbase"
+## Rebuild the ship from a design (a stock hull name or a design
+## dictionary from the shipyard), keeping career and name.
+func refit(p_design: Variant) -> void:
+	if p_design is String:
+		design = GameData.stock_design(p_design)
+	else:
+		design = p_design
+	design_name = design["name"]
+	is_station = design_name == "Starbase"
 	size = design["size"]
-	max_speed = design["speed"] * GameData.LIGHT_SPEED
-	turn_speed = design["turn"]
-	mass = 0.0
-	energy_max = 0.0
-	energy_regen = 0.0
-	shield_max = 0.0
-	hull_max = 0.0
-	armor = 0.0
-	sensor_range = 800.0
-	can_cloak = false
-	has_boost = false
 	has_dock = design.has("dock")
-	qdrv = 0.0
-	brake_power = 0.6
-	module_levels = {}
-	var eng := 0.0
-	for id in design["modules"]:
-		var m: Dictionary = GameData.MODULES[id]
-		mass += m["mass"]
-		hull_max += m["hp"]
-		var level := int(id.substr(3, 1))
-		module_levels[m["func"]] = maxi(module_levels.get(m["func"], 0), level)
-		match m["func"]:
-			"power":
-				energy_max += m["power"] * 5.0
-				energy_regen += m["power"] * 0.45
-			"eng":
-				eng += m["p"][0]
-			"shield":
-				shield_max += m["p"][0]
-				shield_regen += m["p"][0] * 0.06
-			"armor":
-				armor += m["p"][0]
-				hull_max += m["p"][0] * 4
-			"sensor":
-				sensor_range = 600.0 + m["p"][0] * 40.0
-			"stealth":
-				can_cloak = true
-			"boost":
-				has_boost = true
-			"qdrv":
-				qdrv = float(m["p"][0])
-			"brake":
-				brake_power = 1.6
-			"factory":
-				energy_regen += 400.0
-	for w in design["weapons"]:
-		var m: Dictionary = GameData.MODULES[w[0]]
-		mass += m["mass"]
-		hull_max += m["hp"] * 0.5
-	if is_station:
-		hull_max *= 4.0
-		shield_max *= 2.5
-		sensor_range = 2600.0
-	# acceleration: engines against mass (scout ~ 1.2 s to top speed)
-	accel = clampf(eng * 0.9 * (3000.0 / maxf(mass, 1500.0)), 40.0, 420.0)
-	if is_station:
-		accel = 12.0
+	stats = GameData.stats_for(design)
+	mass = stats["mass"]
+	max_speed = stats["max_speed"]
+	turn_speed = stats["turn"]
+	accel = stats["accel"]
+	energy_max = stats["energy_max"]
+	energy_regen = stats["energy_regen"]
+	shield_max = stats["shield_max"]
+	shield_regen = stats["shield_regen"]
+	hull_max = stats["hull_max"]
+	armor = stats["armor"]
+	sensor_range = stats["sensor_range"]
+	can_cloak = stats["can_cloak"]
+	has_boost = stats["has_boost"]
+	qdrv = stats["qdrv"]
+	brake_power = stats["brake_power"]
+	regen_rate = stats["regen"]
+	repair_rate = stats["repair"]
+	ram_power = stats["ram"]
+	power_gen = stats["power_gen"]
+	power_draw = stats["power_draw"]
+	overload = stats["overload"]
+	module_levels = stats["module_levels"].duplicate()
 	energy = energy_max
 	shield = shield_max
 	hull = hull_max
 	_build_weapons()
+	art_model = ShipArt.build_model(design, race_id, size)
 	queue_redraw()
 
 
@@ -180,7 +165,7 @@ func _build_weapons() -> void:
 		if m["func"] == "tube":
 			var mid: String = m["p"][3]
 			entry["missile"] = mid
-			entry["cost"] = clampf(float(m["p"][1]) * 0.025, 20.0, 350.0)
+			entry["cost"] = clampf(float(m["p"][1]) * 0.025, 20.0, 350.0) * (1.0 + (overload - 1.0) * 0.5)
 			entry["ammo"] = int(m["p"][2]) if int(m["p"][2]) < 400 else -1
 			entry["rate"] = GameData.TUBE_COOLDOWN.get(mid, 0.3)
 			var md: Dictionary = GameData.MISSILES[mid]
@@ -190,13 +175,13 @@ func _build_weapons() -> void:
 					entry["slot"] = "primary"
 				"002":
 					entry["slot"] = "mine"
-				"008", "009":
+				"008", "009", "021":
 					entry["slot"] = "missile"
 				_:
 					entry["slot"] = "secondary"
 		elif m["func"] == "beam":
 			entry["slot"] = "beam"
-			entry["cost"] = 90.0          # per second
+			entry["cost"] = 90.0 * (1.0 + (overload - 1.0) * 0.5)          # per second
 			entry["range"] = float(m["p"][2]) * 2.2
 			entry["dps"] = 45.0 + float(m["p"][1]) * 0.15
 			entry["rate"] = 0.0
@@ -404,6 +389,17 @@ func _systems(delta: float) -> void:
 			set_cloak(false)
 		else:
 			energy -= cost
+	# self-repair: regenerators work on their own once the shooting stops,
+	# repair bays always, for energy
+	if hull < hull_max:
+		var quiet := (Time.get_ticks_msec() / 1000.0) - last_attacked_at > 4.0
+		if regen_rate > 0.0 and quiet:
+			hull = minf(hull + regen_rate * delta, hull_max)
+		if repair_rate > 0.0:
+			var cost := repair_rate * delta * 2.0
+			if energy > cost + 50.0:
+				energy -= cost
+				hull = minf(hull + repair_rate * delta, hull_max)
 	cloak_alpha = lerpf(cloak_alpha, 0.12 if cloaked else 1.0, 4.0 * delta)
 	if is_player and cloaked:
 		cloak_alpha = maxf(cloak_alpha, 0.3)
@@ -423,6 +419,9 @@ func _weapons(delta: float) -> void:
 	for w in weapons:
 		if w["cooldown"] > 0.0:
 			w["cooldown"] -= delta
+		# turrets visibly swing toward where they would shoot
+		if is_turret(w):
+			w["aim_vis"] = rotate_toward(w.get("aim_vis", w["fire_angle"]), _aim_angle(w), 5.0 * delta)
 		var want := false
 		match w["slot"]:
 			"primary":
@@ -507,6 +506,8 @@ func _fire_tube(w: Dictionary) -> void:
 		"008", "009": snd = "missile"
 		"002": snd = "mine"
 		"018": snd = "cannon"
+		"020": snd = "plasma"
+		"021": snd = "missile"
 	Sfx.play(snd, global_position, 0.7, randf_range(0.95, 1.05))
 
 
@@ -581,7 +582,7 @@ func _die(killer: Node) -> void:
 
 func respawn(at: Vector2, vel: Vector2) -> void:
 	dead = false
-	refit(design_name)
+	refit(design)
 	global_position = at
 	velocity = vel
 	rotation = randf() * TAU
@@ -602,8 +603,14 @@ func add_score(points: int, is_kill: bool) -> void:
 		rank_changed.emit(self, r)
 
 
-## A floating module: upgrade the matching system if it is better.
+## A floating module.  The pilot stows it in the hold for the shipyard;
+## a computer pilot fits it on the spot if it is an upgrade.
 func try_pickup(module_id: String) -> bool:
+	if is_player:
+		if hold.size() >= HOLD_SIZE:
+			return false
+		hold.append(module_id)
+		return true
 	var m: Dictionary = GameData.MODULES[module_id]
 	var level := int(module_id.substr(3, 1))
 	var f: String = m["func"]
@@ -655,10 +662,13 @@ func _draw() -> void:
 	if dead:
 		return
 	var base := race_color()
-	if hit_flash > 0.0:
-		base = base.lerp(Color.WHITE, 0.7)
 	var dmg := 1.0 - hull / maxf(hull_max, 1.0)
-	ShipArt.draw_ship(self, design_name, race_id, size, base, thrust_level, cloak_alpha, dmg)
+	var aims := []
+	for w in weapons:
+		aims.append(w.get("aim_vis", w["fire_angle"]))
+	if art_model.is_empty():
+		art_model = ShipArt.build_model(design, race_id, size)
+	ShipArt.draw_model(self, art_model, base, thrust_level, cloak_alpha, dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0))
 	# shield ripple where the shot landed
 	if hit_flash > 0.0 and shield > 0.0:
 		var c := Color(0.5, 0.75, 1.0, hit_flash * 5.0 * cloak_alpha)

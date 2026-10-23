@@ -44,6 +44,8 @@ func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vecto
 		"mine": color = Color(0.7, 0.7, 0.75)
 		"missile": color = Color(1.0, 1.0, 1.0)
 		"shell": color = Color(1.0, 0.6, 0.2)
+		"disruptor": color = Color(0.7, 0.4, 1.0)
+		"drone": color = rc.lerp(Color.WHITE, 0.2)
 
 
 func _physics_process(delta: float) -> void:
@@ -131,3 +133,12 @@ func _draw() -> void:
 		"shell":
 			draw_circle(Vector2.ZERO, radius, color)
 			draw_line(Vector2(-radius * 4.0, 0), Vector2.ZERO, Color(color.r, color.g, color.b, 0.4), radius)
+		"disruptor":
+			var wob := sin(age * 40.0) * radius * 0.6
+			draw_line(Vector2(-radius * 3.0, wob), Vector2(radius * 1.5, -wob), color, radius * 0.7, true)
+			draw_circle(Vector2.ZERO, radius * 1.4, Color(color.r, color.g, color.b, 0.3))
+			draw_circle(Vector2(radius, 0), radius * 0.6, Color.WHITE)
+		"drone":
+			var tri := PackedVector2Array([Vector2(radius * 2.0, 0), Vector2(-radius * 1.5, -radius * 1.5), Vector2(-radius * 0.5, 0), Vector2(-radius * 1.5, radius * 1.5)])
+			draw_colored_polygon(tri, color)
+			draw_circle(Vector2(-radius * 0.8, 0), radius * 0.5, Color(0.6, 1.0, 0.7))

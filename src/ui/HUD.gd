@@ -280,6 +280,10 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 		var nr: Dictionary = GameData.RANKS[p.rank + 1]
 		next = "   next: %d pts, %d kills" % [nr["score"], nr["kills"]]
 	draw_string(font, Vector2(x, y), "%s %s   score %d   kills %d%s" % [rank, p.pilot_name, p.score, p.kills, next], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 0.95, 0.8))
+	draw_string(font, Vector2(x, y + 20), "credits %d   hold %d/%d%s" % [p.credits, p.hold.size(), Ship.HOLD_SIZE, ("   blueprints %d" % p.blueprints.size()) if not p.blueprints.is_empty() else ""], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 0.85, 0.4))
+	# docking prompt
+	if not p.dead and world.nearest_base(p) != null:
+		draw_string(font, Vector2(vp.x * 0.5 - 200, vp.y * 0.5 + 70), "In docking range:  U  opens the shipyard" + ("" if p.speed() <= 220.0 else "  (brake first)"), HORIZONTAL_ALIGNMENT_CENTER, 400, 16, Color(0.7, 1.0, 0.8, 0.8 + 0.2 * sin(time * 4.0)))
 	# empire standings
 	var sx := vp.x * 0.5 - 180.0
 	var parts := []
@@ -351,7 +355,7 @@ func _draw_help(vp: Vector2) -> void:
 		["", ""],
 		["TARGETS AND NAVIGATION", ""],
 		["T / Tab", "next target"], ["R", "nearest enemy"], ["Shift+click", "target under cursor"],
-		["N", "next planet on the nav display"], ["G", "autopilot to the nav planet"], ["U", "refit at your starbase"],
+		["N", "next planet on the nav display"], ["G", "autopilot to the nav planet"], ["U", "shipyard, at your starbase"],
 	]
 	var rows := maxi(left.size(), right.size())
 	var w := 980.0
@@ -374,4 +378,4 @@ func _draw_help(vp: Vector2) -> void:
 			ly += 22
 	var fy := y + 66 + rows * 22.0 + 10
 	draw_string(font, Vector2(x, fy), "Destroy enemy ships and bombard enemy colonies until they surrender.", HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
-	draw_string(font, Vector2(x, fy + 22), "Pick up floating modules to upgrade your ship.  Rank up to unlock bigger hulls.", HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
+	draw_string(font, Vector2(x, fy + 22), "Wrecks drop parts, credits and blueprints.  Dock at your starbase (U) to build your ship from them.  Rank up for bigger hulls.", HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))

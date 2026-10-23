@@ -11,6 +11,7 @@ var font: Font
 var page := "main"      # main | pilot | settings | about
 var buttons: Array = []   # [rect, label, callback, enabled]
 var hover := -1
+var focus := 0            # keyboard / gamepad focus, an index into buttons
 var name_edit: LineEdit
 var ip_edit: LineEdit
 var online_status := ""
@@ -63,6 +64,7 @@ func _gui_input(event: InputEvent) -> void:
 		for i in buttons.size():
 			if buttons[i][0].has_point(event.position):
 				hover = i
+				focus = i
 		if hover != was and hover >= 0 and buttons[hover][3]:
 			Sfx.play_ui("ui_hover", 0.7)
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
@@ -78,14 +80,67 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause_menu") and page != "main":
 		Sfx.play_ui("ui_back", 0.6)
 		_set_page("main")
+	elif event.is_action_pressed("ui_cancel") and page != "main":
+		_set_page("main")
+	elif event.is_action_pressed("ui_accept"):
+		_activate_focus()
+	elif event.is_action_pressed("ui_down", true):
+		_move_focus(0, 1)
+	elif event.is_action_pressed("ui_up", true):
+		_move_focus(0, -1)
+	elif event.is_action_pressed("ui_right", true):
+		_move_focus(1, 0)
+	elif event.is_action_pressed("ui_left", true):
+		_move_focus(-1, 0)
 	elif event.is_action_pressed("music_next"):
 		Music.next_track()
 	elif event.is_action_pressed("fullscreen"):
 		Settings.toggle_fullscreen()
 
 
+## Keyboard and gamepad walk the buttons: up and down change row, left and
+## right move along a row of choices.  Buttons are rebuilt every frame, so
+## the focus is an index and the rows come from the rectangles.
+func _move_focus(dx: int, dy: int) -> void:
+	if buttons.is_empty():
+		return
+	if focus < 0 or focus >= buttons.size():
+		focus = 0
+		queue_redraw()
+		return
+	var cur: Rect2 = buttons[focus][0]
+	var best := -1
+	var best_score := INF
+	for i in buttons.size():
+		if i == focus:
+			continue
+		var r: Rect2 = buttons[i][0]
+		var same_row := absf(r.position.y - cur.position.y) < 8.0
+		var score := INF
+		if dy != 0 and not same_row and signf(r.position.y - cur.position.y) == float(dy):
+			score = absf(r.position.y - cur.position.y) * 4.0 + absf(r.get_center().x - cur.get_center().x) * 0.5
+		elif dx != 0 and same_row and signf(r.position.x - cur.position.x) == float(dx):
+			score = absf(r.position.x - cur.position.x)
+		if score < best_score:
+			best_score = score
+			best = i
+	if best >= 0:
+		focus = best
+		hover = -1
+		Sfx.play_ui("click", 0.25)
+		queue_redraw()
+
+
+func _activate_focus() -> void:
+	if focus >= 0 and focus < buttons.size() and buttons[focus][3]:
+		Sfx.play_ui("click", 0.5)
+		buttons[focus][2].call()
+
+
 func _set_page(p: String) -> void:
 	page = p
+	focus = 0
+	hover = -1
 	name_edit.visible = p == "pilot"
 	ip_edit.visible = p == "online"
 	if p == "online":
@@ -101,11 +156,14 @@ func _set_page(p: String) -> void:
 func _button(rect: Rect2, label: String, cb: Callable, enabled: bool = true) -> void:
 	buttons.append([rect, label, cb, enabled])
 	var idx := buttons.size() - 1
-	var bg := Color(0.08, 0.14, 0.28, 0.85) if hover != idx else Color(0.18, 0.3, 0.55, 0.95)
+	var lit := hover == idx or focus == idx
+	var bg := Color(0.08, 0.14, 0.28, 0.85) if not lit else Color(0.18, 0.3, 0.55, 0.95)
 	if not enabled:
 		bg = Color(0.1, 0.1, 0.12, 0.6)
 	draw_rect(rect, bg)
 	draw_rect(rect, Color(0.5, 0.7, 1.0, 0.7 if enabled else 0.25), false, 1.5)
+	if focus == idx and enabled:
+		draw_rect(rect.grow(3), Color(1.0, 0.95, 0.7, 0.6 + 0.3 * sin(time * 6.0)), false, 2.0)
 	draw_string(font, rect.position + Vector2(0, rect.size.y * 0.5 + 7), label, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, 20, Color(1, 1, 1) if enabled else Color(0.5, 0.5, 0.5))
 
 
@@ -119,9 +177,12 @@ func _choice(y: float, label: String, options: Array, current: Variant, setter: 
 		var selected: bool = o[0] == current
 		var idx := buttons.size()
 		buttons.append([rect, o[1], setter.bind(o[0]), true])
-		var bg := Color(0.25, 0.45, 0.8, 0.95) if selected else (Color(0.08, 0.14, 0.28, 0.85) if hover != idx else Color(0.18, 0.3, 0.55, 0.95))
+		var lit := hover == idx or focus == idx
+		var bg := Color(0.25, 0.45, 0.8, 0.95) if selected else (Color(0.08, 0.14, 0.28, 0.85) if not lit else Color(0.18, 0.3, 0.55, 0.95))
 		draw_rect(rect, bg)
 		draw_rect(rect, Color(0.5, 0.7, 1.0, 0.7), false, 1.0)
+		if focus == idx:
+			draw_rect(rect.grow(3), Color(1.0, 0.95, 0.7, 0.6 + 0.3 * sin(time * 6.0)), false, 2.0)
 		draw_string(font, rect.position + Vector2(10, 27), str(o[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.WHITE)
 		bx += w + 8.0
 
@@ -131,9 +192,7 @@ func _draw() -> void:
 	var vp := get_viewport_rect().size
 	# backdrop ships
 	for d in demo_ships:
-		draw_set_transform(d["pos"], 0.0, Vector2.ONE)
-		ShipArt.draw_ship(self, d["design"], d["race"], d["size"], GameData.race(d["race"])["color"], 0.6, 0.35, 0.0)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		ShipArt.draw_ship(self, d["design"], d["race"], d["size"], GameData.race(d["race"])["color"], 0.6, 0.35, 0.0, Transform2D(0.0, d["pos"]))
 	# title
 	var ty := vp.y * 0.18
 	draw_string(font, Vector2(3, ty + 3), "STELLAR FRONTIER", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 84, Color(0, 0, 0, 0.6))
@@ -169,6 +228,7 @@ func _draw_main(vp: Vector2) -> void:
 	_button(Rect2(x, y + 192, w, 52), "Settings", func(): _set_page("settings"))
 	_button(Rect2(x, y + 256, w, 52), "About", func(): _set_page("about"))
 	_button(Rect2(x, y + 320, w, 52), "Quit", func(): quit_pressed.emit())
+	draw_string(font, Vector2(0, y + 404), "Arrow keys, D-pad or stick to move   ·   Enter or A to choose   ·   Esc or B to go back", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14, Color(0.6, 0.7, 0.85))
 
 
 func _draw_online(vp: Vector2) -> void:
@@ -214,11 +274,8 @@ func _draw_pilot(vp: Vector2) -> void:
 		2: "The Drengin Empire: bladed hulls, home on Mars, Venus and the Martian moons.",
 	}
 	draw_string(font, Vector2(vp.x * 0.5 - 300, y + 115), desc[Settings.race_id], HORIZONTAL_ALIGNMENT_LEFT, 600, 15, Color(0.8, 0.85, 0.95))
-	draw_set_transform(Vector2(vp.x * 0.5 + 220, y + 200), -PI * 0.5, Vector2.ONE)
-	ShipArt.draw_ship(self, "Scout", Settings.race_id, 40.0, GameData.race(Settings.race_id)["color"], 0.4, 1.0, 0.0)
-	draw_set_transform(Vector2(vp.x * 0.5 + 320, y + 200), -PI * 0.5, Vector2.ONE)
-	ShipArt.draw_ship(self, "Cruiser", Settings.race_id, 48.0, GameData.race(Settings.race_id)["color"], 0.4, 1.0, 0.0)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	ShipArt.draw_ship(self, "Scout", Settings.race_id, 40.0, GameData.race(Settings.race_id)["color"], 0.4, 1.0, 0.0, Transform2D(-PI * 0.5, Vector2(vp.x * 0.5 + 220, y + 200)))
+	ShipArt.draw_ship(self, "Cruiser", Settings.race_id, 48.0, GameData.race(Settings.race_id)["color"], 0.4, 1.0, 0.0, Transform2D(-PI * 0.5, Vector2(vp.x * 0.5 + 320, y + 200)))
 	_button(Rect2(vp.x * 0.5 - 300, y + 160, 200, 44), "Reset career", func():
 		Settings.career = {"score": 0, "kills": 0, "deaths": 0}
 		Settings.save_settings())
