@@ -1,0 +1,19 @@
+wrote sec16.wav 37.9 s
+bus loudness while playing (LUFS):
+  lowbr     -11.0
+  horn      -11.0
+  kick      -15.3
+  sub       -15.7
+  bass      -16.1
+  strlo     -16.4
+  strhi     -18.0
+  taiko     -22.7
+  snare     -24.4
+  grind     -26.2
+  synth     -27.8
+  fx        -28.2
+  metal     -36.9
+
+real	5m48.197s
+user	0m18.642s
+sys	0m2.972s

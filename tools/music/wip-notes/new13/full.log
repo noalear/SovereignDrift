@@ -1,0 +1,17 @@
+wrote scratch/new13/full.wav 192.6 s
+bus loudness while playing (LUFS):
+  kick       -9.0
+  lead      -13.0
+  metal     -15.5
+  rumble    -16.0
+  krev      -16.3
+  snare     -16.7
+  stab      -17.9
+  toms      -18.3
+  hyd       -19.3
+  ticks     -22.9
+  drone     -23.1
+  bell      -25.1
+  fx        -30.3
+  tex       -36.9
+done
