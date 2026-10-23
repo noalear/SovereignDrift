@@ -2,7 +2,7 @@
 /* This file has been changed from the original Stardock Shared Source  */
 /* release of Stellar Frontier, for the port to modern compilers and    */
 /* operating systems.  It is not the original Software.                 */
-/* Changed on: 2026-10-12                                                */
+/* Changed on: 2026-10-12, 2026-10-13                                    */
 /* ======================================================================= */
 #include "sf.h"
 #include "SF_PortCpp.h"
@@ -286,8 +286,15 @@ EngineThreadFunc(void *arg) {
 			      (ulong)0
 			      );
 
-   SF_Player *sfplayer = sf->profile->players[sf->profile->selectedPlayer];
-   if ( sfplayer->playerName.str[0] == '~' )
+   /* PORT CHANGE (2026-10-13): no player is selected when the connection
+      to a server fails before the login dialog (selectedPlayer is -1);
+      the original read players[-1] here and crashed. */
+   SF_Player *sfplayer = NULL;
+   if ( sf->profile->selectedPlayer >= 0 &&
+        sf->profile->selectedPlayer < sf->profile->numStoredPlayers )
+      sfplayer = sf->profile->players[sf->profile->selectedPlayer];
+   if ( sfplayer && sfplayer->playerName.str &&
+        sfplayer->playerName.str[0] == '~' )
      {
        sfplayer->playerName.RemoveCharacter('~');
      }

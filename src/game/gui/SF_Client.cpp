@@ -2,7 +2,7 @@
 /* This file has been changed from the original Stardock Shared Source  */
 /* release of Stellar Frontier, for the port to modern compilers and    */
 /* operating systems.  It is not the original Software.                 */
-/* Changed on: 2026-10-12                                                */
+/* Changed on: 2026-10-12, 2026-10-13                                    */
 /* ======================================================================= */
 #include "sf.h"
 #include "SF_PortCpp.h"
@@ -124,6 +124,16 @@ SF_Client::SF_Client(int imode,char *ihostname,int *pargc,char ***pargv) {
      }
    
 #  ifdef OS2
+     demo = FALSE;
+     oldAC = FALSE;
+#  endif
+
+#  ifdef SFHOST
+     /* PORT CHANGE (2026-10-13, Stellar Frontier Godot port): Stellar Aces
+        membership can no longer be bought (the Stardock.net services are
+        gone), so every player is a member, as in the OS/2 build above: the
+        Stellar Aces ships (Starbase, Marauder, BattleCruiser) and weapons
+        (lasers, ram) are available and the membership dialog is not shown. */
      demo = FALSE;
      oldAC = FALSE;
 #  endif

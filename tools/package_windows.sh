@@ -21,13 +21,22 @@ make -j16 godot/addons/sfport/bin/sfport.windows.x86_64.dll
 
 rm -rf "$OUT/StellarFrontier"
 mkdir -p "$OUT/StellarFrontier/game"
-"$GODOT" --headless --path godot --export-release "Windows Desktop" "$OUT/StellarFrontier/StellarFrontier.exe"
+# SF_TEMPLATE: a slim export template (see tools/build_template.sh); the
+# official one is 109 MB, too big for some ways of sending the game.
+if [ -n "$SF_TEMPLATE" ]; then
+  cp godot/export_presets.cfg "$OUT/export_presets.cfg.orig"
+  sed -i "0,/^custom_template\/release=.*/s||custom_template/release=\"$SF_TEMPLATE\"|" godot/export_presets.cfg
+fi
+"$GODOT" --headless --path godot --export-release "Windows Desktop" "$OUT/StellarFrontier/StellarFrontierEnhanced.exe"
+if [ -n "$SF_TEMPLATE" ]; then
+  mv "$OUT/export_presets.cfg.orig" godot/export_presets.cfg
+fi
 
 for p in frontier server nexus; do
   cp "build/mingw/sfcore/$p.exe" "$OUT/StellarFrontier/game/$p.exe"
   i686-w64-mingw32-strip "$OUT/StellarFrontier/game/$p.exe"
 done
-for d in binwin dat bmp wav mid doc zap icons; do
+for d in binwin dat bmp wav mid music music_remix music_remix_alt music_new doc zap icons; do
   cp -R "gamedata/$d" "$OUT/StellarFrontier/game/$d"
 done
 rm -f "$OUT"/StellarFrontier/game/binwin/*.log "$OUT"/StellarFrontier/game/dat/*.log \

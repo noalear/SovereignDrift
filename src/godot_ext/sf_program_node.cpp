@@ -49,6 +49,9 @@ void SFProgram::_bind_methods()
   ClassDB::bind_method(D_METHOD("set_focus", "has_focus"), &SFProgram::set_focus);
   ClassDB::bind_method(D_METHOD("request_close"), &SFProgram::request_close);
   ClassDB::bind_method(D_METHOD("restore"), &SFProgram::restore);
+  ClassDB::bind_method(D_METHOD("set_raw_bgrx", "on"), &SFProgram::set_raw_bgrx);
+  ClassDB::bind_method(D_METHOD("get_raw_bgrx"), &SFProgram::get_raw_bgrx);
+  ADD_PROPERTY(PropertyInfo(Variant::BOOL, "raw_bgrx"), "set_raw_bgrx", "get_raw_bgrx");
   ClassDB::bind_method(D_METHOD("set_music_enabled", "on"), &SFProgram::set_music_enabled);
   ClassDB::bind_method(D_METHOD("get_music_enabled"), &SFProgram::get_music_enabled);
   ADD_PROPERTY(PropertyInfo(Variant::BOOL, "music_enabled"), "set_music_enabled", "get_music_enabled");
@@ -113,16 +116,22 @@ bool SFProgram::poll()
 {
   bool changed = false;
   if (const uint32_t *px = prog_.new_frame()) {
-    /* 0x00RRGGBB -> RGBA bytes */
     uint8_t *d = rgba_.ptrw();
     size_t n = (size_t)prog_.width() * prog_.height();
-    for (size_t i = 0; i < n; i++) {
-      uint32_t p = px[i];
-      d[0] = (uint8_t)(p >> 16);
-      d[1] = (uint8_t)(p >> 8);
-      d[2] = (uint8_t)p;
-      d[3] = 255;
-      d += 4;
+    if (rawBGRX_) {
+      /* bytes B,G,R,x as the program wrote them; the display shader swaps
+         red and blue and ignores x (Enhanced edition, 2026-10-13) */
+      memcpy(d, px, n * 4);
+    } else {
+      /* 0x00RRGGBB -> RGBA bytes */
+      for (size_t i = 0; i < n; i++) {
+        uint32_t p = px[i];
+        d[0] = (uint8_t)(p >> 16);
+        d[1] = (uint8_t)(p >> 8);
+        d[2] = (uint8_t)p;
+        d[3] = 255;
+        d += 4;
+      }
     }
     prog_.frame_done();
     image_->set_data(prog_.width(), prog_.height(), false, Image::FORMAT_RGBA8, rgba_);

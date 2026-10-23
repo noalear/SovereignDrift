@@ -53,6 +53,11 @@ public:
   void request_close();
   void restore();
 
+  /* Pass the program's pixels unconverted (bytes B,G,R,x); the display
+     must swap red and blue in a shader.  Saves a per-pixel loop. */
+  void set_raw_bgrx(bool on) { rawBGRX_ = on; }
+  bool get_raw_bgrx() const { return rawBGRX_; }
+
   /* MIDI music through the Windows synthesizer (Windows only). */
   void set_music_enabled(bool on) { musicEnabled_ = on; }
   bool get_music_enabled() const { return musicEnabled_; }
@@ -67,6 +72,7 @@ private:
   PackedByteArray rgba_;
   String error_;
   bool musicEnabled_ = true;
+  bool rawBGRX_ = false;
   bool exitedSent_ = false;
 };
 

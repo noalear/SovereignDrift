@@ -1,18 +1,23 @@
-; Stellar Frontier -- Godot 4 application around the original 1997 program.
-; NEW FILE, added 2026-10-12 for the Stellar Frontier Godot port.
+; Stellar Frontier Enhanced Edition -- Godot 4 application around the original
+; 1997 program.  NEW FILE 2026-10-12; Enhanced Edition 2026-10-13.
 
 config_version=5
 
 [application]
 
-config/name="Stellar Frontier"
-config/description="Stellar Frontier (Stardock), the original game running on Godot 4."
-run/main_scene="res://main.tscn"
+config/name="Stellar Frontier Enhanced"
+config/description="Stellar Frontier (Stardock) on Godot 4: Enhanced Edition."
+run/main_scene="res://launcher.tscn"
 config/features=PackedStringArray("4.5", "GL Compatibility")
 config/icon="res://icon.png"
 config/windows_native_icon="res://icon.ico"
 boot_splash/show_image=false
 boot_splash/bg_color=Color(0, 0, 0, 1)
+
+[autoload]
+
+Settings="*res://settings.gd"
+Paths="*res://paths.gd"
 
 [debug]
 
@@ -20,8 +25,8 @@ file_logging/enable_file_logging=true
 
 [display]
 
-window/size/viewport_width=1024
-window/size/viewport_height=768
+window/size/viewport_width=1280
+window/size/viewport_height=720
 window/size/resizable=true
 window/stretch/mode="disabled"
 window/energy_saving/keep_screen_on=true

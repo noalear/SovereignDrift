@@ -336,6 +336,98 @@ uint32_t midi_length_ms(const std::string &path)
   return (uint32_t)(us / 1000.0);
 }
 
+/* Rendered music (Enhanced Edition, 2026-10-18).  The host can replace the
+   game's MIDI songs with Ogg Vorbis recordings through two environment
+   variables set before the program starts:
+     SF_MUSIC_LIST  the .ogg files, separated by ';'
+     SF_MUSIC_MODE  "map":     sf-musicN.mid plays the list entry named
+                               sf-musicN.ogg
+                    "shuffle": every song the program opens plays the next
+                               file of the list, in a shuffled order
+   The MCI device then reports the recording's length, so the program's
+   playlist moves on when the recording ends, and the host is told to play
+   the .ogg file instead of the MIDI file. */
+std::vector<std::string> music_list()
+{
+  std::vector<std::string> v;
+  const char *e = getenv("SF_MUSIC_LIST");
+  if (!e) return v;
+  std::string cur;
+  for (const char *s = e;; s++) {
+    if (*s == ';' || !*s) { if (!cur.empty()) v.push_back(cur); cur.clear(); if (!*s) break; }
+    else cur.push_back(*s);
+  }
+  return v;
+}
+
+std::string stem_of(const std::string &path)
+{
+  size_t a = path.find_last_of("/\\");
+  std::string n = a == std::string::npos ? path : path.substr(a + 1);
+  size_t dot = n.find_last_of('.');
+  if (dot != std::string::npos) n = n.substr(0, dot);
+  for (auto &c : n) c = (char)tolower((unsigned char)c);
+  return n;
+}
+
+std::string music_replacement(const std::string &midiPath)
+{
+  static std::vector<std::string> list = music_list();
+  static std::vector<size_t> order;
+  static size_t next = 0;
+  if (list.empty()) return "";
+  const char *m = getenv("SF_MUSIC_MODE");
+  std::string mode = m ? m : "map";
+  if (mode == "shuffle") {
+    if (next >= order.size()) {
+      size_t last = order.empty() ? (size_t)-1 : order.back();
+      order.clear();
+      for (size_t i = 0; i < list.size(); i++) order.push_back(i);
+      static uint32_t seed = (uint32_t)std::chrono::steady_clock::now().time_since_epoch().count();
+      for (size_t i = order.size(); i > 1; i--) {
+        seed = seed * 1664525u + 1013904223u;
+        std::swap(order[i - 1], order[(seed >> 8) % i]);
+      }
+      if (order.size() > 1 && order[0] == last) std::swap(order[0], order[1]);
+      next = 0;
+    }
+    return list[order[next++]];
+  }
+  std::string want = stem_of(midiPath);
+  for (auto &f : list) if (stem_of(f) == want) return f;
+  return "";
+}
+
+/* Length of an Ogg Vorbis file in milliseconds: the last page's granule
+   position divided by the sample rate from the identification header. */
+uint32_t ogg_length_ms(const std::string &path)
+{
+  FILE *f = fopen(path.c_str(), "rb");
+  if (!f) return 0;
+  uint8_t head[64] = {0};
+  size_t hn = fread(head, 1, sizeof(head), f);
+  fseek(f, 0, SEEK_END);
+  long n = ftell(f);
+  long from = n > 65536 ? n - 65536 : 0;
+  std::vector<uint8_t> tail((size_t)(n - from));
+  fseek(f, from, SEEK_SET);
+  size_t tn = fread(tail.data(), 1, tail.size(), f);
+  fclose(f);
+  if (hn < 28 + 16 || memcmp(head, "OggS", 4)) return 0;
+  size_t pkt = 27 + head[26];
+  if (pkt + 16 > hn || head[pkt] != 1 || memcmp(head + pkt + 1, "vorbis", 6)) return 0;
+  uint32_t rate = head[pkt + 12] | (head[pkt + 13] << 8) | (head[pkt + 14] << 16) | ((uint32_t)head[pkt + 15] << 24);
+  if (!rate) return 0;
+  for (size_t i = tn >= 14 ? tn - 14 : 0; i > 0; i--) {
+    if (memcmp(tail.data() + i, "OggS", 4) == 0) {
+      uint64_t g = 0;
+      for (int k = 7; k >= 0; k--) g = (g << 8) | tail[i + 6 + k];
+      return (uint32_t)(g * 1000 / rate);
+    }
+  }
+  return 0;
+}
+
 struct MciDev {
   std::string file;
   uint32_t length = 0;
@@ -379,7 +471,12 @@ MCIERROR mciSendString(LPCSTR cmd, LPSTR retBuf, UINT retLen, HWND)
     for (size_t i = 2; i + 1 < w.size(); i++) if (lower(w[i]) == "alias") alias = w[i + 1];
     MciDev d;
     d.file = w[1];
-    d.length = midi_length_ms(d.file);
+    std::string rec = music_replacement(d.file);
+    if (!rec.empty()) {
+      d.length = ogg_length_ms(rec);
+      if (d.length) d.file = rec;
+    }
+    if (d.file != rec || rec.empty()) d.length = midi_length_ms(d.file);
     if (d.length == 0) return 0x100 + 19;   /* MCIERR_FILE_NOT_FOUND-ish */
     g_mci[lower(alias)] = d;
     return 0;

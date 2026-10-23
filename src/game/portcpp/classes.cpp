@@ -2,7 +2,7 @@
 /* This file has been changed from the original Stardock Shared Source  */
 /* release of Stellar Frontier, for the port to modern compilers and    */
 /* operating systems.  It is not the original Software.                 */
-/* Changed on: 2026-10-12                                                */
+/* Changed on: 2026-10-12, 2026-10-13                                    */
 /* ======================================================================= */
 #include <S_Lib.h>
 
@@ -395,7 +395,11 @@ unsigned int SFString::Index(const SFString& st) {
   char* sc = 0;
   if (p && st.p && p->s && st.p->s) {
     sc = strstr(p->s, st.p->s);
-    return int(sc-p->s+1 > 0 ? sc-p->s+1 : 0);
+    /* PORT CHANGE (2026-10-13): test for "not found" directly.  The original
+       relied on NULL - p->s being negative, true on Windows (heap below 2 GB)
+       but not when the heap lies above 2 GB, which made "[race]" macro
+       substitution loop forever in the server. */
+    return sc ? int(sc - p->s + 1) : 0;
   } else
     return 0;
 }
