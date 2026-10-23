@@ -145,10 +145,23 @@ func _exercise_shipyard(w: World, p: Ship) -> void:
 	b._mount("4003")                 # grenade launcher from the hold
 	b._select("hp", 0)
 	b._remove_selected()
+	# sell from the hold with a real click on the Sell button
 	var before := b.credits
-	b._select("hold", 0)
-	b._sell_hold(0)
-	assert(b.credits > before, "sell did not pay")
+	var held := b.hold.size()
+	assert(held > 0, "nothing in the hold to sell")
+	b.queue_redraw()
+	await process_frame
+	await process_frame
+	var sell_btn := -1
+	for k in b.buttons.size():
+		var cb: Callable = b.buttons[k][1]
+		if cb.get_method() == "_sell_hold" and cb.get_bound_arguments() == [0]:
+			sell_btn = k
+	assert(sell_btn >= 0, "no Sell button drawn")
+	_click(b.buttons[sell_btn][0].get_center())
+	await process_frame
+	assert(b.credits > before and b.hold.size() == held - 1, "clicking Sell did not sell (credits %d -> %d)" % [before, b.credits])
+	print("shipyard: sold a hold part with the mouse, credits %d -> %d" % [before, b.credits])
 	print("shipyard: problems=", b._problems(), " credits=", b.credits, " bays=", main.get_node("/root/GameData").stats_for(b.current_design())["bay_used"])
 	b._launch()
 	assert(main.builder == null, "shipyard did not close on launch")

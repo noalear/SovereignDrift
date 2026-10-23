@@ -257,14 +257,17 @@ func _cancel() -> void:
 # ----------------------------------------------------------------- input
 
 func _gui_input(event: InputEvent) -> void:
+	# controls drawn later sit on top (a Sell button over its hold row), so
+	# the last one under the pointer wins
 	if event is InputEventMouseMotion:
 		hover = -1
-		for i in buttons.size():
+		for i in range(buttons.size() - 1, -1, -1):
 			if buttons[i][0].has_point(event.position):
 				hover = i
+				break
 	elif event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_LEFT:
-			for i in buttons.size():
+			for i in range(buttons.size() - 1, -1, -1):
 				if buttons[i][0].has_point(event.position) and buttons[i][2]:
 					buttons[i][1].call()
 					accept_event()
