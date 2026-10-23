@@ -850,7 +850,7 @@ func _to_peer(peer_id: int, kind: String, data: Dictionary) -> void:
 func request_trade(s: Node, target: Node) -> void:
 	if target == null or not is_instance_valid(target):
 		if world != null:
-			world.notify(s, "Target a pilot first (T), then press B to trade.")
+			world.notify(s, "Target a pilot first (T), then press O to trade.")
 		return
 	trade_cmd("invite", {"target": target.net_id})
 

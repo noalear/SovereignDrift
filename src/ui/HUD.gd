@@ -506,7 +506,7 @@ func _draw_help(vp: Vector2) -> void:
 		["", ""],
 		["TARGETS AND NAVIGATION", ""],
 		["T", "next target"], ["Tab / Back", "tactical map (hold or tap)"], ["R", "nearest enemy"], ["Shift+click", "target under cursor"],
-		["N", "next planet on the nav display"], ["G", "autopilot to the nav planet"], ["U", "shipyard, at your starbase"],
+		["N", "next planet on the nav display"], ["G", "autopilot to the nav planet"], ["U", "shipyard, at your starbase"], ["O", "trade with the targeted pilot (online)"],
 	]
 	var rows := maxi(left.size(), right.size())
 	var w := 980.0
