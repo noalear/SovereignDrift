@@ -17,6 +17,12 @@ func _init() -> void:
 
 func _start() -> void:
 	main = load("res://src/Main.tscn").instantiate()
+	if not "world" in main:
+		# Main.gd failed to compile: usually a stale class cache after new
+		# class_name files were pulled.  Fix: godot --headless --path . --import
+		print("FAILED: src/Main.gd did not compile. Run `godot --headless --path . --import` and try again.")
+		quit(1)
+		return
 	root.add_child(main)
 	await process_frame
 	await process_frame
