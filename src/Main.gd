@@ -49,6 +49,8 @@ func _on_net_status(text: String) -> void:
 	print(text)
 	if world != null:
 		world.notify_all(text, Color(0.7, 0.9, 1.0))
+	elif menu != null:
+		menu.online_status = text
 
 
 func _on_session_ended(reason: String) -> void:
@@ -57,6 +59,33 @@ func _on_session_ended(reason: String) -> void:
 		_close_pause()
 		_save_career()
 		_show_menu()
+	if menu != null:
+		menu.online_status = reason
+
+
+func _host_game() -> void:
+	Net.callsign = Settings.pilot_name
+	if Net.host() == OK:
+		_start_game()
+	elif menu != null:
+		menu.online_status = "Could not open port %d. Is another game hosting?" % Net.PORT
+
+
+func _join_game(address: String) -> void:
+	Net.callsign = Settings.pilot_name
+	var target := address.strip_edges()
+	var port := Net.PORT
+	if ":" in target:
+		port = int(target.get_slice(":", 1))
+		target = target.get_slice(":", 0)
+	if target.is_empty():
+		menu.online_status = "Type the host's address first."
+		return
+	Settings.last_join_ip = address.strip_edges()
+	Settings.save_settings()
+	if Net.join(target, port) == OK:
+		menu.online_status = "Connecting to %s..." % target
+		Net.session_started.connect(_start_game, CONNECT_ONE_SHOT)
 
 
 func _show_menu() -> void:
@@ -76,6 +105,8 @@ func _show_menu() -> void:
 	menu = MainMenu.new()
 	ui_layer.add_child(menu)
 	menu.play_pressed.connect(_start_game)
+	menu.host_pressed.connect(_host_game)
+	menu.join_pressed.connect(_join_game)
 	menu.quit_pressed.connect(func(): get_tree().quit())
 
 
@@ -117,7 +148,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _open_pause() -> void:
-	world.set_paused(true)
+	if not Net.is_active():
+		world.set_paused(true)   # online the round goes on behind the menu
 	pause_panel = Control.new()
 	pause_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	pause_panel.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -161,7 +193,7 @@ func _open_pause() -> void:
 		b3.text = "Switch to window" if Settings.fullscreen else "Switch to full screen")
 	box.add_child(b3)
 	var b4 := Button.new()
-	b4.text = "Leave to the menu"
+	b4.text = "Leave the game" if Net.is_active() else "Leave to the menu"
 	b4.add_theme_font_size_override("font_size", 20)
 	b4.pressed.connect(func():
 		_close_pause()

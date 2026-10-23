@@ -16,7 +16,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if ship == null or ship.dead or world.paused:
 		return
 	if event.is_action_pressed("cloak"):
-		ship.set_cloak(not ship.cloaked)
+		if Net.is_client():
+			Net.client_command("cloak")
+		else:
+			ship.set_cloak(not ship.cloaked)
 	elif event.is_action_pressed("target_next"):
 		world.cycle_target(ship)
 	elif event.is_action_pressed("target_nearest"):
@@ -31,7 +34,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		ship.autopilot = not ship.autopilot
 		world.notify(ship, ("Autopilot to %s." % ship.nav_target.body_name) if ship.autopilot and ship.nav_target else "Autopilot off.")
 	elif event.is_action_pressed("warp"):
-		if ship.warping:
+		if Net.is_client():
+			Net.client_command("warp")
+		elif ship.warping:
 			ship.end_warp()
 		else:
 			if ship.qdrv <= 0.0:
@@ -41,7 +46,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				ship.start_warp()
 	elif event.is_action_pressed("refit"):
-		world.try_refit(ship)
+		if Net.is_client():
+			Net.client_command("refit")
+		else:
+			world.try_refit(ship)
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and event.shift_pressed:
 		var pos: Vector2 = world.get_global_mouse_position()
 		var s: Ship = world.ship_at(pos, 40.0 / world.camera.zoom.x)

@@ -3,6 +3,8 @@ class_name MainMenu
 extends Control
 
 signal play_pressed()
+signal host_pressed()
+signal join_pressed(address: String)
 signal quit_pressed()
 
 var font: Font
@@ -10,6 +12,8 @@ var page := "main"      # main | pilot | settings | about
 var buttons: Array = []   # [rect, label, callback, enabled]
 var hover := -1
 var name_edit: LineEdit
+var ip_edit: LineEdit
+var online_status := ""
 var time := 0.0
 var demo_ships: Array = []
 
@@ -26,6 +30,14 @@ func _ready() -> void:
 	name_edit.text_changed.connect(func(t): Settings.pilot_name = t.strip_edges() if not t.strip_edges().is_empty() else "Pilot")
 	add_child(name_edit)
 	name_edit.hide()
+	ip_edit = LineEdit.new()
+	ip_edit.max_length = 64
+	ip_edit.text = Settings.last_join_ip
+	ip_edit.placeholder_text = "Host address, e.g. 192.168.1.20"
+	ip_edit.add_theme_font_size_override("font_size", 20)
+	ip_edit.text_submitted.connect(func(t): join_pressed.emit(t))
+	add_child(ip_edit)
+	ip_edit.hide()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
 	for i in 7:
@@ -71,6 +83,12 @@ func _unhandled_input(event: InputEvent) -> void:
 func _set_page(p: String) -> void:
 	page = p
 	name_edit.visible = p == "pilot"
+	ip_edit.visible = p == "online"
+	if p == "online":
+		online_status = ""
+		Net.lan.listen()
+	elif Net.lan.listening:
+		Net.lan.stop()
 	if p != "pilot":
 		Settings.save_settings()
 		Music.set_volume(Settings.music_volume)
@@ -126,6 +144,8 @@ func _draw() -> void:
 			_draw_settings(vp)
 		"about":
 			_draw_about(vp)
+		"online":
+			_draw_online(vp)
 	var np := Music.now_playing()
 	if not np.is_empty():
 		draw_string(font, Vector2(24, vp.y - 20), "Now playing: %s     (F9: next song)" % np, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.8, 0.8, 0.95, 0.8))
@@ -140,10 +160,39 @@ func _draw_main(vp: Vector2) -> void:
 	draw_string(font, Vector2(0, y - 20), "%s %s of the %s   score %d   kills %d" % [rank, Settings.pilot_name, GameData.race(Settings.race_id)["name"], Settings.career["score"], Settings.career["kills"]],
 		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 17, Color(1, 0.95, 0.8))
 	_button(Rect2(x, y, w, 52), "Play: the Sol system", func(): play_pressed.emit())
-	_button(Rect2(x, y + 64, w, 52), "Pilot", func(): _set_page("pilot"))
-	_button(Rect2(x, y + 128, w, 52), "Settings", func(): _set_page("settings"))
-	_button(Rect2(x, y + 192, w, 52), "About", func(): _set_page("about"))
-	_button(Rect2(x, y + 256, w, 52), "Quit", func(): quit_pressed.emit())
+	_button(Rect2(x, y + 64, w, 52), "Play online", func(): _set_page("online"))
+	_button(Rect2(x, y + 128, w, 52), "Pilot", func(): _set_page("pilot"))
+	_button(Rect2(x, y + 192, w, 52), "Settings", func(): _set_page("settings"))
+	_button(Rect2(x, y + 256, w, 52), "About", func(): _set_page("about"))
+	_button(Rect2(x, y + 320, w, 52), "Quit", func(): quit_pressed.emit())
+
+
+func _draw_online(vp: Vector2) -> void:
+	var x := vp.x * 0.5 - 300.0
+	var y := vp.y * 0.36
+	draw_string(font, Vector2(x, y), "Co-op over a LAN or the internet. The host runs the round; friends drop in as %s pilots." % GameData.race(Settings.race_id)["name"],
+		HORIZONTAL_ALIGNMENT_LEFT, 640, 16, Color(0.8, 0.85, 0.95))
+	_button(Rect2(x, y + 20, 280, 48), "Host a game (port %d)" % Net.PORT, func(): host_pressed.emit())
+	draw_string(font, Vector2(x + 300, y + 50), "Friends join with your address; on the internet open UDP %d or use Tailscale." % Net.PORT,
+		HORIZONTAL_ALIGNMENT_LEFT, 340, 13, Color(0.7, 0.75, 0.85))
+	draw_string(font, Vector2(x, y + 110), "Join by address", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(0.85, 0.9, 1.0))
+	ip_edit.position = Vector2(x + 180, y + 84)
+	ip_edit.size = Vector2(300, 40)
+	_button(Rect2(x + 490, y + 80, 110, 48), "Join", func(): join_pressed.emit(ip_edit.text))
+	draw_string(font, Vector2(x, y + 170), "Games on this network", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(0.85, 0.9, 1.0))
+	var games: Array = Net.lan.list()
+	var gy := y + 190
+	if games.is_empty():
+		draw_string(font, Vector2(x, gy + 22), "Listening... a host on your LAN shows up here within a few seconds.", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.6, 0.65, 0.75))
+		gy += 40
+	for g in games.slice(0, 5):
+		var label := "%s  (%s, %d/%d players)  %s" % [g["name"], g.get("system", "Sol"), int(g["players"]), int(g["max"]), g["ip"]]
+		var ok: bool = int(g.get("protocol", -1)) == Net.PROTOCOL
+		_button(Rect2(x, gy, 600, 40), label if ok else label + "  (different version)", func(): join_pressed.emit("%s:%d" % [g["ip"], int(g["port"])]), ok)
+		gy += 48
+	if not online_status.is_empty():
+		draw_string(font, Vector2(x, gy + 30), online_status, HORIZONTAL_ALIGNMENT_LEFT, 640, 16, Color(1.0, 0.9, 0.6))
+	_button(Rect2(x, gy + 56, 160, 48), "Back", func(): _set_page("main"))
 
 
 func _draw_pilot(vp: Vector2) -> void:

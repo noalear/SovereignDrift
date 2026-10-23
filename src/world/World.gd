@@ -503,6 +503,7 @@ func spawn_powerup(id: String, pos: Vector2, vel: Vector2) -> void:
 	pickups_layer.add_child(p)
 	p.setup(id, pos, vel)
 	powerups.append(p)
+	Net.host_powerup_spawned(p)
 
 
 func _collect_powerups() -> void:
@@ -516,6 +517,7 @@ func _collect_powerups() -> void:
 				if s.try_pickup(p.module_id):
 					notify(s, "Picked up %s." % p.label)
 					Sfx.play("pickup", s.global_position, 0.7)
+					Net.host_powerup_taken(p, s)
 					p.queue_free()
 				break
 
@@ -606,6 +608,7 @@ func _on_rank_changed(s: Ship, level: int) -> void:
 func planet_captured(p: Planet, winner: int, attacker: Node) -> void:
 	var old := p.owner_race
 	p.surrender_to(winner)
+	Net.host_planet_captured(p, winner)
 	if attacker is Ship:
 		attacker.add_score(50, false)
 	notify_all("%s surrendered to the %s%s." % [p.body_name, GameData.race(winner)["name"],

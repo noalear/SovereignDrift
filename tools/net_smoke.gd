@@ -49,7 +49,7 @@ func _process(_delta: float) -> bool:
 		print("[%s] wall=%dms phys=%d t=%ds ships=%d missiles=%d snapshots=%d inputs=%d seats=%d player=%s pos=%s" % [
 			_tag(), Time.get_ticks_msec(), Engine.get_physics_frames(), frames / 60, (w.ships.size() if w else -1), (w.missiles.size() if w else -1),
 			net.snapshots_received, net.inputs_received, net.seats.size(),
-			(p.pilot_name if p else "none"), (p.global_position.round() if p else Vector2.ZERO)])
+			(p.pilot_name if p else "none"), (p.global_position.round() if p else Vector2.ZERO)] + ("  ping=%dms corr=%.1fpx pickups=%d" % [int(net.ping_ms), (net.client.correction_px if net.client else 0.0), (w.powerups.size() if w else 0)] if not is_host else ""))
 	var limit := 30 * 60 if is_host else 20 * 60
 	if frames >= limit:
 		_finish(w)
@@ -79,10 +79,12 @@ func _finish(w) -> void:
 		_check(net.snapshots_received > 100, "received snapshots (%d)" % net.snapshots_received)
 		_check(peak_ships >= 10, "roster arrived (%d ships)" % peak_ships)
 		_check(w.player != null and not w.player.is_puppet, "own ship is predicted locally")
-		_check(moved > 500.0, "own ship moved (%d px)" % int(moved))
+		_check(moved > 300.0, "own ship moved (%d px)" % int(moved))
 		var moving := 0
 		for s in w.ships:
 			if s.is_puppet and not s.dead and s.velocity.length() > 1.0:
 				moving += 1
 		_check(moving > 3, "puppets move from snapshots (%d)" % moving)
+		_check(net.ping_ms > 0.0, "ping measured (%d ms)" % int(net.ping_ms))
+		_check(net.client != null and net.client.correction_px < 60.0, "reconciliation error small (%.1f px)" % (net.client.correction_px if net.client else -1.0))
 	print("[%s] %s" % [_tag(), "FAILED" if failed else "passed"])

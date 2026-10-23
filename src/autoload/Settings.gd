@@ -14,6 +14,7 @@ var camera_zoom := 1.0
 var dynamic_music := true     # the music follows the fight
 var mouse_aim := true         # turrets follow the mouse
 var screen_shake := 1.0
+var last_join_ip := ""       # the address typed last on the Play online screen
 
 # Persistent career, kept between games like the original profile.
 var career := {"score": 0, "kills": 0, "deaths": 0}
@@ -40,6 +41,7 @@ func load_settings() -> void:
 	pilot_name = cfg.get_value("pilot", "name", pilot_name)
 	race_id = cfg.get_value("pilot", "race", race_id)
 	career = cfg.get_value("pilot", "career", career)
+	last_join_ip = cfg.get_value("online", "last_join_ip", last_join_ip)
 
 
 func save_settings() -> void:
@@ -56,6 +58,7 @@ func save_settings() -> void:
 	cfg.set_value("pilot", "name", pilot_name)
 	cfg.set_value("pilot", "race", race_id)
 	cfg.set_value("pilot", "career", career)
+	cfg.set_value("online", "last_join_ip", last_join_ip)
 	cfg.save(PATH)
 
 

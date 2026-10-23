@@ -497,6 +497,8 @@ func _fire_tube(w: Dictionary) -> void:
 	var v: Vector2 = velocity + dir * md["fire_v"] * GameData.LIGHT_SPEED
 	if w["missile"] == "002":
 		v = velocity * 0.6
+	if Net.is_client():
+		return   # the host fires it and tells everyone, us included
 	world.spawn_missile(self, w["missile"], mount + dir * size * 0.3, v, ang, target)
 	if is_player:
 		world.last_player_fire = world.elapsed
@@ -523,7 +525,7 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 	var origin := global_position + Vector2.RIGHT.rotated(ang) * size * 0.6
 	var hit: Dictionary = world.raycast_beam(self, origin, Vector2.RIGHT.rotated(ang), w["range"])
 	var end: Vector2 = hit["point"]
-	if hit["body"] != null:
+	if hit["body"] != null and not Net.is_client():   # damage is the host's
 		hit["body"].take_damage(w["dps"] * delta, self, end)
 	beam_targets.append([origin, end])
 	if w["cooldown"] <= 0.0:
