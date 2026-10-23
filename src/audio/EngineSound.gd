@@ -21,6 +21,7 @@ var boost_mod := -1
 var was_thrusting := false
 var was_boosting := false
 var ignite_at := -10.0
+var gain := 1.0              # other pilots' drives sit under your own
 
 
 func setup(p_ship: Node) -> void:
@@ -56,6 +57,7 @@ func update(thrust: float, boosting: bool, warping: bool, delta: float) -> void:
 	var levels: Dictionary = ship.module_levels
 	if clampi(int(levels.get("eng", 1)), 1, 4) != eng_level or clampi(int(levels.get("boost", 1)), 1, 3) != boost_mod:
 		_configure()
+	gain = 1.0 if ship.is_player else 0.55
 	var far := Sfx._screen_distance(global_position) > main.max_distance * 1.1
 	main.stream_paused = far
 	boost.stream_paused = far or boost_level < 0.01
@@ -63,7 +65,7 @@ func update(thrust: float, boosting: bool, warping: bool, delta: float) -> void:
 	var now := Time.get_ticks_msec() / 1000.0
 	if not far and thrusting and not was_thrusting and not ship.is_station and now - ignite_at > 0.6:
 		ignite_at = now
-		Sfx.play(Sfx.leveled("ignite", eng_level), global_position, 0.6, base_pitch)
+		Sfx.play(Sfx.leveled("ignite", eng_level), global_position, 0.6 * gain, base_pitch)
 	if not far and boosting and not was_boosting:
 		Sfx.play(Sfx.leveled("boost_kick", boost_mod), global_position, 0.8, base_pitch)
 	was_thrusting = thrusting
@@ -73,9 +75,9 @@ func update(thrust: float, boosting: bool, warping: bool, delta: float) -> void:
 	var want := maxf(clampf(thrust, 0.0, 1.0), idle) + (0.25 if warping else 0.0)
 	level = lerpf(level, want, 1.0 - exp(-delta * 6.0))
 	boost_level = lerpf(boost_level, 1.0 if boosting else 0.0, 1.0 - exp(-delta * (8.0 if boosting else 3.0)))
-	main.volume_db = linear_to_db(maxf(level * 0.8, 0.0001)) if level > 0.02 else -80.0
+	main.volume_db = linear_to_db(maxf(level * 0.8 * gain, 0.0001)) if level > 0.02 else -80.0
 	main.pitch_scale = base_pitch * (0.72 + 0.4 * level + 0.15 * boost_level + (0.3 if warping else 0.0))
-	boost.volume_db = linear_to_db(maxf(boost_level * 0.75, 0.0001))
+	boost.volume_db = linear_to_db(maxf(boost_level * 0.75 * gain, 0.0001))
 	boost.pitch_scale = base_pitch * (0.9 + 0.2 * level)
 
 
