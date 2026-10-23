@@ -26,6 +26,9 @@ func _start() -> void:
 	await process_frame
 	assert(main.world != null, "clicking Play did not start the game")
 	print("menu: Play clicked with the mouse, game started")
+	var base: Ship = main.world.starbase_of(main.world.player.race_id)
+	var gap: float = main.world.player.global_position.distance_to(base.global_position)
+	assert(gap < 600.0, "player did not launch at the starbase (%d)" % gap)
 	print("t=", Time.get_ticks_msec(), " game started; ships=", main.world.ships.size(), " planets=", main.world.planets.size())
 
 
@@ -216,4 +219,6 @@ func _check_starbases(w: World) -> void:
 			var ds := s.global_position.distance_to(sun.global_position)
 			assert(dh < home.radius + 600.0, "%s drifted from its planet (%d)" % [s.pilot_name, dh])
 			assert(ds > edge, "%s is in the Sun's heat (%d)" % [s.pilot_name, ds])
-	print("starbases: on station, clear of the Sun's heat (edge %d)" % edge)
+	var bases := w.ships.filter(func(s): return s.is_station)
+	assert(bases.size() == 3, "expected one starbase per empire, found %d" % bases.size())
+	print("starbases: on station, clear of the Sun's heat (edge %d), %d in all" % [edge, bases.size()])

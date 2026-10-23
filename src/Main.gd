@@ -150,7 +150,7 @@ func _start_game() -> void:
 	world.round_over.connect(_on_round_over)
 	if world.round_rules != null and world.round_rules.length > 0.0:
 		world.notify_all("Conquest: %d minutes. Hold the most planets when time runs out, or every colony for 45 seconds. Tab shows the system." % int(world.round_rules.length / 60.0), Color(0.8, 0.9, 1.0))
-	world.notify_all("Welcome, %s. You launch from %s. Press H for the controls." % [Settings.pilot_name, GameData.STARBASES.get(Settings.race_id, "home")], Color(1, 0.95, 0.8))
+	world.notify_all("Welcome, %s. You launch from the %s starbase at %s. Press H for the controls." % [Settings.pilot_name, GameData.race(Settings.race_id)["name"], GameData.STARBASES.get(Settings.race_id, "home")], Color(1, 0.95, 0.8))
 
 
 func _unhandled_input(event: InputEvent) -> void:

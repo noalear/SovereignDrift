@@ -211,9 +211,11 @@ func _draw_nav(p: Ship, vp: Vector2) -> void:
 		draw_string(font, screen + Vector2(-40, -r - 6), "%s  %d" % [t.body_name, dist], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
 	else:
 		var dir := (screen - vp * 0.5).normalized()
-		var edge := vp * 0.5 + dir * (minf(vp.x, vp.y) * 0.46)
+		var edge := _edge_anchor(dir, vp)
 		draw_circle(edge, 5.0, col)
-		draw_string(font, edge + Vector2(-40, 20) , "%s  %d" % [t.body_name, dist], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
+		var lpos := edge - dir * 30.0 + Vector2(-64, 5)
+		draw_string_outline(font, lpos, "%s  %d" % [t.body_name, dist], HORIZONTAL_ALIGNMENT_CENTER, 128, 13, 3, Color(0, 0, 0, 0.8))
+		draw_string(font, lpos, "%s  %d" % [t.body_name, dist], HORIZONTAL_ALIGNMENT_CENTER, 128, 13, col)
 
 
 func _draw_radar(p: Ship, vp: Vector2) -> void:
@@ -344,6 +346,35 @@ func _draw_music(vp: Vector2) -> void:
 	draw_string(font, Vector2(vp.x * 0.5 - 300, vp.y - 36), text, HORIZONTAL_ALIGNMENT_CENTER, 600, 13, Color(0.9, 0.85, 1.0, a * 0.85))
 
 
+## Where an edge marker in direction `dir` goes: on an inset screen
+## edge, slid inward until neither the marker nor its label (drawn 30 px
+## further in) touches a HUD panel or the round timer.  Each marker kind
+## gets a small sideways nudge so two in the same direction do not stack.
+func _edge_anchor(dir: Vector2, vp: Vector2) -> Vector2:
+	var panels := [
+		Rect2(vp.x - 345, 0, 345, 140),            # target panel
+		Rect2(0, vp.y - 190, 640, 190),            # status and weapons
+		Rect2(vp.x - 300, vp.y - 310, 300, 310),   # radar
+		Rect2(vp.x * 0.5 - 330, 0, 660, 95),       # planets, clock, hold bar
+		Rect2(0, 0, 560, 50),                      # rank and credits
+	]
+	var centre := vp * 0.5
+	var half := vp * 0.5 - Vector2(40, 40)
+	var k := minf(absf(half.x / maxf(absf(dir.x), 0.001)), absf(half.y / maxf(absf(dir.y), 0.001)))
+	var at := centre + dir * k
+	for tries in 80:
+		var lrect := Rect2(at - dir * 30.0 + Vector2(-64, -12), Vector2(128, 20))
+		var blocked := false
+		for r in panels:
+			if r.grow(6).has_point(at) or r.intersects(lrect):
+				blocked = true
+				break
+		if not blocked:
+			break
+		at -= dir * 10.0
+	return at
+
+
 ## Arrows on the screen edge when they are off screen: the current
 ## target (red for an enemy), and your own starbase in green so you can
 ## always find the shipyard.  Arrows slide inward to stay clear of the
@@ -359,12 +390,6 @@ func _draw_pointers(p: Ship, vp: Vector2) -> void:
 	var base: Ship = world.starbase_of(p.race_id)
 	if base != null and base != p.target:
 		marks.append([base, Color(0.45, 1.0, 0.6), "Starbase"])
-	var panels := [
-		Rect2(vp.x - 345, 0, 345, 140),            # target panel
-		Rect2(0, vp.y - 190, 640, 190),            # status and weapons
-		Rect2(vp.x - 300, vp.y - 310, 300, 310),   # radar
-		Rect2(vp.x * 0.5 - 330, 0, 660, 95),       # planets, clock, hold bar
-	]
 	var centre := vp * 0.5
 	for mk in marks:
 		var t: Node2D = mk[0]
@@ -372,23 +397,8 @@ func _draw_pointers(p: Ship, vp: Vector2) -> void:
 		if Rect2(Vector2(40, 40), vp - Vector2(80, 80)).has_point(sp):
 			continue
 		var dir := (sp - centre).normalized()
-		var half := vp * 0.5 - Vector2(40, 40)
-		var k := minf(absf(half.x / maxf(absf(dir.x), 0.001)), absf(half.y / maxf(absf(dir.y), 0.001)))
-		var at := centre + dir * k
+		var at := _edge_anchor(dir, vp)
 		var label := "%s  %d" % [mk[2], int(p.global_position.distance_to(t.global_position))]
-		var tries := 0
-		while tries < 80:
-			var lp := at - dir * 30.0
-			var lrect := Rect2(lp + Vector2(-64, -12), Vector2(128, 20))
-			var blocked := false
-			for r in panels:
-				if r.grow(6).has_point(at) or r.intersects(lrect):
-					blocked = true
-					break
-			if not blocked:
-				break
-			at -= dir * 10.0
-			tries += 1
 		var col: Color = mk[1]
 		var side := dir.orthogonal()
 		draw_colored_polygon(PackedVector2Array([at + dir * 16.0, at - dir * 6.0 + side * 10.0, at - dir * 6.0 - side * 10.0]), col)

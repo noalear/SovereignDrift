@@ -9,6 +9,7 @@ var world: World
 var font: Font
 var time := 0.0
 var hover_planet: Planet = null
+var station_rects: Array[Rect2] = []   # starbase squares, kept clear of labels
 
 const PANEL := Color(0.01, 0.02, 0.06, 0.9)
 const TEXT := Color(0.9, 0.95, 1.0)
@@ -113,7 +114,6 @@ func _draw() -> void:
 			draw_arc(pos, r + 8.0, 0, TAU, 32, Color.WHITE, 1.2, true)
 		if p.is_colonised() or p.body_class == "Planet" or p == hover_planet:
 			labels.append([p, pos, r])
-	_draw_labels(labels)
 	# what your own sensors reach: ships show only inside this circle;
 	# starbases are charted and always on the map
 	if player != null and not player.dead:
@@ -121,6 +121,7 @@ func _draw() -> void:
 		var sr := player.sensor_range * s
 		draw_circle(sp, sr, Color(0.4, 0.8, 0.6, 0.06))
 		draw_arc(sp, sr, 0, TAU, 48, Color(0.4, 0.8, 0.6, 0.45), 1.0, true)
+	station_rects.clear()
 	for sh in world.ships:
 		if sh.dead:
 			continue
@@ -129,7 +130,20 @@ func _draw() -> void:
 			continue
 		var pos := to_map(sh.global_position)
 		var col := sh.race_color()
+		if sh == player and not mr.grow(-8).has_point(pos):
+			# off the chart after a long warp: pin an arrow to the edge
+			var dir := (pos - c).normalized()
+			var half := mr.size * 0.5 - Vector2(14, 14)
+			var k := minf(absf(half.x / maxf(absf(dir.x), 0.001)), absf(half.y / maxf(absf(dir.y), 0.001)))
+			var at := c + dir * k
+			var sd := dir.orthogonal()
+			draw_colored_polygon(PackedVector2Array([at + dir * 12.0, at - dir * 6.0 + sd * 8.0, at - dir * 6.0 - sd * 8.0]), Color.WHITE)
+			draw_string(font, at - dir * 22.0 + Vector2(-40, 4), "You", HORIZONTAL_ALIGNMENT_CENTER, 80, 12, Color.WHITE)
+			continue
+		if not mr.has_point(pos):
+			continue
 		if sh.is_station:
+			station_rects.append(Rect2(pos - Vector2(7, 7), Vector2(14, 14)))
 			draw_rect(Rect2(pos - Vector2(4, 4), Vector2(8, 8)), col)
 			draw_rect(Rect2(pos - Vector2(6, 6), Vector2(12, 12)), Color(col.r, col.g, col.b, 0.6), false, 1.0)
 		else:
@@ -141,6 +155,7 @@ func _draw() -> void:
 			draw_arc(pos, 9.0, 0, TAU, 24, Color.WHITE, 1.5, true)
 		elif sh == (player.target if player != null else null):
 			draw_arc(pos, 8.0, 0, TAU, 16, Color(1, 0.9, 0.5), 1.2, true)
+	_draw_labels(labels)
 	# nav line
 	if player != null and player.nav_target != null and is_instance_valid(player.nav_target):
 		_dashed(to_map(player.global_position), to_map(player.nav_target.global_position), Color(0.6, 0.9, 1.0, 0.7))
@@ -154,7 +169,7 @@ func _draw() -> void:
 ## until hovered.
 func _draw_labels(labels: Array) -> void:
 	labels.sort_custom(func(a, b): return (0 if a[0].body_class == "Planet" else 1) < (0 if b[0].body_class == "Planet" else 1))
-	var taken: Array[Rect2] = []
+	var taken: Array[Rect2] = station_rects.duplicate()
 	for e in labels:
 		var p: Planet = e[0]
 		var pos: Vector2 = e[1]
@@ -166,7 +181,6 @@ func _draw_labels(labels: Array) -> void:
 		var r: float = e[2]
 		var w := font.get_string_size(p.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
 		var spots := [Vector2(r + 4.0, 4.0), Vector2(-r - 4.0 - w, 4.0), Vector2(-w * 0.5, r + 14.0), Vector2(-w * 0.5, -r - 5.0)]
-		var placed := false
 		for off in spots:
 			var rect := Rect2(pos + off + Vector2(0, -11), Vector2(w, 13))
 			var clash := false
@@ -178,7 +192,6 @@ func _draw_labels(labels: Array) -> void:
 				continue
 			taken.append(rect)
 			draw_string(font, pos + off, p.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.85, 0.9, 1.0, 0.85 if p.is_colonised() else 0.5))
-			placed = true
 			break
 
 

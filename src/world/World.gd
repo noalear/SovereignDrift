@@ -123,8 +123,7 @@ func _spawn_pilots() -> void:
 	pc.name = "Controller"
 	player.add_child(pc)
 	pc.setup(player, self)
-	_place_at_home(player)
-	# starbases for the three empires
+	# starbases for the three empires (the player launches from one, below)
 	for race_id in GameData.STARBASES:
 		var home: Planet = planet_by_name[GameData.STARBASES[race_id]]
 		var base := _make_ship("%s Command" % GameData.race(race_id)["name"], race_id, "Starbase", GameData.race(race_id)["name"] + " Starbase", false)
@@ -133,6 +132,8 @@ func _spawn_pilots() -> void:
 		var ai := AIPilot.new()
 		base.add_child(ai)
 		ai.setup(base, self, home, 14)
+	_keep_station()
+	_place_at_home(player)
 	# computer pilots
 	var per_race := {0: 0, 1: 0, 2: 0}
 	var robots: Array = GameData.ROBOTS.duplicate()
@@ -165,6 +166,7 @@ func _starting_design(race_id: int, career: Dictionary) -> String:
 
 func _design_for_rank(level: int, race_id: int) -> String:
 	var options := GameData.ship_names_for_rank(level, false)
+	options.erase("Starbase")       # each empire has exactly one starbase
 	if options.is_empty():
 		return "Scout"
 	# computer pilots prefer the best hull they may fly
@@ -898,8 +900,15 @@ func apply_build(s: Ship, design: Dictionary) -> void:
 	notify(s, "Launched: %s." % design["name"])
 
 
+var _last_notes := {}           # text -> time, so one event never floods the log
+
+
 func notify(s: Ship, text: String) -> void:
 	if s != null and s.is_player:
+		var now := Time.get_ticks_msec() / 1000.0
+		if now - float(_last_notes.get(text, -100.0)) < 5.0:
+			return
+		_last_notes[text] = now
 		message.emit(text, Color(0.85, 0.9, 1.0))
 	else:
 		Net.relay_notify(s, text)

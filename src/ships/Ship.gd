@@ -49,6 +49,7 @@ var has_boost := false
 var has_dock := false
 var qdrv := 0.0
 var warping := false
+var warp_block := 0.0              # seconds before autopilot may warp again after a drop-out
 var warp_charge := 0.0
 var brake_power := 0.6
 var module_levels := {}            # func -> level (for pickups)
@@ -330,6 +331,7 @@ func _warp(delta: float) -> void:
 			# only a body ahead of us stops the warp; leaving one is fine
 			if d < wspeed * 0.35 and velocity.dot(to_body) > 0.0:
 				end_warp()
+				warp_block = 6.0
 				if is_player:
 					world.notify(self, "Warp dropped: %s is dead ahead." % p.body_name)
 				return
@@ -370,6 +372,25 @@ func end_warp() -> void:
 	Sfx.play("warpexit", global_position, 0.8)
 
 
+## Is a planet or moon (other than the destination) between us and `to`?
+## Autopilot then flies there on engines instead of warping into it.
+func _body_in_path(to: Vector2) -> bool:
+	if world == null:
+		return false
+	var dir := to.normalized()
+	var length := to.length()
+	for p in world.planets:
+		if p == nav_target:
+			continue
+		var rel: Vector2 = p.global_position - global_position
+		var along := rel.dot(dir)
+		if along <= 0.0 or along >= length:
+			continue
+		if absf(rel.cross(dir)) < p.radius + 500.0:
+			return true
+	return false
+
+
 func _autopilot(delta: float) -> void:
 	var to := nav_target.global_position - global_position
 	var dist: float = to.length() - nav_target.radius
@@ -378,7 +399,8 @@ func _autopilot(delta: float) -> void:
 	inputs["turn"] = clampf(diff * 3.0, -1.0, 1.0)
 	var closing := velocity.dot(to.normalized())
 	var stop_dist := closing * closing / maxf(2.0 * accel * 0.8, 1.0)
-	if dist > 3500.0 and absf(diff) < 0.15 and qdrv > 0.0 and energy > 400.0:
+	warp_block = maxf(warp_block - delta, 0.0)
+	if dist > 3500.0 and absf(diff) < 0.15 and qdrv > 0.0 and energy > 400.0 and warp_block <= 0.0 and not _body_in_path(to):
 		start_warp()
 		return
 	if dist > nav_target.radius * 0.6 + 260.0 and stop_dist < dist - 200.0:
@@ -557,6 +579,13 @@ func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO) -> v
 	if attacker is Ship and attacker != self:
 		last_attacker = attacker
 		last_attacked_at = Time.get_ticks_msec() / 1000.0
+		if is_player and autopilot and attacker.race_id != race_id:
+			autopilot = false
+			if warping:
+				end_warp()
+			target = attacker
+			if world != null:
+				world.notify(self, "Autopilot off: under fire from %s. Targeted." % attacker.pilot_name)
 	if cloaked:
 		set_cloak(false)
 	hit_flash = 0.15
