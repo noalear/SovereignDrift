@@ -73,7 +73,7 @@ var invulnerable := 0.0
 var hit_flash := 0.0
 var last_attacker: Node = null
 var last_attacked_at := -100.0
-var engine_sound: AudioStreamPlayer2D = null
+var engine_sound: EngineSound = null
 var beam_targets := []             # beams fired this frame, for drawing
 var aim_point := Vector2.INF       # where the pilot wants turrets to point (world)
 var has_turret := false
@@ -88,9 +88,9 @@ func setup(p_world: Node, p_design: String, p_race: int, p_pilot: String, p_ship
 	pilot_name = p_pilot
 	ship_name = p_ship_name
 	refit(p_design)
-	engine_sound = Sfx.make_loop("thrust")
+	engine_sound = EngineSound.new()
 	add_child(engine_sound)
-	engine_sound.play()
+	engine_sound.setup(self)
 
 
 ## Rebuild the ship from a design, keeping career and name.
@@ -253,6 +253,8 @@ func _fly(delta: float) -> void:
 	var boosting: bool = inputs["boost"] and has_boost and energy > 5.0 and inputs["thrust"] > 0.0
 	var cap := max_speed * (BOOST_SPEED_MULT if boosting else 1.0)
 	var a := accel * (BOOST_ACCEL_MULT if boosting else 1.0)
+	if engine_sound != null:
+		engine_sound.update(thrust_level, boosting, warping, delta)
 
 	if warping:
 		_warp(delta)
@@ -297,10 +299,6 @@ func _fly(delta: float) -> void:
 		var pull := minf(over, (a * 1.5 + 60.0) * delta)
 		velocity = velocity.normalized() * (sp - pull)
 	global_position += velocity * delta
-	if engine_sound != null:
-		var vol := thrust_level * 0.9
-		engine_sound.volume_db = linear_to_db(clampf(vol * Settings.sfx_volume, 0.001, 1.0)) if vol > 0.02 else -80.0
-		engine_sound.pitch_scale = 0.8 + 0.5 * thrust_level + (0.4 if boosting else 0.0)
 
 
 ## A puppet only keeps its looks fresh; the host moves it (see Net).
@@ -311,9 +309,7 @@ func _puppet_step(delta: float) -> void:
 		hit_flash -= delta
 	cloak_alpha = lerpf(cloak_alpha, 0.12 if cloaked else 1.0, 4.0 * delta)
 	if engine_sound != null:
-		var vol := thrust_level * 0.9
-		engine_sound.volume_db = linear_to_db(clampf(vol * Settings.sfx_volume, 0.001, 1.0)) if vol > 0.02 else -80.0
-		engine_sound.pitch_scale = 0.8 + 0.5 * thrust_level
+		engine_sound.update(thrust_level, false, warping, delta)
 	queue_redraw()
 
 
@@ -325,7 +321,7 @@ func _warp(delta: float) -> void:
 		global_position += velocity * delta
 		thrust_level = lerpf(thrust_level, 1.0, 5.0 * delta)
 		if warp_charge >= WARP_CHARGE_TIME:
-			Sfx.play("warpout", global_position, 0.8)
+			Sfx.play(Sfx.leveled("warpout", module_levels.get("qdrv", 1)), global_position, 0.8)
 		return
 	var drain := 160.0 * delta
 	if energy < drain or inputs["brake"]:
@@ -358,7 +354,7 @@ func start_warp() -> void:
 		return
 	warping = true
 	warp_charge = 0.0
-	Sfx.play("warpin", global_position, 0.8)
+	Sfx.play(Sfx.leveled("warpin", module_levels.get("qdrv", 1)), global_position, 0.8)
 
 
 func end_warp() -> void:
@@ -367,7 +363,7 @@ func end_warp() -> void:
 	warping = false
 	warp_charge = 0.0
 	velocity = forward() * max_speed * 0.8
-	Sfx.play("warpout", global_position, 0.6, 0.8)
+	Sfx.play("warpexit", global_position, 0.8)
 
 
 func _autopilot(delta: float) -> void:
@@ -504,7 +500,8 @@ func _fire_tube(w: Dictionary) -> void:
 		world.last_player_fire = world.elapsed
 	var snd := "torpedo"
 	match w["missile"]:
-		"003", "011": snd = "plasma"
+		"003": snd = "plasma"
+		"011": snd = "battery"
 		"010": snd = "rapid"
 		"004": snd = "grenade"
 		"008", "009": snd = "missile"
@@ -528,9 +525,8 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 	if hit["body"] != null and not Net.is_client():   # damage is the host's
 		hit["body"].take_damage(w["dps"] * delta, self, end)
 	beam_targets.append([origin, end])
-	if w["cooldown"] <= 0.0:
-		w["cooldown"] = 0.22
-		Sfx.play("beam", global_position, 0.35, randf_range(0.9, 1.1))
+	# bigger hulls hum lower
+	Sfx.beam(self, clampf(1.3 - size / 80.0, 0.7, 1.2), int(str(w["id"]).right(1)))
 
 
 # --------------------------------------------------------------- damage
@@ -554,12 +550,13 @@ func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO) -> v
 		shield -= absorbed
 		remaining -= absorbed
 		if absorbed > 4.0:
-			Sfx.play("shield", global_position, 0.4, randf_range(0.9, 1.2))
+			Sfx.play(Sfx.leveled("shield", module_levels.get("shield", 1)), global_position, 0.5, randf_range(0.92, 1.08))
 	if remaining > 0.0:
 		remaining = maxf(remaining - armor * 0.02 * remaining, remaining * 0.6)
 		hull -= remaining
 		if remaining > 4.0:
-			Sfx.play("hit", global_position, 0.5, randf_range(0.8, 1.2))
+			var armor_level: int = module_levels.get("armor", 0)
+			Sfx.play(Sfx.leveled("hit_armor", armor_level) if armor_level > 0 else "hit", global_position, 0.55, randf_range(0.85, 1.15))
 			if world != null:
 				world.spawn_sparks(at if at != Vector2.ZERO else global_position, 4, race_color())
 	damaged.emit(self, amount)
@@ -576,7 +573,7 @@ func _die(killer: Node) -> void:
 	set_cloak(false)
 	warping = false
 	if engine_sound != null:
-		engine_sound.volume_db = -80.0
+		engine_sound.silence()
 	died.emit(self, killer)
 	hide()
 	set_physics_process(false)

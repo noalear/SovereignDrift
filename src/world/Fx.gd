@@ -9,7 +9,7 @@ var beams: Array = []        # {a, b, color, age}
 var shockwaves: Array = []
 
 
-func explosion(pos: Vector2, size: float, color: Color, big: bool = false) -> void:
+func explosion(pos: Vector2, size: float, color: Color, big: bool = false, sound: String = "") -> void:
 	explosions.append({"pos": pos, "age": 0.0, "life": 0.9 if not big else 1.8, "size": size, "color": color})
 	if big:
 		shockwaves.append({"pos": pos, "age": 0.0, "life": 1.2, "size": size * 4.0})
@@ -18,7 +18,9 @@ func explosion(pos: Vector2, size: float, color: Color, big: bool = false) -> vo
 		var a := randf() * TAU
 		var sp := randf_range(60.0, 260.0 if not big else 520.0)
 		sparks.append({"pos": pos, "vel": Vector2(cos(a), sin(a)) * sp, "age": 0.0, "life": randf_range(0.4, 1.2), "color": color.lerp(Color(1, 0.8, 0.4), randf())})
-	Sfx.play("bigexplode" if big else "explode", pos, 1.0 if big else 0.7, randf_range(0.85, 1.15))
+	if sound.is_empty():
+		sound = "bigexplode" if big else "explode"
+	Sfx.play(sound, pos, 1.0 if big else 0.85, clampf(1.25 - size / 160.0, 0.75, 1.15))
 
 
 func spark(pos: Vector2, count: int, color: Color) -> void:

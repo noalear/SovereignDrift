@@ -361,7 +361,7 @@ func _collide_ships(delta: float) -> void:
 					var impact := -vn
 					if impact > 60.0:
 						a.take_damage((impact - 60.0) * 0.6, p, a.global_position)
-						Sfx.play("hit", a.global_position, 0.6, 0.7)
+						Sfx.play("collide", a.global_position, clampf(impact / 200.0, 0.4, 1.0))
 		# other ships
 		for j in range(i + 1, ships.size()):
 			var b := ships[j]
@@ -476,7 +476,7 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 	if splash <= 0.0:
 		if hit != null:
 			hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else m.owner_ship, pos)
-		fx.explosion(pos, 6.0 + m.radius * 2.0, m.color)
+		fx.explosion(pos, 6.0 + m.radius * 2.0, m.color, false, "impact")
 		return
 	# area damage falls off with distance
 	for s in ships:
@@ -491,7 +491,7 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		if d < splash and p.is_colonised():
 			var f := 1.0 - maxf(d, 0.0) / splash
 			p.take_damage(m.warhead * f * 0.5, attacker if attacker is Ship else null)
-	fx.explosion(pos, splash * 0.5, m.color, m.missile_id == "002")
+	fx.explosion(pos, splash * 0.5, m.color, m.missile_id == "002", "explode")
 
 
 func spawn_sparks(pos: Vector2, n: int, color: Color) -> void:
@@ -613,7 +613,7 @@ func planet_captured(p: Planet, winner: int, attacker: Node) -> void:
 		attacker.add_score(50, false)
 	notify_all("%s surrendered to the %s%s." % [p.body_name, GameData.race(winner)["name"],
 		(" (was %s)" % GameData.race(old)["name"]) if old >= 0 else ""], GameData.race(winner)["color"])
-	Sfx.play("dock", p.global_position, 0.8)
+	Sfx.play_ui("captured", 0.7)
 	planet_owner_changed.emit(p)
 
 

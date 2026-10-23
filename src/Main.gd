@@ -117,6 +117,7 @@ func _process(delta: float) -> void:
 
 func _start_game() -> void:
 	Settings.save_settings()
+	Sfx.play_ui("ui_start", 0.8)
 	if menu != null:
 		menu.queue_free()
 		menu = null

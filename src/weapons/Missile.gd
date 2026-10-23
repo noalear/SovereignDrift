@@ -34,6 +34,8 @@ func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vecto
 	armed = 0.35 if data["trigger"] == "prox" else 0.05
 	if p_id == "002":
 		armed = 1.5
+	if data["guided"]:
+		Sfx.attach_loop(self, "rocket_loop", 0.5)
 	var rc: Color = GameData.race(p_race)["color"]
 	match data["look"]:
 		"bolt": color = rc.lerp(Color.WHITE, 0.4)

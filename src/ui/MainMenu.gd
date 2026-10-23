@@ -58,14 +58,17 @@ func _process(delta: float) -> void:
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
+		var was := hover
 		hover = -1
 		for i in buttons.size():
 			if buttons[i][0].has_point(event.position):
 				hover = i
+		if hover != was and hover >= 0 and buttons[hover][3]:
+			Sfx.play_ui("ui_hover", 0.7)
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		for i in buttons.size():
 			if buttons[i][0].has_point(event.position) and buttons[i][3]:
-				Sfx.play_ui("click", 0.5)
+				Sfx.play_ui("ui_click", 0.6)
 				buttons[i][2].call()
 				accept_event()
 				return
@@ -73,6 +76,7 @@ func _gui_input(event: InputEvent) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause_menu") and page != "main":
+		Sfx.play_ui("ui_back", 0.6)
 		_set_page("main")
 	elif event.is_action_pressed("music_next"):
 		Music.next_track()

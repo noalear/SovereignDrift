@@ -532,7 +532,8 @@ func _rpc_shot(mid: int, owner_id: int, race: int, missile_id: String, pos: Vect
 			owner.cloaked = false
 		var snd := "torpedo"
 		match missile_id:
-			"003", "011": snd = "plasma"
+			"003": snd = "plasma"
+			"011": snd = "battery"
 			"010": snd = "rapid"
 			"004": snd = "grenade"
 			"008", "009": snd = "missile"
