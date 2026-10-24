@@ -396,6 +396,63 @@ func surrender_to(race: int, pop: float = -1.0) -> void:
 	shield = shield_max * 0.3
 
 
+## What a pilot sees on the world's info card (shift-click it, or point at
+## it on the system map): [text, kind] rows, kind one of "title", "sub",
+## "line", "good" or "warn".  viewer is the race reading the card.
+func info_lines(viewer: int) -> Array:
+	var rows := [[body_name, "title"]]
+	var kind: String = {"Minor": "Asteroid", "Star": "Star"}.get(body_class, body_class)
+	if parent_body != null and body_class == "Moon":
+		kind = "Moon of %s" % parent_body.body_name
+	elif habitable >= 100:
+		kind = "Gas giant"
+	var mass_text := "under 0.01" if mass < 0.01 else (("%.2f" % mass) if mass < 10.0 else str(int(mass)))
+	rows.append(["%s   %d K   %smass %s Earths" % [kind, temperature, ("water %d%%   " % habitable) if habitable < 100 else "", mass_text], "sub"])
+	if look == "Sun":
+		return rows
+	if not has_surface():
+		rows.append(["No surface to land on or settle", "line"])
+		return rows
+	var viewer_name: String = GameData.race(viewer)["name"]
+	if not is_colonised():
+		rows.append(["Uninhabited", "line"])
+		var opt_v := optimal_population(viewer)
+		rows.append(["Supports %s %ss (climate %d%%)" % [GameData.fmt_pop(opt_v), viewer_name, int(GameData.climate(viewer, temperature) * 100.0)], "line"])
+		rows.append(["Land colonists to settle it", "good"])
+		return rows
+	var owner: Dictionary = GameData.race(owner_race)
+	var mine := owner_race == viewer
+	rows.append(["%s %s colony%s" % [owner["adj"], colony_design if colony_design != "Outpost" else "outpost", "  (yours)" if mine else ""], "good" if mine else "line"])
+	var opt := optimal_population(owner_race)
+	rows.append(["People  %s   supports %s" % [GameData.fmt_pop(population), GameData.fmt_pop(opt)], "line"])
+	if silenced > 0.0:
+		rows.append(["Not growing while its defences are down", "warn"])
+	elif opt > 0.0 and population < opt * 0.995:
+		var per_min := GROWTH_RATE * population * (1.0 - population / opt) * 60.0
+		rows.append(["Growing  +%s a minute" % GameData.fmt_pop(per_min), "line"])
+	elif population > opt * 1.005:
+		rows.append(["Overcrowded: more people than it supports, not growing", "warn"])
+	else:
+		rows.append(["Full: as many people as it can support", "line"])
+	if is_defenceless():
+		rows.append(["DEFENCES DOWN%s" % ((" for %d s" % int(ceil(silenced))) if silenced > 0.0 else ""), "warn"])
+	else:
+		rows.append(["Defences  %d gun%s, range %d   shields %d%%   hull %d%%" % [weapons.size(), "" if weapons.size() == 1 else "s", int(defence_range), int(100.0 * shield / maxf(shield_max, 1.0)), int(100.0 * hull / maxf(hull_max, 1.0))], "line"])
+	if owner_race <= 2:
+		var mult: float = world.round_rules.bonus_multiplier() if world != null and world.round_rules != null else 1.0
+		rows.append(["Pays %s %d credits a minute" % ["your side" if mine else "its owners", int(10 * mult)], "line"])
+	if mine:
+		var spare: float = world.spare_colonists(self) if world != null else 0.0
+		rows.append(["%s colonists to spare: land and press %s to take them on" % [GameData.fmt_pop(spare), Keybinds.short_text("colonists_board")], "good"])
+	elif is_defenceless():
+		rows.append(["Land over %s colonists to take it" % GameData.fmt_pop(population / GameData.OFFENSIVE_FACTOR), "warn"])
+	else:
+		rows.append(["Knock out its defences, then land over %s colonists" % GameData.fmt_pop(population / GameData.OFFENSIVE_FACTOR), "line"])
+	if not mine:
+		rows.append(["Would support %s %ss (climate %d%%)" % [GameData.fmt_pop(optimal_population(viewer)), viewer_name, int(GameData.climate(viewer, temperature) * 100.0)], "line"])
+	return rows
+
+
 func _draw() -> void:
 	# planetary rings for Saturn and Uranus
 	if look == "Saturn" or look == "Uranus":

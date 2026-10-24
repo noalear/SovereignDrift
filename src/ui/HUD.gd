@@ -82,6 +82,7 @@ func _draw() -> void:
 	_draw_messages(vp)
 	_draw_rank(p, vp)
 	_draw_nav(p, vp)
+	_draw_planet_card(p, vp)
 	_draw_music(vp)
 	_draw_aim(p, vp)
 	_draw_pointers(p, vp)
@@ -360,6 +361,42 @@ func _draw_nav(p: Ship, vp: Vector2) -> void:
 		var lpos := edge - dir * 30.0 + Vector2(-64, 5)
 		draw_string_outline(font, lpos, "%s  %d" % [t.body_name, dist], HORIZONTAL_ALIGNMENT_CENTER, 128, 13, 3, Color(0, 0, 0, 0.8))
 		draw_string(font, lpos, "%s  %d" % [t.body_name, dist], HORIZONTAL_ALIGNMENT_CENTER, 128, 13, col)
+
+
+## The shift-clicked world's info card: beside the world, kept on screen,
+## with a ring on the world itself.
+func _draw_planet_card(p: Ship, vp: Vector2) -> void:
+	var pl: Planet = world.inspected_planet
+	if pl == null or not is_instance_valid(pl):
+		return
+	var cam := world.camera
+	var screen := (world.drawn_position(pl) - world.camera_centre()) * cam.zoom + vp * 0.5
+	var r: float = pl.drawn_radius() * cam.zoom.x
+	var on_screen := Rect2(Vector2.ZERO, vp).grow(r).has_point(screen)
+	if on_screen:
+		draw_arc(screen, r + 8.0, 0, TAU, 64, Color(0.9, 0.95, 1.0, 0.6), 1.5, true)
+	var rows: Array = pl.info_lines(p.race_id)
+	rows.append(["Shift-click it again to close", "hint"])
+	var w := 0.0
+	for row in rows:
+		w = maxf(w, font.get_string_size(row[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 18 if row[1] == "title" else 14).x)
+	var size := Vector2(w + 28.0, 18.0 + rows.size() * 20.0 + 8.0)
+	var at := screen + Vector2(r + 24.0, -size.y * 0.5)
+	if at.x + size.x > vp.x - 16.0:
+		at.x = screen.x - r - 24.0 - size.x
+	at.x = clampf(at.x, 16.0, vp.x - size.x - 16.0)
+	at.y = clampf(at.y, 70.0, vp.y - size.y - 60.0)
+	var box := Rect2(at, size)
+	draw_rect(box, Color(0.02, 0.04, 0.1, 0.88))
+	draw_rect(box, Color(0.5, 0.7, 1.0, 0.6), false, 1.5)
+	if pl.is_colonised():
+		draw_rect(Rect2(at, Vector2(4.0, size.y)), GameData.race(pl.owner_race)["color"])
+	var y := at.y + 26.0
+	for row in rows:
+		var col: Color = {"title": Color(1, 1, 1), "sub": Color(0.6, 0.72, 0.9), "good": Color(0.55, 1.0, 0.65),
+			"warn": Color(1.0, 0.7, 0.3), "hint": Color(0.6, 0.7, 0.85, 0.7)}.get(row[1], Color(0.88, 0.92, 1.0))
+		draw_string(font, Vector2(at.x + 14.0, y), row[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 18 if row[1] == "title" else 14, col)
+		y += 22.0 if row[1] == "title" else 20.0
 
 
 func _draw_radar(p: Ship, vp: Vector2) -> void:
@@ -738,7 +775,7 @@ func _draw_help(vp: Vector2) -> void:
 		[_keys("weapon_group_next"), "next weapon group"], [_keys("cloak"), "cloak"],
 		["", ""],
 		["TARGETS AND NAVIGATION", ""],
-		[_keys("target_next"), "next target"], [_keys("target_nearest"), "nearest enemy"], ["Shift+click", "target under cursor"],
+		[_keys("target_next"), "next target"], [_keys("target_nearest"), "nearest enemy"], ["Shift+click", "target a ship, world info"],
 		[_keys("tactical_map"), "system map (hold or tap)"], [_keys("nav_next"), "next nav planet"], [_keys("autopilot"), "autopilot to the nav planet"],
 		["", ""],
 		["SHIP", ""],

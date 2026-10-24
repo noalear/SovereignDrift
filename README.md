@@ -34,7 +34,7 @@ Press H or F1 in game for the controls card.
 | Mouse | Aim turrets |
 | Space / LMB, Ctrl / RMB | Torpedoes, secondary weapon |
 | F, M, L, C | Seeking missiles, mine, laser, cloak |
-| T / Tab, R, Shift+click | Next target, nearest enemy, target under cursor |
+| T / Tab, R, Shift+click | Next target, nearest enemy, target the ship under the cursor (or open the info card of a planet or moon: people, owner, defences, growth, income) |
 | N, G, U | Next nav planet, autopilot to it, refit at your starbase |
 | B, 1, 2 | Land on the world below / lift off; take colonists on; put them down (join, settle, invade). In flight 1 and 2 select weapon groups |
 | K | Board a disabled target (shoot out its engines or reactor first) |
