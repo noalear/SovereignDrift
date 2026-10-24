@@ -11,7 +11,7 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 6
+const PROTOCOL := 7
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
