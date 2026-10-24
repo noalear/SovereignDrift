@@ -239,6 +239,37 @@ func _orbit_guard() -> void:
 	_check("the orbit guard burns fuel", s.fuel < fuel0, "%f -> %f" % [fuel0, s.fuel])
 	_check("a ship left at rest beside a planet never touches it", min_alt > s.size, "lowest %.0f px" % min_alt)
 	_check("after two minutes it is in a near-circular orbit", alt > 100.0 and alt < 900.0 and absf(relv - v_circ) < v_circ * 0.35, "alt %.0f relv %.1f circ %.1f" % [alt, relv, v_circ])
+	# the player, thrusting prograde round Jupiter's deep well (the natural
+	# way to "go fast"), must be able to leave it: the drive's rating is a
+	# cap on energy, not on speed relative to the planet, so it may pass the
+	# escape speed
+	var jup: Planet = w.planet_by_name["Jupiter"]
+	s.global_position = jup.global_position + Vector2(jup.radius + 200.0, 0)
+	s.velocity = w.space.circular_orbit_velocity(jup.body, s.global_position)
+	s.rotation = 0.0
+	s.fuel = s.fuel_max
+	# a slow heavy hull, rated below the circular speed here: the worst case
+	var rated := s.max_speed
+	s.max_speed = 85.0
+	var reach := PhysicsSpace.reach_of(jup.body)
+	var t_out := -1.0
+	for i in 60 * 90:
+		for p in w.planets:
+			p.update_orbit(step)
+			p.sync_body()
+		# ten seconds hands off (the guard holds the orbit), then prograde thrust
+		s.inputs["thrust"] = 1.0 if i >= 600 else 0.0
+		s.rotation = (s.velocity - jup.velocity).angle()
+		s.pre_step(step)
+		w.space.step(step)
+		s.post_step(step)
+		if s.global_position.distance_to(jup.global_position) > reach * 1.05:
+			t_out = i / 60.0 - 10.0
+			break
+	s.max_speed = rated
+	_check("full thrust climbs a slow hull out of Jupiter's well", t_out >= 0.0, "left after %.0f s of thrust" % t_out if t_out >= 0.0 else "still at %.0f px after 80 s, v=%.0f" % [s.global_position.distance_to(jup.global_position), (s.velocity - jup.velocity).length()])
+	_check("the escape speed is known in the well", s.escape_speed() == 0.0 or s.global_position.distance_to(jup.global_position) < reach)
+	s.inputs["thrust"] = 0.0
 	# an AI pilot aimed straight at the planet with full thrust
 	var ai: Ship = null
 	for o in w.ships:
