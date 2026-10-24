@@ -37,7 +37,7 @@ func _start() -> void:
 	var gap: float = main.world.player.global_position.distance_to(base.global_position)
 	assert(gap < 600.0, "player did not launch at the starbase (%d)" % gap)
 	var pirates: Array = main.world.ships.filter(func(s): return s.race_id == 3 and s.design_name == "Scout")
-	assert(pirates.size() == 2, "expected two pirate scouts near home, found %d" % pirates.size())
+	assert(pirates.size() == 1 and pirates[0].dead, "expected one pirate raider, benched for a rare visit, found %d" % pirates.size())
 	print("t=", Time.get_ticks_msec(), " game started; ships=", main.world.ships.size(), " planets=", main.world.planets.size())
 
 
