@@ -467,6 +467,11 @@ func _fly(delta: float) -> void:
 	var fwd := forward()
 	var boosting: bool = inputs["boost"] and has_boost and energy > 5.0 and inputs["thrust"] > 0.0 and fuel > 0.0
 	var vmax := max_speed * (BOOST_SPEED_MULT if boosting else 1.0)
+	# the rating is the speed the drive holds in open space; inside a
+	# gravity well the cap is on the energy, so a ship can always climb out:
+	# locally that means the escape speed on top of the rating
+	var v_esc := escape_speed()
+	vmax = sqrt(vmax * vmax + v_esc * v_esc)
 	var f0 := thrust_force * (BOOST_ACCEL_MULT if boosting else 1.0)
 	accel = thrust_force / wet_mass()
 
@@ -544,6 +549,27 @@ func _fly(delta: float) -> void:
 		engine_sound.update(thrust_level, boosting, warping, delta)
 
 
+## The pull of a well as the space really applies it at distance d: faded
+## at the edge and capped, as GM.
+static func well_gm(p: PhysicsBody, d: float) -> float:
+	var reach := PhysicsSpace.reach_of(p)
+	var fade := clampf((reach - d) / (reach * PhysicsSpace.FADE), 0.0, 1.0)
+	return minf(p.gm * fade, PhysicsSpace.MAX_GRAVITY * d * d)
+
+
+## The speed needed to leave the well we sit in from here; zero in open space.
+func escape_speed() -> float:
+	if world == null or world.space == null:
+		return 0.0
+	var p: PhysicsBody = world.space.dominant_body(global_position)
+	if p == null:
+		return 0.0
+	var d := global_position.distance_to(p.pos)
+	if d < 1.0:
+		return 0.0
+	return sqrt(2.0 * well_gm(p, d) / d)
+
+
 ## The engine force that keeps this ship off the planet whose well it sits
 ## in: when the periapsis of its present course is below the surface (plus
 ## margin), thrust toward the circular-orbit velocity here, prograde in the
@@ -562,13 +588,12 @@ func _orbit_guard_force(fwd: Vector2, f0: float, delta: float) -> Vector2:
 	var d := r.length()
 	if d < 1.0:
 		return Vector2.ZERO
-	var reach := PhysicsSpace.reach_of(p)
-	# the pull as the space really applies it: faded at the well's edge, capped
-	var fade := clampf((reach - d) / (reach * PhysicsSpace.FADE), 0.0, 1.0)
-	var gm := minf(p.gm * fade, PhysicsSpace.MAX_GRAVITY * d * d)
+	var gm := well_gm(p, d)
 	if gm < 1.0:
 		return Vector2.ZERO
 	var v := velocity - p.vel
+	if r.dot(v) > 0.0:
+		return Vector2.ZERO             # climbing: never hold a ship that is leaving
 	var h := r.cross(v)
 	var eps := v.length_squared() * 0.5 - gm / d
 	var e := sqrt(maxf(1.0 + 2.0 * eps * h * h / (gm * gm), 0.0))
@@ -576,8 +601,6 @@ func _orbit_guard_force(fwd: Vector2, f0: float, delta: float) -> Vector2:
 	var safe := (p.radius + size + ORBIT_MARGIN) * (1.15 if was else 1.0)
 	if periapsis > safe:
 		return Vector2.ZERO
-	if eps >= 0.0 and r.dot(v) > 0.0:
-		return Vector2.ZERO             # already on the way out
 	var side := signf(h) if absf(h) > 1.0 else signf(r.cross(fwd))
 	if side == 0.0:
 		side = 1.0
@@ -1011,6 +1034,9 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 		# a beam leans on what it burns
 		world.push_node(hit["body"], Vector2.RIGHT.rotated(ang) * w["dps"] * delta * World.IMPULSE_PER_DAMAGE * 0.5, end)
 	beam_targets.append([origin, end])
+	# the beam itself is drawn by the world's Fx, so a laser is seen as well as felt
+	if world != null and world.has_method("add_beam"):
+		world.add_beam(origin, end, race_color())
 	# bigger hulls hum lower
 	Sfx.beam(self, clampf(1.3 - size / 80.0, 0.7, 1.2), int(str(w["id"]).right(1)))
 
