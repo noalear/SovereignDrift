@@ -35,7 +35,14 @@ const NEW_TRACKS := [
 ]
 
 const CROSSFADE := 2.5
-const SWITCH_DELAY := {Intensity.CRUISE: 14.0, Intensity.TENSION: 5.0, Intensity.BATTLE: 2.0}
+# How long the game's read must hold before the music accepts it.  Calming
+# down waits much longer than heating up, so a contact that drifts in and
+# out of sensor range does not flip the mood back and forth.
+const SWITCH_DELAY := {Intensity.CRUISE: 30.0, Intensity.TENSION: 8.0, Intensity.BATTLE: 3.0}
+# How long a track plays before a mood change may cut it: a fight starting
+# cuts in fairly soon, calming down lets the track play on for a good while.
+const MIN_PLAY_UP := 20.0
+const MIN_PLAY_DOWN := 90.0
 
 var players: Array[AudioStreamPlayer] = []
 var active := 0                  # index of the player carrying the current track
@@ -45,6 +52,7 @@ var recent: Array = []           # files played lately, avoided when picking
 var intensity := Intensity.CRUISE
 var wanted := Intensity.CRUISE
 var wanted_since := 0.0
+var track_started := 0.0         # `time` when the current track began
 var duck := 0.0                  # 0..1 extra attenuation
 var base_db := 0.0
 var time := 0.0
@@ -138,6 +146,7 @@ func _play_from(from: Array, crossfade: bool) -> void:
 	active = next
 	fade = 0.0 if crossfade else 1.0
 	current = track
+	track_started = time
 	recent.append(track[0])
 	if recent.size() > 6:
 		recent.pop_front()
@@ -177,14 +186,25 @@ func _process(delta: float) -> void:
 	players[active].volume_db = a_db if base_db > -79.0 else -80.0
 	players[1 - active].volume_db = b_db if (base_db > -79.0 and fade < 1.0) else -80.0
 	# follow the fight
-	if Settings.dynamic_music and Settings.music_mode != "off" and wanted != intensity:
-		var delay: float = SWITCH_DELAY[wanted]
-		if wanted > intensity:
-			delay = SWITCH_DELAY[wanted]
-		if time - wanted_since >= delay:
-			intensity = wanted
-			if not current.is_empty() and current[3] != intensity:
-				_play_from(pool(intensity), true)
+	if not Settings.dynamic_music or Settings.music_mode == "off":
+		return
+	if wanted != intensity and time - wanted_since >= SWITCH_DELAY[wanted]:
+		intensity = wanted
+	if current.is_empty() or fade < 1.0 or _fits(current, intensity):
+		return
+	var min_play := MIN_PLAY_UP if intensity > current[3] else MIN_PLAY_DOWN
+	if time - track_started >= min_play:
+		_play_from(pool(intensity), true)
+
+
+## Whether a track may keep playing in this mood: one the pool for that
+## mood would pick (the pool widens to neighbouring moods when a set has few
+## tracks), or one a step hotter, so a fight that flares up and dies down
+## keeps its battle track until the track ends.
+func _fits(track: Array, level: int) -> bool:
+	if track[3] == level + 1:
+		return true
+	return pool(level).any(func(t): return t[0] == track[0])
 
 
 func _on_finished(index: int) -> void:
