@@ -125,6 +125,11 @@ func _draw() -> void:
 		draw_circle(pos, r, col)
 		if p.under_attack > 0.0:
 			draw_arc(pos, r + 6.0 + 2.0 * sin(time * 8.0), 0, TAU, 24, Color(1.0, 0.4, 0.2, 0.9), 1.5, true)
+		if p.is_defenceless():
+			# defences down: open for invasion
+			for i in 6:
+				var a0 := TAU * i / 6.0 + time
+				draw_arc(pos, r + 4.0, a0, a0 + 0.5, 6, Color(1.0, 0.9, 0.5, 0.9), 1.5, true)
 		if p == hover_planet or (player != null and p == player.nav_target):
 			draw_arc(pos, r + 8.0, 0, TAU, 32, Color.WHITE, 1.2, true)
 		if p.is_colonised() or p.body_class == "Planet" or p == hover_planet:
@@ -173,6 +178,7 @@ func _draw() -> void:
 		elif sh == (player.target if player != null else null):
 			draw_arc(pos, 8.0, 0, TAU, 16, Color(1, 0.9, 0.5), 1.2, true)
 	_draw_labels(labels, ship_marks)
+	_draw_world_card()
 	# nav line
 	if player != null and player.nav_target != null and is_instance_valid(player.nav_target):
 		_dashed(to_map(player.global_position), to_map(player.nav_target.global_position), Color(0.6, 0.9, 1.0, 0.7))
@@ -212,6 +218,35 @@ func _draw_labels(labels: Array, ship_marks: Array[Rect2] = []) -> void:
 			taken.append(rect)
 			draw_string(font, pos + off, p.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.85, 0.9, 1.0, 0.9 if p.is_colonised() else 0.62))
 			break
+
+
+## The hovered world: who lives there, how many, and room for more.
+func _draw_world_card() -> void:
+	var p := hover_planet
+	if p == null or p.look == "Sun":
+		return
+	var player: Ship = world.player
+	var lines := [p.body_name]
+	if p.is_colonised():
+		lines.append("%s colony: %s" % [GameData.race(p.owner_race)["adj"], GameData.fmt_pop(p.population)])
+		lines.append("supports %s" % GameData.fmt_pop(p.optimal_population(p.owner_race)))
+		if p.is_defenceless():
+			lines.append("DEFENCES DOWN: land colonists to take it")
+	elif not p.has_surface():
+		lines.append("gas giant: no surface")
+	else:
+		lines.append("uninhabited")
+		if player != null:
+			lines.append("supports %s %ss" % [GameData.fmt_pop(p.optimal_population(player.race_id)), GameData.race(player.race_id)["name"]])
+	var at := to_map(p.global_position) + Vector2(18, 14)
+	var w := 0.0
+	for l in lines:
+		w = maxf(w, font.get_string_size(l, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x)
+	var box := Rect2(at, Vector2(w + 16.0, lines.size() * 16.0 + 8.0))
+	draw_rect(box, PANEL)
+	draw_rect(box, Color(0.4, 0.6, 0.9, 0.5), false, 1.0)
+	for i in lines.size():
+		draw_string(font, at + Vector2(8, 18 + i * 16), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.9, 0.95, 1.0) if i == 0 else DIM)
 
 
 func _dashed(a: Vector2, b: Vector2, col: Color) -> void:

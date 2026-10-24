@@ -2,11 +2,13 @@
 ## sensor range, leads its shots, breaks off when its shields are gone,
 ## goes home to recharge, and answers calls for help.  It boards ships it
 ## has disabled when its crew can take them, and a prize crew flies as
-## the wingman of the pilot who captured the ship (`escort`).
+## the wingman of the pilot who captured the ship (`escort`).  Pilots on
+## colony duty ferry colonists (land, board, fly, land again); pilots on
+## attack duty knock out enemy colonies' defences for them.
 class_name AIPilot
 extends Node
 
-enum State { PATROL, ATTACK, EVADE, RETREAT, ESCORT, BOARD }
+enum State { PATROL, ATTACK, EVADE, RETREAT, ESCORT, BOARD, FERRY }
 
 ## A boarding that would take longer than this is not worth trying.
 const BOARD_PATIENCE := 20.0
@@ -28,6 +30,14 @@ var fire_hold := 0.0
 var reaction := 0.0
 var escort: Ship = null            # prize crews fly with their captor
 var board_rolls := {}              # target instance id -> whether we try to take it alive
+var ferry := false               # carries colonists for the empire
+var bombard := false             # knocks out enemy colonies' defences
+var job_planet: Planet = null
+var job := ""                    # board | settle | invade | reinforce
+var ground_time := 0.0
+var ground_order := false        # already told the colonists what to do on this landing
+var last_drop: Planet = null     # where we last put colonists down
+var plan_timer := 0.0
 
 
 func setup(p_ship: Ship, p_world: Node, p_home: Planet, level: int) -> void:
@@ -38,6 +48,9 @@ func setup(p_ship: Ship, p_world: Node, p_home: Planet, level: int) -> void:
 	aggression = clampf(0.4 + level * 0.04 + randf() * 0.2, 0.3, 1.0)
 	patrol_point = _random_patrol_point()
 	think_timer = randf()
+	var duty: String = GameData.RANKS[clampi(level, 0, GameData.RANKS.size() - 1)]["duty"]
+	ferry = duty == "colonize" and not ship.is_station and ship.race_id <= 2 and ship.cabin > 0.0
+	bombard = duty in ["attack", "harass"] and not ship.is_station and ship.race_id <= 2
 
 
 func _random_patrol_point() -> Vector2:
@@ -58,10 +71,14 @@ func _physics_process(delta: float) -> void:
 	if think_timer <= 0.0:
 		think_timer = 0.25 + randf() * 0.25
 		_think()
-	_act(delta)
+	if not ship.is_landing():
+		_act(delta)
 
 
 func _think() -> void:
+	if ship.is_landing():
+		_think_on_ground()
+		return
 	var i := ship.inputs
 	i["fire_primary"] = false
 	i["fire_secondary"] = false
@@ -78,6 +95,8 @@ func _think() -> void:
 	var tgt := ship.target
 	if tgt == null or not is_instance_valid(tgt) or (tgt is Ship and (tgt.dead or not tgt.visible_to(ship) or tgt.race_id == ship.race_id)):
 		tgt = null
+	elif tgt is Planet and (not tgt.is_colonised() or tgt.owner_race == ship.race_id or tgt.is_defenceless()):
+		tgt = null                      # knocked out: leave it for the colonists
 	# a friend is taking that one alive: leave it be
 	if tgt is Ship and tgt.boarded_by != ship and tgt.claimed_by != ship and tgt.spoken_for(ship.race_id):
 		tgt = null
@@ -91,6 +110,9 @@ func _think() -> void:
 			best = ship.last_attacker
 		if best != null:
 			tgt = best
+	# attack duty: with no ship about, go after an enemy colony's defences
+	if tgt == null and bombard and state == State.PATROL:
+		tgt = _colony_to_bombard()
 	ship.target = tgt
 	var weak := shield_frac < 0.15 and hull_frac < 0.55
 	if escort != null and tgt == null and state != State.BOARD:
@@ -109,6 +131,8 @@ func _think() -> void:
 			if tgt != null:
 				state = State.ATTACK
 				reaction = (1.0 - skill) * 1.2
+			elif ferry and _plan_ferry():
+				state = State.FERRY
 			elif ship.global_position.distance_to(patrol_point) < 300.0:
 				patrol_point = _random_patrol_point()
 			elif (hull_frac < 0.6 or ship.energy < ship.energy_max * 0.2 or ship.fuel_fraction() < 0.15 or ship.crew_fraction() < 0.4) and home != null:
@@ -127,6 +151,14 @@ func _think() -> void:
 			evade_timer -= 0.35
 			if evade_timer <= 0.0:
 				state = State.ATTACK if tgt != null and not weak else State.PATROL
+		State.FERRY:
+			if tgt != null and tgt is Ship and tgt.global_position.distance_to(ship.global_position) < 700.0 \
+					and Time.get_ticks_msec() / 1000.0 - ship.last_attacked_at < 4.0:
+				state = State.ATTACK     # jumped on the way: fight, then carry on
+			elif not _job_still_good():
+				state = State.FERRY if _plan_ferry() else State.PATROL
+			elif (hull_frac < 0.35 or ship.fuel_fraction() < 0.1) and home != null and ship.colonists <= 0.0:
+				state = State.RETREAT
 		State.RETREAT:
 			if home == null:
 				state = State.PATROL
@@ -283,7 +315,8 @@ func _act(delta: float) -> void:
 			if tgt == null or not is_instance_valid(tgt):
 				return
 			var to: Vector2 = tgt.global_position - ship.global_position
-			var dist := to.length()
+			# against a colony, distances count from its surface
+			var dist: float = to.length() - (tgt.radius if tgt is Planet else 0.0)
 			var tv: Vector2 = tgt.velocity if "velocity" in tgt else Vector2.ZERO
 			# lead for the primary weapon
 			var mv := 0.6 * GameData.LIGHT_SPEED
@@ -326,6 +359,8 @@ func _act(delta: float) -> void:
 				i["fire_mine"] = randf() < 0.05
 				i["fire_beam"] = false
 			_avoid_planets(delta)
+		State.FERRY:
+			_fly_to_job(delta)
 		State.RETREAT:
 			if home != null:
 				var p := home.global_position + (ship.global_position - home.global_position).normalized() * (home.radius + 220.0)
@@ -334,6 +369,155 @@ func _act(delta: float) -> void:
 				if ship.qdrv > 0.0 and ship.global_position.distance_to(p) > 4000.0 and not ship.warping and absf(i["turn"]) < 0.1 and ship.energy > 500.0:
 					ship.start_warp()
 			_avoid_planets(delta)
+
+
+# ------------------------------------------------------------ colonists
+
+## Pick the next colonist run.  With an empty cabin: a friendly colony that
+## can spare people.  With colonists aboard: an enemy colony whose defences
+## are down and that they can beat, else an empty world, else a thin
+## friendly colony.
+func _plan_ferry() -> bool:
+	plan_timer -= 0.35
+	if plan_timer > 0.0 and job_planet == null:
+		return false
+	plan_timer = 3.0
+	job_planet = null
+	job = ""
+	var best_score := 0.0
+	var pos := ship.global_position
+	if ship.colonists < ship.cabin * 0.5:
+		for p in world.planets:
+			if not p.is_colonised() or p.owner_race != ship.race_id or p.under_attack > 0.0 or p == last_drop:
+				continue
+			var spare: float = world.spare_colonists(p)
+			if spare < ship.cabin * 0.3:
+				continue
+			var score := minf(spare, ship.cabin) / (1500.0 + pos.distance_to(p.global_position))
+			if score > best_score:
+				best_score = score
+				job_planet = p
+				job = "board"
+		return job_planet != null
+	for p in world.planets:
+		if not p.has_surface():
+			continue
+		var d := 1500.0 + pos.distance_to(p.global_position)
+		var score := 0.0
+		var kind := ""
+		if p.is_colonised() and p.owner_race != ship.race_id:
+			if p.is_defenceless() and ship.colonists * GameData.OFFENSIVE_FACTOR > p.population * 1.15:
+				score = 3.0
+				kind = "invade"
+		elif not p.is_colonised():
+			var room: float = p.optimal_population(ship.race_id)
+			if room >= 20e6:
+				score = 2.0 * clampf(room / 200e6, 0.5, 1.5)
+				kind = "settle"
+		elif p.population < p.optimal_population(ship.race_id) * 0.3:
+			score = 0.8
+			kind = "reinforce"
+		score = score * 10000.0 / d
+		if score > best_score:
+			best_score = score
+			job_planet = p
+			job = kind
+	return job_planet != null
+
+
+func _job_still_good() -> bool:
+	if job_planet == null or not is_instance_valid(job_planet):
+		return false
+	match job:
+		"board":
+			return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and world.spare_colonists(job_planet) > 0.0
+		"settle":
+			return not job_planet.is_colonised() and ship.colonists > 0.0
+		"invade":
+			return job_planet.is_colonised() and job_planet.owner_race != ship.race_id and ship.colonists > 0.0
+		"reinforce":
+			return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and ship.colonists > 0.0
+	return false
+
+
+## Fly down to the job's world, slow to a landing speed above it, land.
+func _fly_to_job(delta: float) -> void:
+	var p := job_planet
+	if p == null or not is_instance_valid(p):
+		return
+	var i := ship.inputs
+	var out := (ship.global_position - p.global_position)
+	if out.length() < 1.0:
+		out = Vector2.RIGHT
+	var point := p.global_position + out.normalized() * (p.radius + ship.size + 140.0)
+	var far := ship.global_position.distance_to(point)
+	if far > 2500.0:
+		# a long way: the general flight code, warp included
+		_avoid_planets(delta)
+		_steer_to(point, delta, true)
+		if ship.qdrv > 0.0 and far > 5000.0 and not ship.warping and absf(i["turn"]) < 0.1 and ship.energy > 400.0:
+			ship.start_warp()
+		return
+	if ship.warping:
+		ship.end_warp()
+	# close in: match the world's motion, arriving slowly
+	var rel_v := ship.velocity - p.velocity
+	var to := point - ship.global_position
+	var want_speed := minf(ship.max_speed * 0.8, sqrt(2.0 * ship.accel * 0.5 * maxf(far - 30.0, 0.0)))
+	var dv := to.normalized() * want_speed - rel_v
+	var diff := wrapf(dv.angle() - ship.rotation, -PI, PI)
+	i["turn"] = clampf(diff * 3.0, -1.0, 1.0)
+	i["thrust"] = clampf(dv.length() / 80.0, 0.0, 1.0) if absf(diff) < 0.5 else 0.0
+	i["strafe"] = 0.0
+	i["brake"] = rel_v.length() > want_speed + 60.0
+	if ship.landing_refusal(p).is_empty() and (far < 260.0 or rel_v.length() < Ship.LAND_SPEED * 0.6):
+		world.try_land(ship, p)
+		ground_time = 0.0
+		ground_order = false
+
+
+## On the ground: wait for the colonists, put them down when reinforcing,
+## then lift off for the next run.
+func _think_on_ground() -> void:
+	if not ship.is_landed():
+		return
+	ground_time += 0.35
+	if ship.transfer != 0:
+		return
+	var here := ship.land_body
+	var ours := here.is_colonised() and here.owner_race == ship.race_id
+	if not ground_order and ours:
+		ground_order = true
+		if job == "reinforce" and ship.colonists > 0.0 and here == job_planet:
+			world.colonist_command(ship, false)
+			last_drop = here
+			return
+		if job == "board" and ship.colonists < ship.cabin - 1.0 and world.spare_colonists(here) > 0.0:
+			world.colonist_command(ship, true)
+			return
+	if ground_time < 1.2:
+		return
+	if job != "board":
+		last_drop = here
+	ground_order = false
+	world.try_land(ship)              # lift off
+	job_planet = null
+	plan_timer = 0.0
+	state = State.FERRY if ferry and _plan_ferry() else State.PATROL
+
+
+## An enemy colony nearby whose defences still stand.
+func _colony_to_bombard() -> Planet:
+	var best: Planet = null
+	var best_d := 3200.0
+	for p in world.planets:
+		if not p.is_colonised() or p.owner_race == ship.race_id or p.is_defenceless():
+			continue
+		var d: float = ship.global_position.distance_to(p.global_position) - p.radius
+		if d < best_d:
+			best_d = d
+			best = p
+	return best
 
 
 ## Steer away from planets and the sun we are about to hit.

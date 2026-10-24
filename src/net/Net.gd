@@ -11,7 +11,7 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 6
+const PROTOCOL := 7
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -222,6 +222,9 @@ func _seat_player(peer_id: int, name: String) -> Node:
 	seats[peer_id] = best.net_id
 	pilot_names[peer_id] = name
 	_seat_ai(best, false)
+	if best.is_landing():
+		best.leave_ground_now()        # a joiner starts in space, not parked on a world
+		host_landing(best)
 	best.pilot_name = name
 	best.ship_name = name + "'s ship"
 	best.target = null
@@ -381,6 +384,12 @@ func _rpc_command(cmd: String) -> void:
 		_ when cmd.begins_with("board:"):
 			# the client's target travels with the command; targets are local
 			world.capture.try_board(s, ships_by_id.get(int(cmd.get_slice(":", 1)), null))
+		"land":
+			world.try_land(s)
+		"colonists_board":
+			world.colonist_command(s, true)
+		"colonists_unload":
+			world.colonist_command(s, false)
 
 
 func _apply_remote_inputs() -> void:
@@ -464,6 +473,27 @@ func host_planet_captured(p: Node, winner: int) -> void:
 	if not is_host() or seats.is_empty():
 		return
 	_rpc_planet_captured.rpc(world.planets.find(p), winner)
+
+
+## Landing: a ship started down, touched down or lifted off.
+func host_landing(s: Node) -> void:
+	if not is_host() or seats.is_empty():
+		return
+	_rpc_landing.rpc(s.net_id, s.landing, world.planets.find(s.land_body))
+
+
+## A colony was founded, invaded, knocked out, wiped out or changed size.
+func host_colony_changed(p: Node) -> void:
+	if not is_host() or seats.is_empty():
+		return
+	_rpc_colonies.rpc(_colony_state())
+
+
+func _colony_state() -> Array:
+	var out := []
+	for p in world.planets:
+		out.append([p.owner_race, p.colony_design, p.population, p.silenced])
+	return out
 
 
 func host_round_over(result: Dictionary) -> void:
@@ -879,6 +909,49 @@ func _rpc_stats(stats: Array, round_state: Array) -> void:
 
 
 @rpc("authority", "reliable")
+func _rpc_landing(net_id: int, phase: int, planet_index: int) -> void:
+	if world == null:
+		return
+	var s: Node = ships_by_id.get(net_id, null)
+	if s == null or not is_instance_valid(s):
+		return
+	if planet_index >= 0 and planet_index < world.planets.size():
+		s.land_body = world.planets[planet_index]
+	if phase != s.landing:
+		s.landing = phase
+		s.land_t = 0.0
+		if phase == 0:
+			s.land_scale = 1.0
+			s.scale = Vector2.ONE
+
+
+@rpc("authority", "reliable")
+func _rpc_colonies(state: Array) -> void:
+	if world == null:
+		return
+	for i in mini(state.size(), world.planets.size()):
+		var p: Node = world.planets[i]
+		var row: Array = state[i]
+		if row[0] != p.owner_race or row[1] != p.colony_design:
+			var was: int = p.owner_race
+			if row[0] < 0 or row[1] == "":
+				p.clear_colony()
+			else:
+				p.set_colony(row[0], row[1], row[2])
+			if was != p.owner_race:
+				world.planet_owner_changed.emit(p)
+		p.population = row[2]
+		p.silenced = row[3]
+
+
+@rpc("authority", "reliable")
+func _rpc_cabin(colonists: float, transfer: int) -> void:
+	if world != null and world.player != null:
+		world.player.colonists = colonists
+		world.player.transfer = transfer
+
+
+@rpc("authority", "reliable")
 func _rpc_round_over(result: Dictionary) -> void:
 	if world == null:
 		return
@@ -1239,7 +1312,9 @@ func _physics_process(delta: float) -> void:
 	if stats_timer <= 0.0:
 		stats_timer = STATS_EVERY
 		_rpc_stats.rpc(_stats(), _round_state())
+		_rpc_colonies.rpc(_colony_state())
 		for peer_id in seats:
 			var s: Node = ships_by_id.get(seats[peer_id], null)
 			if s != null and is_instance_valid(s):
 				_rpc_purse.rpc_id(peer_id, s.credits, s.hold, s.blueprints)
+				_rpc_cabin.rpc_id(peer_id, s.colonists, s.transfer)

@@ -77,6 +77,8 @@ static func why_not(captor: Node, victim: Node) -> String:
 		return "friendly"
 	if captor.is_station or victim.is_station:
 		return "station"
+	if victim.is_landing():
+		return "landed"
 	if not victim.is_disabled():
 		return "not disabled"
 	if victim.boarded_by != null and is_instance_valid(victim.boarded_by) and victim.boarded_by != captor and not victim.boarded_by.dead:
@@ -98,6 +100,8 @@ static func reason_text(why: String, captor: Node, victim: Node) -> String:
 			return "That ship is on your side."
 		"station":
 			return "Starbases can't be boarded."
+		"landed":
+			return "It's down on the surface. Wait for it to lift off."
 		"not disabled":
 			return "Disable it first: shoot out its engines (from behind) or its reactor."
 		"taken":

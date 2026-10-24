@@ -102,6 +102,12 @@ func on_capture(race: int, planet_name: String, from_race: int) -> void:
 	note("%s took %s%s" % [GameData.race(race)["name"], planet_name, (" from the %s" % GameData.race(from_race)["name"]) if from_race >= 0 else ""], race)
 
 
+## A new colony on an empty world counts with the captures.
+func on_settle(race: int, planet_name: String) -> void:
+	captures[race] = captures.get(race, 0) + 1
+	note("%s settled %s" % [GameData.race(race)["name"], planet_name], race)
+
+
 func tick(delta: float) -> void:
 	if over:
 		return

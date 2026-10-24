@@ -291,10 +291,13 @@ func _draw_nav(p: Ship, vp: Vector2) -> void:
 	var screen := (world.drawn_position(t) - world.camera_centre()) * cam.zoom + vp * 0.5
 	var col := Color(0.6, 1.0, 0.8)
 	var dist := int(t.global_position.distance_to(p.global_position) - t.radius)
+	var tag: String = t.body_name
+	if t is Planet and t.is_colonised():
+		tag = "%s  %s %s" % [t.body_name, GameData.race(t.owner_race)["adj"], GameData.fmt_pop(t.population)]
 	if screen.x > -50 and screen.x < vp.x + 50 and screen.y > -50 and screen.y < vp.y + 50:
 		var r: float = t.radius * cam.zoom.x + 14.0
 		draw_arc(screen, r, 0, TAU, 48, Color(col.r, col.g, col.b, 0.5), 1.5, true)
-		draw_string(font, screen + Vector2(-40, -r - 6), "%s  %d" % [t.body_name, dist], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
+		draw_string(font, screen + Vector2(-40, -r - 6), "%s  %d" % [tag, dist], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
 	else:
 		var dir := (screen - vp * 0.5).normalized()
 		var edge := _edge_anchor(dir, vp)
@@ -374,9 +377,12 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 		var nr: Dictionary = GameData.RANKS[p.rank + 1]
 		next = "   next: %d pts, %d kills" % [nr["score"], nr["kills"]]
 	_text(Vector2(x, y), "%s %s   score %d   kills %d%s" % [rank, p.pilot_name, p.score, p.kills, next], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 0.95, 0.8))
-	_text(Vector2(x, y + 20), "credits %d   hold %d/%d%s" % [p.credits, p.hold.size(), Ship.HOLD_SIZE, ("   blueprints %d" % p.blueprints.size()) if not p.blueprints.is_empty() else ""], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 0.85, 0.4))
+	_text(Vector2(x, y + 20), "credits %d   hold %d/%d%s%s" % [p.credits, p.hold.size(), Ship.HOLD_SIZE, ("   blueprints %d" % p.blueprints.size()) if not p.blueprints.is_empty() else "",
+		("   colonists %s / %s" % [GameData.fmt_pop(p.colonists), GameData.fmt_pop(p.cabin)]) if p.cabin > 0.0 else ""], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 0.85, 0.4))
+	if not p.dead:
+		_draw_landing(p, vp)
 	# docking prompt
-	if not p.dead and world.nearest_base(p) != null:
+	if not p.dead and not p.is_landing() and world.nearest_base(p) != null:
 		# on its own dark plate low on the screen, so the starbase art never hides it
 		var dock_text := "In docking range:  U  opens the shipyard" + ("" if p.speed() <= 220.0 else "  (brake first)")
 		var plate := Rect2(vp.x * 0.5 - 250, vp.y - 98, 500, 32)
@@ -396,6 +402,91 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 		_text(Vector2(sx + 12, 26), "%s %d" % [GameData.race(r)["name"], n], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.92, 0.92, 0.92))
 		sx += 102
 	_draw_round(vp)
+
+
+## A prompt plate low on the screen, like the docking one.
+func _plate(text: String, y: float, col: Color, border: Color) -> void:
+	var plate := Rect2(vp_size().x * 0.5 - 270, y, 540, 32)
+	draw_rect(plate, Color(0.02, 0.05, 0.08, 0.8))
+	draw_rect(plate, border, false, 1.5)
+	draw_string_outline(font, Vector2(plate.position.x, plate.position.y + 22), text, HORIZONTAL_ALIGNMENT_CENTER, plate.size.x, 16, 4, Color(0, 0, 0, 0.85))
+	draw_string(font, Vector2(plate.position.x, plate.position.y + 22), text, HORIZONTAL_ALIGNMENT_CENTER, plate.size.x, 16, col)
+
+
+func vp_size() -> Vector2:
+	return get_viewport_rect().size
+
+
+## Landing: the prompt when a world is close below, the descent, and the
+## ground panel with the colony, the cabin and what the keys do.
+func _draw_landing(p: Ship, vp: Vector2) -> void:
+	if p.is_landed():
+		_draw_ground_panel(p, vp)
+		return
+	if p.is_landing():
+		var going := "Landing on" if p.landing == Ship.Landing.DESCENDING else "Lifting off from"
+		_plate("%s %s..." % [going, p.land_body.body_name], vp.y - 98, Color(0.85, 0.95, 1.0), Color(0.5, 0.75, 1.0, 0.55))
+		return
+	if p.is_station or p.warping:
+		return
+	var b: Planet = world.landing_body(p)
+	if b == null or not b.has_surface():
+		return
+	var alt: float = p.global_position.distance_to(b.global_position) - b.radius
+	if alt > Ship.LAND_ALTITUDE + p.size:
+		return
+	var fast: bool = (p.velocity - b.velocity).length() > Ship.LAND_SPEED
+	var what := "B  lands on %s" % b.body_name
+	if b.is_colonised():
+		what += "  (%s %s)" % [GameData.race(b.owner_race)["adj"], GameData.fmt_pop(b.population)]
+	if fast:
+		what += "   slow down first"
+	var y := vp.y - (136.0 if world.nearest_base(p) != null else 98.0)
+	_plate(what, y, Color(1.0, 0.92, 0.7, 0.85 + 0.15 * sin(time * 4.0)) if not fast else Color(1.0, 0.75, 0.55, 0.8), Color(1.0, 0.8, 0.45, 0.55))
+
+
+func _draw_ground_panel(p: Ship, vp: Vector2) -> void:
+	var b: Planet = p.land_body
+	var w := 560.0
+	var h := 128.0
+	var x := (vp.x - w) * 0.5
+	var y := vp.y - h - 70.0
+	draw_rect(Rect2(x, y, w, h), Color(0.02, 0.05, 0.08, 0.86))
+	var friendly: bool = b.is_colonised() and b.owner_race == p.race_id
+	var border: Color = GameData.race(b.owner_race)["color"] if b.is_colonised() else Color(0.7, 0.7, 0.7)
+	border.a = 0.7
+	draw_rect(Rect2(x, y, w, h), border, false, 1.5)
+	var title := "ON THE GROUND:  %s" % b.body_name.to_upper()
+	_text(Vector2(x + 16, y + 24), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color(0.9, 0.95, 1.0))
+	var line := ""
+	if b.is_colonised():
+		line = "%s colony, %s people (the world supports %s)%s" % [GameData.race(b.owner_race)["adj"], GameData.fmt_pop(b.population),
+			GameData.fmt_pop(b.optimal_population(b.owner_race)), "   DEFENCES DOWN" if b.is_defenceless() else ""]
+	else:
+		line = "Uninhabited: supports %s %s" % [GameData.fmt_pop(b.optimal_population(p.race_id)), GameData.race(p.race_id)["name"] + "s"]
+	_text(Vector2(x + 16, y + 48), line, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.85, 0.9, 1.0))
+	# the cabin
+	var frac := p.colonists / maxf(p.cabin, 1.0)
+	var label := "Colonists"
+	if p.transfer > 0:
+		label = "Colonists boarding"
+	elif p.transfer < 0:
+		label = "Colonists going ashore"
+	_bar(Vector2(x + 16, y + 58), w - 32, 19, frac, Color(0.95, 0.8, 0.35, 0.85), label, "%s / %s" % [GameData.fmt_pop(p.colonists), GameData.fmt_pop(p.cabin)])
+	var keys := []
+	if friendly:
+		keys.append("1  take colonists on")
+		keys.append("2  put colonists down")
+	elif p.colonists > 0.0:
+		keys.append("2  %s" % ("invade" if b.is_colonised() else "settle"))
+	keys.append("B  lift off")
+	_text(Vector2(x, y + 104), "     ".join(keys), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(1.0, 0.92, 0.7))
+	var hint := ""
+	if friendly:
+		hint = "Refuelling and repairing at the spaceport."
+	elif b.is_colonised():
+		hint = "Invaders fight twice as hard once its defences are down."
+	_text(Vector2(x, y + 122), hint, HORIZONTAL_ALIGNMENT_CENTER, w, 12, Color(0.7, 0.8, 0.9, 0.8))
 
 
 ## The round clock under the standings, the phase, and the countdown when
@@ -605,7 +696,7 @@ func _draw_help(vp: Vector2) -> void:
 			right.append([_keys(extra[0]), extra[1]])
 	var rows := maxi(left.size(), right.size())
 	var w := 1000.0
-	var h := 70.0 + rows * 22.0 + 72.0
+	var h := 70.0 + rows * 22.0 + 94.0
 	var x := (vp.x - w) * 0.5
 	var y := (vp.y - h) * 0.5
 	draw_rect(Rect2(x, y, w, h), Color(0.02, 0.04, 0.1, 0.92))
@@ -623,6 +714,7 @@ func _draw_help(vp: Vector2) -> void:
 				draw_string(font, Vector2(col[1] + 200.0, ly), desc, HORIZONTAL_ALIGNMENT_LEFT, 250, 15, Color(0.85, 0.9, 1.0))
 			ly += 22
 	var fy := y + 66 + rows * 22.0 + 10
-	draw_string(font, Vector2(x, fy), "Destroy or capture enemy ships (shoot out engines or reactor, then board with %s), and bombard enemy colonies until they surrender." % Keybinds.short_text("board"), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
-	draw_string(font, Vector2(x, fy + 22), "Wrecks drop parts and blueprints.  Dock at your starbase (%s) to refit and set weapon groups." % Keybinds.short_text("refit"), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
-	draw_string(font, Vector2(x, fy + 44), "Change any key or gamepad button in Settings > Controls.", HORIZONTAL_ALIGNMENT_CENTER, w, 14, Color(0.7, 0.8, 0.95))
+	draw_string(font, Vector2(x, fy), "Knock out enemy colonies' defences, then land colonists to take them.  Settle empty moons and asteroids.", HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
+	draw_string(font, Vector2(x, fy + 22), "Capture enemy ships: shoot out engines or reactor, then board with %s." % Keybinds.short_text("board"), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
+	draw_string(font, Vector2(x, fy + 44), "Wrecks drop parts and blueprints.  Dock at your starbase (%s) to refit and set weapon groups." % Keybinds.short_text("refit"), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
+	draw_string(font, Vector2(x, fy + 66), "Change any key or gamepad button in Settings > Controls.", HORIZONTAL_ALIGNMENT_CENTER, w, 14, Color(0.7, 0.8, 0.95))
