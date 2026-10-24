@@ -19,6 +19,10 @@ var ip_edit: LineEdit
 var online_status := ""
 var time := 0.0
 var demo_ships: Array = []
+var capture_action := ""     # Controls page: the action waiting for a key
+var capture_slot := ""       # "kb0", "kb1" or "pad"
+var capture_since := 0
+var controls_status := ""
 
 
 func _ready() -> void:
@@ -78,12 +82,56 @@ func _gui_input(event: InputEvent) -> void:
 				return
 
 
+## While a Controls slot waits for a key, the next key, mouse button or
+## gamepad control goes into it, before anything else sees it.
+func _input(event: InputEvent) -> void:
+	if capture_action.is_empty():
+		return
+	if Time.get_ticks_msec() - capture_since < 180:
+		get_viewport().set_input_as_handled()
+		return
+	var pressed := false
+	if event is InputEventKey:
+		pressed = event.pressed and not event.echo
+	elif event is InputEventMouseButton or event is InputEventJoypadButton:
+		pressed = event.pressed
+	elif event is InputEventJoypadMotion:
+		pressed = absf(event.axis_value) > 0.6
+	if not pressed:
+		if not event is InputEventMouseMotion:
+			get_viewport().set_input_as_handled()
+		return
+	get_viewport().set_input_as_handled()
+	var label := _action_label(capture_action)
+	if event is InputEventKey and event.physical_keycode == KEY_ESCAPE and capture_action != "pause_menu":
+		controls_status = "Cancelled."
+	elif event is InputEventKey and event.physical_keycode in [KEY_BACKSPACE, KEY_DELETE]:
+		Keybinds.clear(capture_action, capture_slot)
+		controls_status = "%s: slot cleared." % label
+	else:
+		var slot := capture_slot
+		if event is InputEventJoypadButton or event is InputEventJoypadMotion:
+			slot = "pad"
+		elif slot == "pad":
+			slot = "kb0"
+		var moved := Keybinds.assign(capture_action, slot, event)
+		controls_status = "%s: %s.%s" % [label, Keybinds.slot_text(capture_action, slot), ("  (taken from %s)" % moved) if not moved.is_empty() else ""]
+		Sfx.play_ui("ui_click", 0.6)
+	capture_action = ""
+	capture_slot = ""
+
+
+func _action_label(action: String) -> String:
+	for row in Keybinds.ACTIONS:
+		if row[0] == action:
+			return row[1]
+	return action
+
+
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("pause_menu") and page != "main":
+	if (event.is_action_pressed("pause_menu") or event.is_action_pressed("ui_cancel")) and page != "main":
 		Sfx.play_ui("ui_back", 0.6)
-		_set_page("main")
-	elif event.is_action_pressed("ui_cancel") and page != "main":
-		_set_page("main")
+		_set_page("settings" if page == "controls" else "main")
 	elif event.is_action_pressed("ui_accept"):
 		_activate_focus()
 	elif event.is_action_pressed("ui_down", true):
@@ -219,6 +267,8 @@ func _draw() -> void:
 			_draw_about(vp)
 		"online":
 			_draw_online(vp)
+		"controls":
+			_draw_controls(vp)
 	var np := Music.now_playing()
 	if not np.is_empty():
 		draw_string(font, Vector2(24, vp.y - 20), "Now playing: %s     (F9: next song)" % np, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.8, 0.8, 0.95, 0.8))
@@ -321,6 +371,74 @@ func _draw_settings(vp: Vector2) -> void:
 	_choice(y + step * 8, "Mouse-aimed turrets", [[true, "On"], [false, "Off"]], Settings.mouse_aim, func(v): Settings.mouse_aim = v, vp)
 	_choice(y + step * 9, "Round length", [[20, "20 min"], [30, "30 min"], [40, "40 min"], [0, "Until conquest"]], Settings.round_minutes, func(v): Settings.round_minutes = v, vp)
 	_button(Rect2(vp.x * 0.5 - 300, y + step * 10 + 20, 160, 48), "Back", func(): _set_page("main"))
+	_button(Rect2(vp.x * 0.5 - 130, y + step * 10 + 20, 260, 48), "Controls and keys", func(): _set_page("controls"))
+
+
+## Every action with two keyboard / mouse slots and a gamepad slot.  Click
+## (or press Enter on) a slot, then press what should do it.
+func _draw_controls(vp: Vector2) -> void:
+	var top := vp.y * 0.265
+	draw_string(font, Vector2(0, top - 14), "Click a slot, then press a key, mouse button or gamepad control.   Backspace clears it,  Esc cancels.",
+		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 15, Color(0.75, 0.82, 0.95))
+	var rows: Array = Keybinds.actions()
+	var cols := [["Flight", "Ship"], ["Weapons", "Interface"]]
+	var label_w := 220.0
+	var slot_w := 132.0
+	var col_w := label_w + 3.0 * (slot_w + 6.0)
+	var x0 := (vp.x - (col_w * 2.0 + 60.0)) * 0.5
+	var row_h := 25.0
+	for c in 2:
+		var x := x0 + c * (col_w + 60.0)
+		var y := top + 6.0
+		draw_string(font, Vector2(x + label_w, y + 14), "Key", HORIZONTAL_ALIGNMENT_CENTER, slot_w, 13, Color(0.6, 0.75, 1.0))
+		draw_string(font, Vector2(x + label_w + slot_w + 6.0, y + 14), "Key 2", HORIZONTAL_ALIGNMENT_CENTER, slot_w, 13, Color(0.6, 0.75, 1.0))
+		draw_string(font, Vector2(x + label_w + 2.0 * (slot_w + 6.0), y + 14), "Gamepad", HORIZONTAL_ALIGNMENT_CENTER, slot_w, 13, Color(0.6, 0.75, 1.0))
+		y += 20.0
+		for section in cols[c]:
+			draw_string(font, Vector2(x, y + 17), section.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.6, 0.8, 1.0))
+			y += row_h
+			for row in rows:
+				if row[2] != section:
+					continue
+				draw_string(font, Vector2(x + 8, y + 16), row[1], HORIZONTAL_ALIGNMENT_LEFT, label_w - 12, 15, Color(0.9, 0.93, 1.0))
+				var sx := x + label_w
+				for slot in ["kb0", "kb1", "pad"]:
+					var waiting: bool = capture_action == row[0] and capture_slot == slot
+					var text := "press..." if waiting else Keybinds.slot_text(row[0], slot)
+					_slot_button(Rect2(sx, y + 1, slot_w, row_h - 3), text, _start_capture.bind(row[0], slot), waiting)
+					sx += slot_w + 6.0
+				y += row_h
+	var by := top + 6.0 + 20.0 + 19.0 * row_h + 12.0
+	_choice(by, "Alt-fire shoots", [[1, "Group 1"], [2, "Group 2"], [3, "Group 3"], [4, "Group 4"]], Settings.alt_fire_group,
+		func(v): Settings.alt_fire_group = v, vp)
+	if not controls_status.is_empty():
+		draw_string(font, Vector2(vp.x * 0.5 + 300, by + 27), controls_status, HORIZONTAL_ALIGNMENT_LEFT, 520, 15, Color(1.0, 0.9, 0.6))
+	_button(Rect2(vp.x * 0.5 - 300, by + 54, 160, 46), "Back", func(): _set_page("settings"))
+	_button(Rect2(vp.x * 0.5 - 130, by + 54, 260, 46), "Reset to defaults", func():
+		Keybinds.reset_all()
+		controls_status = "All controls are back to the defaults.")
+
+
+func _start_capture(action: String, slot: String) -> void:
+	capture_action = action
+	capture_slot = slot
+	capture_since = Time.get_ticks_msec()
+	controls_status = "Press the new control for %s..." % _action_label(action)
+
+
+func _slot_button(rect: Rect2, text: String, cb: Callable, waiting: bool) -> void:
+	buttons.append([rect, text, cb, true])
+	var idx := buttons.size() - 1
+	var lit := hover == idx or focus == idx
+	var bg := Color(0.06, 0.1, 0.2, 0.85) if not lit else Color(0.18, 0.3, 0.55, 0.95)
+	if waiting:
+		bg = Color(0.5, 0.4, 0.1, 0.6 + 0.3 * sin(time * 8.0))
+	draw_rect(rect, bg)
+	draw_rect(rect, Color(0.5, 0.7, 1.0, 0.45), false, 1.0)
+	if focus == idx:
+		draw_rect(rect.grow(2), Color(1.0, 0.95, 0.7, 0.6 + 0.3 * sin(time * 6.0)), false, 2.0)
+	draw_string(font, rect.position + Vector2(0, rect.size.y * 0.5 + 5), text if not text.is_empty() else "-", HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, 13,
+		Color(1, 1, 1) if not text.is_empty() else Color(0.45, 0.5, 0.6))
 
 
 func _draw_about(vp: Vector2) -> void:

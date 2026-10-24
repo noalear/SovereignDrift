@@ -135,40 +135,35 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 func _draw_weapons(p: Ship, vp: Vector2) -> void:
 	var x := 350.0
 	var y := vp.y - 130.0
-	var lines := []
-	var seen := {}
-	for w in p.weapons:
-		var key: String = w["slot"]
-		if seen.has(key):
-			seen[key] += 1
-			continue
-		seen[key] = 1
-	var keymap := {"primary": "Space", "secondary": "Ctrl", "missile": "F", "mine": "M", "beam": "L"}
-	for w in p.weapons:
-		var key: String = w["slot"]
-		if seen.get(key, 0) == 0:
-			continue
-		var count: int = seen[key]
-		seen[key] = 0
-		var label: String = GameData.missile_display_name(p.race_id, w["missile"]) if w["kind"] == "tube" else w["name"]
-		var ammo := ""
-		if w["ammo"] >= 0:
-			ammo = "  x%d" % w["ammo"]
-		var ready: bool = w["cooldown"] <= 0.0 and p.energy >= w["cost"]
-		lines.append(["%s  %s%s%s" % [keymap.get(key, "?"), label, ("  (%d)" % count) if count > 1 else "", ammo], ready])
-	draw_rect(Rect2(x - 10, y - 34, 260, 134), Color(0.02, 0.04, 0.08, 0.6))
+	draw_rect(Rect2(x - 10, y - 34, 300, 134), Color(0.02, 0.04, 0.08, 0.6))
 	draw_string(font, Vector2(x, y - 12), "Weapons", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 1, 1, 0.9))
+	draw_string(font, Vector2(x + 80, y - 12), "%s fires  ·  %s alt (group %d)" % [Keybinds.short_text("fire_primary"), Keybinds.short_text("fire_secondary"), Settings.alt_fire_group],
+		HORIZONTAL_ALIGNMENT_LEFT, 205, 11, Color(0.7, 0.8, 0.95, 0.8))
 	var ly := y + 10
-	for l in lines:
-		draw_string(font, Vector2(x, ly), l[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 1.0, 0.9) if l[1] else Color(0.6, 0.6, 0.6))
+	for g in range(1, GameData.WEAPON_GROUPS + 1):
+		var names := p.group_weapons(g)
+		var ready := false
+		for w in p.weapons:
+			if int(w["group"]) == g and w["cooldown"] <= 0.0 and p.energy >= w["cost"] and w["ammo"] != 0:
+				ready = true
+		var selected := g == p.weapon_group
+		if selected:
+			draw_rect(Rect2(x - 6, ly - 13, 288, 17), Color(0.25, 0.45, 0.8, 0.45))
+		var text := "%d  %s" % [g, ", ".join(names) if not names.is_empty() else "-"]
+		var col := Color(0.9, 1.0, 0.9) if ready else Color(0.6, 0.6, 0.6)
+		if names.is_empty():
+			col = Color(0.45, 0.5, 0.55)
+		draw_string(font, Vector2(x, ly), text, HORIZONTAL_ALIGNMENT_LEFT, 250, 14, col)
+		if g == Settings.alt_fire_group:
+			draw_string(font, Vector2(x + 250, ly), "ALT", HORIZONTAL_ALIGNMENT_RIGHT, 30, 11, Color(1.0, 0.85, 0.5, 0.9))
 		ly += 18
 	var sys := []
 	if p.can_cloak:
-		sys.append("C cloak")
+		sys.append("%s cloak" % Keybinds.short_text("cloak"))
 	if p.qdrv > 0.0:
-		sys.append("J quantum drive")
+		sys.append("%s quantum drive" % Keybinds.short_text("warp"))
 	if p.has_boost:
-		sys.append("Shift boost")
+		sys.append("%s boost" % Keybinds.short_text("boost"))
 	draw_string(font, Vector2(x, y + 94), "  ".join(sys), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.75, 0.85, 1.0, 0.8))
 
 
@@ -485,33 +480,52 @@ func _draw_dead(vp: Vector2) -> void:
 	draw_string(font, Vector2(0, vp.y * 0.4 + 40), "Relaunching in %d..." % int(ceil(left)), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, Color(1, 1, 1, a))
 
 
+## A help row for an action as it is bound right now: "W / Up  (RT)".
+func _keys(action: String) -> String:
+	if not InputMap.has_action(action):
+		return ""
+	var kb := []
+	for slot in ["kb0", "kb1"]:
+		var t := Keybinds.slot_text(action, slot)
+		if not t.is_empty():
+			kb.append(t)
+	var pad := Keybinds.slot_text(action, "pad")
+	var out := " / ".join(kb) if not kb.is_empty() else "-"
+	return out + ("  (%s)" % pad if not pad.is_empty() else "")
+
+
 func _draw_help(vp: Vector2) -> void:
 	var left := [
 		["FLIGHT", ""],
-		["W / Up", "thrust"], ["S / Down", "reverse"], ["A D / Left Right", "turn"], ["Q E", "strafe"],
-		["Shift", "boost (with thrust)"], ["X", "brake"], ["J", "quantum drive (warp)"],
-		["Mouse", "aims the turrets"], ["V", "flight assist on / off"],
+		[_keys("thrust"), "thrust"], [_keys("reverse"), "reverse"],
+		[_keys("turn_left"), "turn left"], [_keys("turn_right"), "turn right"],
+		[_keys("strafe_left"), "strafe left"], [_keys("strafe_right"), "strafe right"],
+		[_keys("boost"), "boost (with thrust)"], [_keys("brake"), "brake"], [_keys("warp"), "quantum drive (warp)"],
+		[_keys("flight_assist"), "flight assist on / off"], ["Mouse / right stick", "aims the turrets"],
 		["", ""],
 		["SYSTEM", ""],
-		["H / F1", "this card"], ["Esc", "menu"], ["F9", "next song"], ["Alt+Enter", "full screen"],
-		["Mouse wheel", "camera zoom"], ["+ / -", "radar zoom"],
-		["", ""],
-		["GAMEPAD", ""],
-		["Sticks", "left flies, right aims"], ["RT / LT", "torpedoes / secondary"],
-		["A B X Y", "boost, brake, missile, mine"], ["Bumpers", "strafe"], ["D-pad", "targets, nav, autopilot"],
+		[_keys("help"), "this card"], [_keys("pause_menu"), "menu"], [_keys("music_next"), "next song"],
+		[_keys("fullscreen"), "full screen"], ["Mouse wheel", "camera zoom"], [_keys("radar_zoom_in"), "radar zoom in"], [_keys("radar_zoom_out"), "radar zoom out"],
 	]
 	var right := [
 		["WEAPONS", ""],
-		["Space / LMB", "torpedoes"], ["Ctrl / RMB", "plasma, grenades, cannon"], ["F", "seeking missiles"],
-		["M", "drop a mine"], ["L", "laser"], ["C", "cloak"],
+		[_keys("fire_primary"), "fire the selected group"], [_keys("fire_secondary"), "alt-fire: group %d" % Settings.alt_fire_group],
+		["%s - %s" % [Keybinds.short_text("weapon_group_1"), Keybinds.short_text("weapon_group_4")], "select weapon group 1 - 4"],
+		[_keys("weapon_group_next"), "next weapon group"], [_keys("cloak"), "cloak"],
 		["", ""],
 		["TARGETS AND NAVIGATION", ""],
-		["T", "next target"], ["Tab / Back", "tactical map (hold or tap)"], ["R", "nearest enemy"], ["Shift+click", "target under cursor"],
-		["N", "next planet on the nav display"], ["G", "autopilot to the nav planet"], ["U", "shipyard, at your starbase"], ["O", "trade with the targeted pilot (online)"],
+		[_keys("target_next"), "next target"], [_keys("target_nearest"), "nearest enemy"], ["Shift+click", "target under cursor"],
+		[_keys("tactical_map"), "system map (hold or tap)"], [_keys("nav_next"), "next nav planet"], [_keys("autopilot"), "autopilot to the nav planet"],
+		["", ""],
+		["SHIP", ""],
+		[_keys("refit"), "shipyard, at your starbase"], [_keys("trade"), "trade with your target (online)"],
 	]
+	for extra in [["land", "land on the world below / lift off"], ["colonists_board", "take colonists on (landed)"], ["colonists_unload", "put colonists down (landed)"]]:
+		if InputMap.has_action(extra[0]):
+			right.append([_keys(extra[0]), extra[1]])
 	var rows := maxi(left.size(), right.size())
-	var w := 980.0
-	var h := 70.0 + rows * 22.0 + 50.0
+	var w := 1000.0
+	var h := 70.0 + rows * 22.0 + 72.0
 	var x := (vp.x - w) * 0.5
 	var y := (vp.y - h) * 0.5
 	draw_rect(Rect2(x, y, w, h), Color(0.02, 0.04, 0.1, 0.92))
@@ -525,9 +539,10 @@ func _draw_help(vp: Vector2) -> void:
 			if desc.is_empty():
 				draw_string(font, Vector2(col[1], ly), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.6, 0.8, 1.0))
 			else:
-				draw_string(font, Vector2(col[1], ly), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 1, 1))
-				draw_string(font, Vector2(col[1] + 150.0, ly), desc, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.85, 0.9, 1.0))
+				draw_string(font, Vector2(col[1], ly), key, HORIZONTAL_ALIGNMENT_LEFT, 195, 14, Color(1, 1, 1))
+				draw_string(font, Vector2(col[1] + 200.0, ly), desc, HORIZONTAL_ALIGNMENT_LEFT, 250, 15, Color(0.85, 0.9, 1.0))
 			ly += 22
 	var fy := y + 66 + rows * 22.0 + 10
 	draw_string(font, Vector2(x, fy), "Destroy enemy ships and bombard enemy colonies until they surrender.", HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
-	draw_string(font, Vector2(x, fy + 22), "Wrecks drop parts, credits and blueprints.  Dock at your starbase (U) to build your ship from them.  Rank up for bigger hulls.", HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
+	draw_string(font, Vector2(x, fy + 22), "Wrecks drop parts and blueprints.  Dock at your starbase (%s) to refit and set weapon groups." % Keybinds.short_text("refit"), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
+	draw_string(font, Vector2(x, fy + 44), "Change any key or gamepad button in Settings > Controls.", HORIZONTAL_ALIGNMENT_CENTER, w, 14, Color(0.7, 0.8, 0.95))

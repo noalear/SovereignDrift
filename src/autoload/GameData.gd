@@ -349,6 +349,35 @@ static func price(id: String) -> int:
 	return int(round(base / 5.0)) * 5
 
 
+## Weapon groups (1-4) the pilot selects with the number keys.  A new
+## weapon joins a group by what it is: guns and beams 1, launchers 2,
+## guided missiles 3, mines 4.  The shipyard lets the pilot change it.
+const WEAPON_GROUPS := 4
+
+static func default_weapon_group(id: String) -> int:
+	var m: Dictionary = MODULES[id]
+	if m["func"] == "beam":
+		return 1
+	if m["func"] == "tube":
+		match str(m["p"][3]):
+			"001", "010":
+				return 1
+			"002":
+				return 4
+			"008", "009", "021":
+				return 3
+			_:
+				return 2
+	return 1
+
+
+## The group a design's weapon row belongs to (its 7th field, if set).
+static func weapon_group_of(w: Array) -> int:
+	if w.size() > 6 and int(w[6]) >= 1 and int(w[6]) <= WEAPON_GROUPS:
+		return int(w[6])
+	return default_weapon_group(w[0])
+
+
 ## Weapon size class: a hardpoint takes its own class and anything lighter.
 static func weapon_class(id: String) -> int:
 	var v: int = MODULES[id]["vol"]

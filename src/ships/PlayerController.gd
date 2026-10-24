@@ -57,6 +57,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			Net.request_trade(ship, ship.target)
 		else:
 			world.notify(ship, "Trading is between online pilots.")
+	elif _group_key(event) > 0:
+		select_group(_group_key(event))
+	elif event.is_action_pressed("weapon_group_next"):
+		select_group(_next_group())
 	elif event.is_action_pressed("flight_assist"):
 		ship.flight_assist = not ship.flight_assist
 		Settings.flight_assist = ship.flight_assist
@@ -109,8 +113,56 @@ func _physics_process(_delta: float) -> void:
 		ship.aim_point = world.get_global_mouse_position()
 	else:
 		ship.aim_point = Vector2.INF
-	i["fire_primary"] = Input.is_action_pressed("fire_primary") and not Input.is_key_pressed(KEY_SHIFT)
-	i["fire_secondary"] = Input.is_action_pressed("fire_secondary")
-	i["fire_missile"] = Input.is_action_pressed("fire_missile")
-	i["fire_mine"] = Input.is_action_pressed("fire_mine")
-	i["fire_beam"] = Input.is_action_pressed("fire_beam")
+	# weapon groups: Fire shoots the selected group, Alt-fire its own group
+	var fire := Input.is_action_pressed("fire_primary")
+	if fire and Input.is_key_pressed(KEY_SHIFT) and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		fire = _down_without_mouse("fire_primary")   # Shift+click picks a target
+	var alt := Input.is_action_pressed("fire_secondary")
+	for k in Ship.GROUP_INPUTS:
+		i[k] = false
+	i["fire_beam"] = false
+	if fire:
+		i[Ship.GROUP_INPUTS[clampi(ship.weapon_group, 1, 4) - 1]] = true
+	if alt:
+		i[Ship.GROUP_INPUTS[clampi(Settings.alt_fire_group, 1, 4) - 1]] = true
+
+
+## Which group key this event is, 1-4, or 0.  While landed the number
+## keys move colonists instead.
+func _group_key(event: InputEvent) -> int:
+	if "landing" in ship and int(ship.landing) != 0:
+		return 0
+	for g in range(1, GameData.WEAPON_GROUPS + 1):
+		if event.is_action_pressed("weapon_group_%d" % g):
+			return g
+	return 0
+
+
+func _next_group() -> int:
+	for step in range(1, GameData.WEAPON_GROUPS + 1):
+		var g := (ship.weapon_group - 1 + step) % GameData.WEAPON_GROUPS + 1
+		if not ship.group_weapons(g).is_empty():
+			return g
+	return ship.weapon_group
+
+
+func select_group(g: int) -> void:
+	ship.weapon_group = g
+	var names := ship.group_weapons(g)
+	if names.is_empty():
+		world.notify(ship, "Group %d is empty. Set weapon groups in the shipyard (%s at your starbase)." % [g, Keybinds.short_text("refit")])
+	else:
+		world.notify(ship, "Group %d: %s." % [g, ", ".join(names)])
+	Sfx.play_ui("click", 0.3)
+
+
+## Is the action held by anything but the mouse?
+func _down_without_mouse(action: String) -> bool:
+	for ev in InputMap.action_get_events(action):
+		if ev is InputEventKey and Input.is_physical_key_pressed(ev.physical_keycode):
+			return true
+		if ev is InputEventJoypadButton and Input.is_joy_button_pressed(0, ev.button_index):
+			return true
+		if ev is InputEventJoypadMotion and Input.get_joy_axis(0, ev.axis) * signf(ev.axis_value) > 0.5:
+			return true
+	return false

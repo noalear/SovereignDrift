@@ -76,7 +76,7 @@ func _load_hull(name: String, fit: Dictionary, initial: bool) -> void:
 		# match the fit's weapons to hardpoints by mount angle and radius
 		for i in hardpoints.size():
 			if mounts[i] == null and hardpoints[i][0] == w[1] and hardpoints[i][1] == w[2]:
-				mounts[i] = {"id": w[0], "stock": true}
+				mounts[i] = {"id": w[0], "stock": true, "group": GameData.weapon_group_of(w)}
 				break
 	modules = []
 	for id in fit["modules"]:
@@ -120,7 +120,7 @@ func current_design() -> Dictionary:
 	for i in hardpoints.size():
 		if mounts[i] != null:
 			var hp: Array = hardpoints[i]
-			d["weapons"].append([mounts[i]["id"], hp[0], hp[1], hp[2], hp[3], hp[4]])
+			d["weapons"].append([mounts[i]["id"], hp[0], hp[1], hp[2], hp[3], hp[4], int(mounts[i].get("group", GameData.default_weapon_group(mounts[i]["id"])))])
 	return d
 
 
@@ -176,7 +176,7 @@ func _mount(id: String) -> void:
 			_say("That mount only takes %s weapons." % GameData.class_name_of(hardpoints[sel_index][5]))
 			return
 		_unmount_hp(sel_index)
-		mounts[sel_index] = {"id": id, "stock": false}
+		mounts[sel_index] = {"id": id, "stock": false, "group": GameData.default_weapon_group(id)}
 	elif sel_kind == "bay":
 		if sel_index >= 0 and sel_index < modules.size():
 			_unmount_bay(sel_index)
@@ -223,6 +223,20 @@ func _remove_selected() -> void:
 		_say("%s removed%s." % [GameData.MODULES[m["id"]]["name"], " to the hold" if not m["stock"] else " (welded parts are scrapped)"])
 		_unmount_bay(sel_index)
 		sel_index = mini(sel_index, modules.size())
+
+
+const GROUP_COLORS := [Color(0.35, 0.65, 1.0), Color(1.0, 0.6, 0.3), Color(0.5, 0.95, 0.5), Color(0.9, 0.5, 0.95)]
+
+
+## Move a mounted weapon to the next weapon group (1 > 2 > 3 > 4 > 1).
+func _cycle_group(i: int) -> void:
+	if i < 0 or i >= mounts.size() or mounts[i] == null:
+		return
+	var g: int = int(mounts[i].get("group", GameData.default_weapon_group(mounts[i]["id"])))
+	g = g % GameData.WEAPON_GROUPS + 1
+	mounts[i]["group"] = g
+	Sfx.play_ui("click", 0.4)
+	_say("%s now fires with group %d (keys %s - %s select a group in flight)." % [GameData.MODULES[mounts[i]["id"]]["name"], g, Keybinds.short_text("weapon_group_1"), Keybinds.short_text("weapon_group_4")])
 
 
 func _sell_hold(i: int) -> void:
@@ -491,6 +505,15 @@ func _draw_centre(r: Rect2) -> void:
 		draw_string(font, chip.position + Vector2(26, 31), _fit(sub, mw - 34, 11), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, DIM)
 		if m != null and not m["stock"]:
 			draw_circle(chip.end - Vector2(10, 10), 3.0, GOOD)
+		if m != null:
+			# weapon group badge: click to move the weapon to the next group
+			var g: int = int(m.get("group", GameData.default_weapon_group(m["id"])))
+			var gbox := Rect2(chip.end.x - 44, chip.position.y + 4, 26, 18)
+			buttons.append([gbox, _cycle_group.bind(i), true])
+			var glit := hover == buttons.size() - 1
+			draw_rect(gbox, GROUP_COLORS[g - 1].darkened(0.1 if glit else 0.45))
+			draw_rect(gbox, GROUP_COLORS[g - 1], false, 1.0)
+			draw_string(font, gbox.position + Vector2(0, 14), "G%d" % g, HORIZONTAL_ALIGNMENT_CENTER, gbox.size.x, 12, Color.WHITE)
 	# bays
 	var by := y + mount_rows * 42 + 8
 	var cap: int = st["bay_cap"]

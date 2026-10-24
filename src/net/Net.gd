@@ -193,6 +193,8 @@ func _on_peer_disconnected(peer_id: int) -> void:
 
 
 func _seat_ai(s: Node, on: bool) -> void:
+	if "group_fire" in s:
+		s.group_fire = not on        # a seated human fires by weapon group
 	for c in s.get_children():
 		if c is AIPilot:
 			c.set_physics_process(on)

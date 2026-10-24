@@ -130,10 +130,36 @@ var docked := false                # in the shipyard: controls are off
 var art_model: Dictionary = {}     # the sprite model, rebuilt on refit
 
 
+## Human pilots (local or seated online) fire by weapon group; computer
+## pilots fire by weapon kind.
+const GROUP_INPUTS := ["fire_primary", "fire_secondary", "fire_missile", "fire_mine"]
+var group_fire := false
+var weapon_group := 1               # the group Fire shoots (the player picks it with 1-4)
+
+
+## The weapon names in a group, with a count for repeats ("Laser I x2").
+func group_weapons(g: int) -> Array:
+	var counts := {}
+	var order := []
+	for w in weapons:
+		if int(w["group"]) != g:
+			continue
+		var label: String = GameData.missile_display_name(race_id, w["missile"]) if w["kind"] == "tube" else w["name"]
+		if not counts.has(label):
+			order.append(label)
+			counts[label] = 0
+		counts[label] += 1
+	var out := []
+	for label in order:
+		out.append(label if counts[label] == 1 else "%s x%d" % [label, counts[label]])
+	return out
+
+
 func setup(p_world: Node, p_design: String, p_race: int, p_pilot: String, p_ship_name: String) -> void:
 	world = p_world
 	race_id = p_race
 	pilot_name = p_pilot
+	group_fire = is_player
 	ship_name = p_ship_name
 	body = PhysicsBody.new()
 	body.kind = PhysicsBody.Kind.SHIP
@@ -236,7 +262,7 @@ func _build_weapons() -> void:
 			"fire_angle": deg_to_rad(float(w[3])),
 			"arc0": deg_to_rad(float(w[4])), "arc1": deg_to_rad(float(w[5])),
 			"cooldown": 0.0, "cost": 0.0, "ammo": -1, "missile": "", "slot": "primary",
-			"range": 0.0,
+			"range": 0.0, "group": GameData.weapon_group_of(w),
 		}
 		if m["func"] == "tube":
 			var mid: String = m["p"][3]
@@ -771,17 +797,22 @@ func _weapons(delta: float) -> void:
 		if is_turret(w):
 			w["aim_vis"] = rotate_toward(w.get("aim_vis", w["fire_angle"]), _aim_angle(w), 5.0 * delta)
 		var want := false
-		match w["slot"]:
-			"primary":
-				want = inputs["fire_primary"]
-			"secondary":
-				want = inputs["fire_secondary"]
-			"missile":
-				want = inputs["fire_missile"]
-			"mine":
-				want = inputs["fire_mine"]
-			"beam":
-				want = inputs["fire_beam"]
+		if group_fire:
+			# a human pilot fires by weapon group: fire_primary..fire_mine
+			# carry groups 1..4 (so the network bits stay the same)
+			want = inputs[GROUP_INPUTS[clampi(int(w["group"]), 1, 4) - 1]]
+		else:
+			match w["slot"]:
+				"primary":
+					want = inputs["fire_primary"]
+				"secondary":
+					want = inputs["fire_secondary"]
+				"missile":
+					want = inputs["fire_missile"]
+				"mine":
+					want = inputs["fire_mine"]
+				"beam":
+					want = inputs["fire_beam"]
 		if not want or warping:
 			continue
 		if w["kind"] == "beam":
