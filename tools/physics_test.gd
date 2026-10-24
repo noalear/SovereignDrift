@@ -296,12 +296,17 @@ func _wreck_effect() -> void:
 	victim.take_damage(1.0e6, w.player, pos)
 	await process_frame
 	_check("a dead ship leaves no rigid scrap", w.debris.size() == rocks_before, "%d -> %d" % [rocks_before, w.debris.size()])
-	_check("the break-up effect is playing", w.fx.wrecks.size() == 1)
-	var pieces: Array = w.fx.wrecks[0]["pieces"]
+	# the painting breaks into shards that drift apart slowly; turrets
+	# torn off the hull spin away a little faster
+	_check("the break-up effect is playing", w.fx.shards.size() >= 4, "%d shards" % w.fx.shards.size())
 	var worst_drift := 0.0
-	for pc in pieces:
-		worst_drift = maxf(worst_drift, (pc["vel"] - victim.velocity).length())
-	_check("the pieces barely drift from the wreck", worst_drift < 60.0, "%.0f px/s" % worst_drift)
+	var slow := 0
+	for pc in w.fx.shards:
+		var drift: float = (pc["vel"] - victim.velocity).length()
+		worst_drift = maxf(worst_drift, drift)
+		if drift <= 61.0:
+			slow += 1
+	_check("the pieces barely drift from the wreck", worst_drift < 130.0 and slow * 2 >= w.fx.shards.size(), "worst %.0f px/s, %d of %d slow" % [worst_drift, slow, w.fx.shards.size()])
 	var loot := w.powerups.slice(loot_before)
 	_check("the wreck drops loot", loot.size() >= 1)
 	var fastest := 0.0
@@ -310,7 +315,7 @@ func _wreck_effect() -> void:
 	_check("the loot stays close by", fastest < 60.0, "%.0f px/s" % fastest)
 	for i in 60 * 5:
 		w.fx._process(1.0 / 60.0)
-	_check("the effect is gone after a few seconds", w.fx.wrecks.is_empty())
+	_check("the effect is gone after a few seconds", w.fx.shards.is_empty() and w.fx.droplets.is_empty() and w.fx.smoke.is_empty())
 	main._show_menu()
 	main.queue_free()
 
