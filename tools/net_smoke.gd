@@ -24,6 +24,7 @@ var trade_requested := false
 var parked := false
 var trade_done := false
 var credits_before := -1
+var joiner_score_at_seat := -1
 var offer_sent := false
 var disabled_one := false
 var captured_one := false
@@ -38,7 +39,11 @@ func _init() -> void:
 
 func _start() -> void:
 	net = root.get_node("/root/Net")
-	root.get_node("/root/Settings").pilot_name = "HostPilot" if is_host else "Joiner"
+	var settings = root.get_node("/root/Settings")
+	settings.pilot_name = "HostPilot" if is_host else "Joiner"
+	if not is_host:
+		settings.career["score"] = 777   # a career the host must seat us with
+		settings.career["kills"] = 3
 	main = load("res://src/Main.tscn").instantiate()
 	if not "world" in main:
 		# Main.gd failed to compile: usually a stale class cache after new
@@ -88,6 +93,7 @@ func _process(_delta: float) -> bool:
 		for s in w.ships:
 			if s.pilot_name == "Joiner":
 				joiner_seen_at = now
+				joiner_score_at_seat = s.score
 	if is_host and w != null and joiner_seen_at > 0 and now - joiner_seen_at > 3000 and not trade_requested:
 		trade_requested = true
 		# bring the joiner alongside and open a trade with them
@@ -189,6 +195,7 @@ func _finish(w) -> void:
 			if s.pilot_name == "Joiner":
 				human += 1
 		_check(human == 1 or net.seats.is_empty(), "the joiner's ship is named after them")
+		_check(joiner_score_at_seat >= 777, "joiner seated with their career score (%d)" % joiner_score_at_seat)
 		_check(trade_seen, "trade window opened for the host")
 		_check(trade_done, "trade settled")
 		for s in w.ships:

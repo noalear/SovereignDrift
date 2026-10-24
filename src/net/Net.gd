@@ -11,7 +11,7 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 7
+const PROTOCOL := 8
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -208,7 +208,9 @@ func _seat_ai(s: Node, on: bool) -> void:
 
 ## A joiner takes over a computer pilot of the host's empire (co-op), a
 ## living one when there is a choice.
-func _seat_player(peer_id: int, name: String) -> Node:
+## The joiner brings their career score and kills, so their rank and
+## the career they save at the end are their own, not the AI's.
+func _seat_player(peer_id: int, name: String, career_score: int = 0, career_kills: int = 0) -> Node:
 	var best: Node = null
 	for s in world.ships:
 		if s.is_player or s.is_station or s.is_prize or s.net_id in seats.values():
@@ -227,6 +229,9 @@ func _seat_player(peer_id: int, name: String) -> Node:
 		host_landing(best)
 	best.pilot_name = name
 	best.ship_name = name + "'s ship"
+	best.score = maxi(career_score, 0)
+	best.kills = maxi(career_kills, 0)
+	best.rank = GameData.rank_for(best.score, best.kills)
 	best.target = null
 	best.autopilot = false
 	for k in best.inputs.keys():
@@ -287,14 +292,14 @@ func _powerup_list() -> Array:
 
 
 @rpc("any_peer", "reliable")
-func _rpc_hello(name: String, protocol: int) -> void:
+func _rpc_hello(name: String, protocol: int, career_score: int = 0, career_kills: int = 0) -> void:
 	if not is_host() or world == null:
 		return
 	var peer_id := multiplayer.get_remote_sender_id()
 	if protocol != PROTOCOL:
 		_rpc_refused.rpc_id(peer_id, "Different game version (yours %d, host %d)." % [protocol, PROTOCOL])
 		return
-	var s := _seat_player(peer_id, name)
+	var s := _seat_player(peer_id, name, career_score, career_kills)
 	if s == null:
 		_rpc_refused.rpc_id(peer_id, "No free seat in this round.")
 		return
@@ -528,7 +533,7 @@ func relay_notify_all(text: String, color: Color) -> void:
 ## Called by World on a client: the system exists, the ships come from the host.
 func client_attach(p_world: Node) -> void:
 	world = p_world
-	_rpc_hello.rpc_id(1, callsign, PROTOCOL)
+	_rpc_hello.rpc_id(1, callsign, PROTOCOL, int(Settings.career.get("score", 0)), int(Settings.career.get("kills", 0)))
 
 
 ## PlayerController calls this for actions the host must validate.
