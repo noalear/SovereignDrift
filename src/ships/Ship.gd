@@ -717,7 +717,7 @@ func _autopilot(delta: float) -> void:
 				and warp_block <= 0.0 and not _body_in_path(wv):
 			start_warp()
 		var around: Node2D = route["around"]
-		if get_meta("detour_around", null) != around and world != null:
+		if (not has_meta("detour_around") or get_meta("detour_around") != around) and world != null:
 			set_meta("detour_around", around)
 			world.notify(self, "Autopilot: routing around %s." % ("the Sun" if around.look == "Sun" else around.body_name))
 		return

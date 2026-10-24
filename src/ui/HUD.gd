@@ -520,7 +520,9 @@ func _draw_help(vp: Vector2) -> void:
 		["SHIP", ""],
 		[_keys("refit"), "shipyard, at your starbase"], [_keys("trade"), "trade with your target (online)"],
 	]
-	for extra in [["land", "land on the world below / lift off"], ["colonists_board", "take colonists on (landed)"], ["colonists_unload", "put colonists down (landed)"]]:
+	if InputMap.has_action("land"):
+		right.append_array([["", ""], ["COLONISTS", ""]])
+	for extra in [["land", "land on the world below / lift off"], ["colonists_board", "take colonists on (landed)"], ["colonists_unload", "put them down: join, settle, invade"]]:
 		if InputMap.has_action(extra[0]):
 			right.append([_keys(extra[0]), extra[1]])
 	var rows := maxi(left.size(), right.size())
