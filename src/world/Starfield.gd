@@ -6,11 +6,14 @@ extends Node2D
 const TILE := 1024
 var layers: Array = []      # [texture, parallax, tint]
 var camera: Camera2D = null
+var world: Node = null          # when set, follows its camera between physics ticks
 var nebulae: Array = []
 
 
 func _ready() -> void:
 	z_index = -100
+	# placed by hand every frame, so the engine must not interpolate it
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 42
 	layers = [
@@ -53,8 +56,14 @@ func _make_tile(rng: RandomNumberGenerator, count: int, min_r: float, max_r: flo
 
 func _process(_delta: float) -> void:
 	if camera != null:
-		global_position = camera.get_screen_center_position()
+		global_position = _centre()
 		queue_redraw()
+
+
+func _centre() -> Vector2:
+	if world != null and is_instance_valid(world):
+		return world.camera_centre()
+	return camera.get_screen_center_position()
 
 
 func _draw() -> void:
@@ -62,7 +71,7 @@ func _draw() -> void:
 		return
 	var zoom := camera.zoom.x
 	var view := get_viewport_rect().size / zoom
-	var cam := camera.get_screen_center_position()
+	var cam := _centre()
 	for nb in nebulae:
 		var p: Vector2 = (nb[0] - cam * 0.05) - cam
 		if (p + cam).distance_to(cam) < view.length() + nb[1]:

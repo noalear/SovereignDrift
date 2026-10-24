@@ -43,6 +43,11 @@ var planet_counts := {}
 var game_over := false
 var target_zoom := 1.0
 var shake := 0.0                 # camera shake left, in pixels
+# The camera moves on physics ticks like everything it watches, and the
+# engine's physics interpolation draws both between ticks; the last two
+# tick positions are kept for the starfield, which follows it by hand.
+var cam_prev := Vector2.ZERO
+var cam_cur := Vector2.ZERO
 var slowmo := 0.0                # seconds of kill slow-motion left
 var intensity_timer := 0.0
 var last_player_damage := -100.0
@@ -83,10 +88,10 @@ func _ready() -> void:
 	add_child(starfield)
 	camera = Camera2D.new()
 	camera.name = "Camera"
-	camera.position_smoothing_enabled = true
-	camera.position_smoothing_speed = 6.0
+	camera.process_callback = Camera2D.CAMERA2D_PROCESS_PHYSICS
 	add_child(camera)
 	starfield.camera = camera
+	starfield.world = self
 	target_zoom = Settings.camera_zoom
 	camera.zoom = Vector2.ONE * target_zoom * BASE_ZOOM
 	space = PhysicsSpace.new()
@@ -224,6 +229,7 @@ func _spawn_pilots() -> void:
 		var base := _make_ship("%s Command" % GameData.race(race_id)["name"], race_id, "Starbase", GameData.race(race_id)["name"] + " Starbase", false)
 		base.global_position = _station_spot(home)
 		base.velocity = space.circular_orbit_velocity(home.body, base.global_position)
+		base.reset_physics_interpolation()
 		var ai := AIPilot.new()
 		base.add_child(ai)
 		ai.setup(base, self, home, 14)
@@ -263,6 +269,7 @@ func _spawn_practice() -> void:
 	var base := _make_ship("%s Command" % GameData.race(player.race_id)["name"], player.race_id, "Starbase", GameData.race(player.race_id)["name"] + " Starbase", false)
 	base.global_position = _station_spot(home)
 	base.velocity = space.circular_orbit_velocity(home.body, base.global_position)
+	base.reset_physics_interpolation()
 	# no AI for the starbase: it holds its fire, so every duel is yours
 	_keep_station()
 	_place_at_home(player)
@@ -281,6 +288,7 @@ func _place_duelist(s: Ship) -> void:
 	var a := player.rotation + randf_range(-0.6, 0.6)
 	s.global_position = player.global_position + Vector2(cos(a), sin(a)) * minf(1200.0, player.sensor_range * 0.75)
 	s.velocity = player.velocity
+	s.reset_physics_interpolation()
 	s.rotation = a + PI
 
 
@@ -304,6 +312,7 @@ func _spawn_pirate_scouts() -> void:
 		var a := (player.global_position - home.global_position).angle() + PI + (i - 0.5) * 0.9
 		s.global_position = home.global_position + Vector2(cos(a), sin(a)) * (home.radius + 3600.0)
 		s.velocity = space.circular_orbit_velocity(home.body, s.global_position)
+		s.reset_physics_interpolation()
 		s.rotation = a + PI
 
 
@@ -364,6 +373,7 @@ func _place_at_home(s: Ship, spread: float = 0.0) -> void:
 				off = off.normalized() * (base.size * 1.4 + 120.0)
 		s.global_position = base.global_position + off
 		s.velocity = base.velocity + off.normalized() * 30.0
+		s.reset_physics_interpolation()
 		s.rotation = off.angle()
 		return
 	# otherwise a parking orbit well inside the planet's gravity
@@ -374,6 +384,7 @@ func _place_at_home(s: Ship, spread: float = 0.0) -> void:
 		if s.global_position.distance_to(home.global_position) < home.radius + 80.0:
 			s.global_position = home.global_position + (s.global_position - home.global_position).normalized() * (home.radius + 80.0)
 	s.velocity = space.circular_orbit_velocity(home.body, s.global_position)
+	s.reset_physics_interpolation()
 	s.rotation = (s.velocity - home.velocity).angle() if s.velocity != home.velocity else a
 
 
@@ -417,18 +428,6 @@ func _process(delta: float) -> void:
 		else:
 			speed_mul = lerpf(1.0, 0.75, clampf(player.velocity.length() / GameData.LIGHT_SPEED / 1.2, 0.0, 1.0))
 	camera.zoom = camera.zoom.lerp(Vector2.ONE * target_zoom * BASE_ZOOM * speed_mul, 2.5 * delta)
-	if player != null and not player.dead:
-		# look a little ahead of the ship's motion
-		camera.global_position = player.global_position + player.velocity * 0.35
-	elif player != null:
-		camera.global_position = player.global_position
-	# shake decays quickly; the offset is in screen pixels so divide by zoom
-	if shake > 0.0:
-		shake = maxf(shake - delta * 18.0, 0.0)
-		var a := randf() * TAU
-		camera.offset = Vector2(cos(a), sin(a)) * shake * Settings.screen_shake / camera.zoom.x
-	else:
-		camera.offset = Vector2.ZERO
 	if slowmo > 0.0:
 		slowmo -= delta / maxf(Engine.time_scale, 0.01)
 		if slowmo <= 0.0:
@@ -437,6 +436,49 @@ func _process(delta: float) -> void:
 	if intensity_timer <= 0.0:
 		intensity_timer = 0.5
 		Music.set_intensity(_combat_intensity())
+
+
+## Follow the player on the physics tick, after the ships have moved, so
+## camera and ship move in the same steps and the interpolation between
+## ticks keeps the ship still on screen.  Smoothing as Camera2D's own
+## (speed 6); a jump of thousands of units (respawn, warp, a teleport)
+## snaps instead of sliding across the system.
+func _follow_camera(delta: float) -> void:
+	var target := cam_cur
+	if player != null and not player.dead:
+		# look a little ahead of the ship's motion
+		target = player.global_position + player.velocity * 0.35
+	elif player != null:
+		target = player.global_position
+	cam_prev = cam_cur
+	if cam_cur.distance_to(target) > 4000.0 or cam_cur == Vector2.ZERO:
+		cam_cur = target
+		cam_prev = target
+		camera.reset_physics_interpolation()
+	else:
+		cam_cur = cam_cur.lerp(target, minf(6.0 * delta, 1.0))
+	camera.global_position = cam_cur
+	# shake decays quickly; the offset is in screen pixels so divide by zoom
+	if shake > 0.0:
+		shake = maxf(shake - delta * 18.0, 0.0)
+		var a := randf() * TAU
+		camera.offset = Vector2(cos(a), sin(a)) * shake * Settings.screen_shake / camera.zoom.x
+	else:
+		camera.offset = Vector2.ZERO
+
+
+## Where the camera is drawn this frame, between its last two ticks.
+func camera_centre() -> Vector2:
+	return cam_prev.lerp(cam_cur, Engine.get_physics_interpolation_fraction()) + camera.offset
+
+
+## Where a moving body is drawn this frame: its tick position eased back
+## along its velocity by the part of the tick not yet shown.
+func drawn_position(n: Node2D) -> Vector2:
+	var v = n.get("velocity")
+	if not (v is Vector2):
+		return n.global_position
+	return n.global_position - v * (1.0 - Engine.get_physics_interpolation_fraction()) / Engine.physics_ticks_per_second
 
 
 func _physics_process(delta: float) -> void:
@@ -450,6 +492,7 @@ func _physics_process(delta: float) -> void:
 		p.sync_body()
 	if Net.is_client():
 		Net.client_tick(delta)   # the host collides, scores and respawns
+		_follow_camera(delta)
 		return
 	sun_heat = 0.0
 	_keep_station()
@@ -480,6 +523,7 @@ func _physics_process(delta: float) -> void:
 	_refuel(delta)
 	_respawns()
 	_score_planets(delta)
+	_follow_camera(delta)
 
 
 func set_paused(p: bool) -> void:

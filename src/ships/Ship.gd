@@ -940,6 +940,7 @@ func respawn(at: Vector2, vel: Vector2) -> void:
 	velocity = vel
 	rotation = randf() * TAU
 	angular_velocity = 0.0
+	reset_physics_interpolation()
 	if body != null:
 		body.enabled = true
 		body.pos = at

@@ -115,6 +115,8 @@ func _show_menu() -> void:
 		hud.queue_free()
 		hud = null
 	menu_camera = Camera2D.new()
+	# the menu camera drifts every frame, not on physics ticks
+	menu_camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	add_child(menu_camera)
 	menu_camera.make_current()
 	menu_stars = Starfield.new()

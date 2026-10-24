@@ -46,6 +46,7 @@ func setup_rock(p_world: Node, pos: Vector2, vel: Vector2, r: float, rng_seed: i
 	body.ang_vel = rng.randf_range(-0.6, 0.6)
 	global_position = pos
 	rotation = body.angle
+	reset_physics_interpolation()
 	z_index = -2
 
 

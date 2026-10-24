@@ -178,7 +178,7 @@ func _draw_target(p: Ship, vp: Vector2) -> void:
 		return
 	# bracket in world space -> screen
 	var cam := world.camera
-	var screen := (t.global_position - cam.get_screen_center_position()) * cam.zoom + vp * 0.5
+	var screen := (world.drawn_position(t) - world.camera_centre()) * cam.zoom + vp * 0.5
 	var r: float = (t.size if t is Ship else t.radius) * cam.zoom.x + 10.0
 	var col: Color = t.race_color() if t is Ship else Color(1, 1, 1)
 	if t is Ship and t.race_id == p.race_id:
@@ -215,7 +215,7 @@ func _draw_nav(p: Ship, vp: Vector2) -> void:
 	if t == null or not is_instance_valid(t):
 		return
 	var cam := world.camera
-	var screen := (t.global_position - cam.get_screen_center_position()) * cam.zoom + vp * 0.5
+	var screen := (world.drawn_position(t) - world.camera_centre()) * cam.zoom + vp * 0.5
 	var col := Color(0.6, 1.0, 0.8)
 	var dist := int(t.global_position.distance_to(p.global_position) - t.radius)
 	if screen.x > -50 and screen.x < vp.x + 50 and screen.y > -50 and screen.y < vp.y + 50:
@@ -465,7 +465,7 @@ func _draw_aim(p: Ship, vp: Vector2) -> void:
 	if p.dead or p.aim_point == Vector2.INF or not p.has_turret:
 		return
 	var cam := world.camera
-	var screen := (p.aim_point - cam.get_screen_center_position()) * cam.zoom + vp * 0.5
+	var screen := (p.aim_point - world.camera_centre()) * cam.zoom + vp * 0.5
 	if screen.x < 0 or screen.y < 0 or screen.x > vp.x or screen.y > vp.y:
 		return
 	var col := Color(0.6, 1.0, 0.7, 0.85)

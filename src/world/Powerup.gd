@@ -24,6 +24,7 @@ func setup(id: String, pos: Vector2, vel: Vector2) -> void:
 	global_position = pos
 	velocity = vel
 	rotation = randf() * TAU
+	reset_physics_interpolation()
 	if id.begins_with("bp:"):
 		kind = "blueprint"
 		module_id = id.substr(3)

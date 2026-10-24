@@ -32,6 +32,7 @@ func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vecto
 	global_position = p_pos
 	velocity = p_vel
 	rotation = p_angle
+	reset_physics_interpolation()
 	life = data["life"]
 	radius = data["radius"]
 	warhead = data["warhead"]
