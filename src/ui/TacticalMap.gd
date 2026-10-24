@@ -229,7 +229,7 @@ func _draw_world_card() -> void:
 	var lines := [p.body_name]
 	if p.is_colonised():
 		lines.append("%s colony: %s" % [GameData.race(p.owner_race)["adj"], GameData.fmt_pop(p.population)])
-		lines.append("room for %s" % GameData.fmt_pop(p.optimal_population(p.owner_race)))
+		lines.append("supports %s" % GameData.fmt_pop(p.optimal_population(p.owner_race)))
 		if p.is_defenceless():
 			lines.append("DEFENCES DOWN: land colonists to take it")
 	elif not p.has_surface():
@@ -237,7 +237,7 @@ func _draw_world_card() -> void:
 	else:
 		lines.append("uninhabited")
 		if player != null:
-			lines.append("room for %s %ss" % [GameData.fmt_pop(p.optimal_population(player.race_id)), GameData.race(player.race_id)["name"]])
+			lines.append("supports %s %ss" % [GameData.fmt_pop(p.optimal_population(player.race_id)), GameData.race(player.race_id)["name"]])
 	var at := to_map(p.global_position) + Vector2(18, 14)
 	var w := 0.0
 	for l in lines:

@@ -460,10 +460,10 @@ func _draw_ground_panel(p: Ship, vp: Vector2) -> void:
 	_text(Vector2(x + 16, y + 24), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color(0.9, 0.95, 1.0))
 	var line := ""
 	if b.is_colonised():
-		line = "%s colony, %s people (room for %s)%s" % [GameData.race(b.owner_race)["adj"], GameData.fmt_pop(b.population),
+		line = "%s colony, %s people (the world supports %s)%s" % [GameData.race(b.owner_race)["adj"], GameData.fmt_pop(b.population),
 			GameData.fmt_pop(b.optimal_population(b.owner_race)), "   DEFENCES DOWN" if b.is_defenceless() else ""]
 	else:
-		line = "Uninhabited: room for %s %s" % [GameData.fmt_pop(b.optimal_population(p.race_id)), GameData.race(p.race_id)["name"] + "s"]
+		line = "Uninhabited: supports %s %s" % [GameData.fmt_pop(b.optimal_population(p.race_id)), GameData.race(p.race_id)["name"] + "s"]
 	_text(Vector2(x + 16, y + 48), line, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.85, 0.9, 1.0))
 	# the cabin
 	var frac := p.colonists / maxf(p.cabin, 1.0)

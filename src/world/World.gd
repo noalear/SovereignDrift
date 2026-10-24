@@ -1406,7 +1406,7 @@ func _on_touched_down(s: Ship, p: Planet) -> void:
 	elif p.is_colonised():
 		notify(s, "Landed on the %s colony %s (%s people). Bring colonists to invade it." % [GameData.race(p.owner_race)["adj"], p.body_name, GameData.fmt_pop(p.population)])
 	else:
-		notify(s, "Landed on %s. Nobody lives here: bring colonists to settle it (room for %s)." % [p.body_name, GameData.fmt_pop(p.optimal_population(s.race_id))])
+		notify(s, "Landed on %s. Nobody lives here: bring colonists to settle it (it can support %s)." % [p.body_name, GameData.fmt_pop(p.optimal_population(s.race_id))])
 
 
 func _on_lifted_off(s: Ship, _p: Planet) -> void:
@@ -1433,6 +1433,8 @@ func _landed_ships(delta: float) -> void:
 			var n := minf(minf(step, s.cabin - s.colonists), spare_colonists(p))
 			s.colonists += n
 			p.population -= n
+			if n > 0.0:
+				s.colonist_origin = p
 			if s.colonists >= s.cabin - 1.0 or spare_colonists(p) <= 0.0:
 				s.transfer = 0
 				notify(s, "%s colonists aboard%s. Land them on an empty world to settle it, or on an enemy colony to invade." % [GameData.fmt_pop(s.colonists),
@@ -1448,10 +1450,18 @@ func _landed_ships(delta: float) -> void:
 				s.transfer = 0
 				var total: float = s.get_meta("delivered", 0.0)
 				s.remove_meta("delivered")
-				var pay := int(total / 1e6)
-				s.earn(pay)
-				s.add_score(maxi(int(total / 20e6), 1), false)
-				notify(s, "%s colonists joined %s (now %s). %d credits." % [GameData.fmt_pop(total), p.body_name, GameData.fmt_pop(p.population), pay])
+				# pay only for people brought from another colony into room
+				# this one had: unloading where you boarded earns nothing
+				var room := maxf(p.optimal_population(p.owner_race) - (p.population - total), 0.0)
+				var useful := 0.0 if s.colonist_origin == p else minf(total, room)
+				s.colonist_origin = null
+				var pay := int(useful / 1e6)
+				if pay > 0:
+					s.earn(pay)
+					s.add_score(maxi(int(useful / 20e6), 1), false)
+					notify(s, "%s colonists joined %s (now %s). %d credits." % [GameData.fmt_pop(total), p.body_name, GameData.fmt_pop(p.population), pay])
+				else:
+					notify(s, "%s colonists went back ashore on %s (now %s)." % [GameData.fmt_pop(total), p.body_name, GameData.fmt_pop(p.population)])
 				Net.host_colony_changed(p)
 
 
@@ -1465,6 +1475,7 @@ func deliver_colonists(s: Ship, p: Planet) -> void:
 	var race_name: String = GameData.race(s.race_id)["name"]
 	s.colonists = 0.0
 	s.transfer = 0
+	s.colonist_origin = null
 	if not p.is_colonised():
 		p.found_colony(s.race_id, people)
 		s.add_score(40, false)

@@ -155,6 +155,7 @@ var land_scale := 1.0              # drawn size: shrinks as the ship flies down 
 var colonists := 0.0               # people aboard
 var cabin := 0.0                   # people the hull can carry
 var transfer := 0                  # while landed: +1 boarding colonists, -1 putting them down
+var colonist_origin: Planet = null # where the colonists aboard came from (no pay for taking them home)
 var art_model: Dictionary = {}     # the sprite model, rebuilt on refit
 var hull_race := -1                # whose shipyard built the hull (the painting); -1: race_id
 
@@ -1314,6 +1315,7 @@ func _die(killer: Node) -> void:
 	board_progress = 0.0
 	boarded_by = null
 	colonists = 0.0                    # the colonists go down with the ship
+	colonist_origin = null
 	if landing != Landing.NONE:
 		_end_landing()
 		body.enabled = false

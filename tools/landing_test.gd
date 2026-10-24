@@ -13,6 +13,8 @@ var ai_touchdowns := 0
 var ai_jobs := {}
 var luna_before := 0.0
 var counts_before := 0
+var credits_before := 0
+var score_before := 0
 
 
 func _init() -> void:
@@ -126,6 +128,23 @@ func _process(_delta: float) -> bool:
 			var spare_left: float = w.spare_colonists(luna)
 			_check(p.transfer == 0 and (absf(p.colonists - p.cabin) < 1.0 or spare_left < 5e6), "boarded until the cabin was full or Luna had none to spare: %s of %s" % [gm.fmt_pop(p.colonists), gm.fmt_pop(p.cabin)])
 			_check(luna_before - luna.population >= p.colonists - 1e6, "Luna gave them up (%s -> %s)" % [gm.fmt_pop(luna_before), gm.fmt_pop(luna.population)])
+			# putting them back where they boarded pays nothing (no farming)
+			credits_before = p.credits
+			score_before = p.score
+			w.colonist_command(p, false)
+			t0 = now
+			step = 20
+		20:
+			if now - t0 < 3.6:
+				return false
+			_check(p.colonists == 0.0 and p.credits == credits_before and p.score == score_before, "unloading where they boarded pays nothing (%d -> %d credits)" % [credits_before, p.credits])
+			w.colonist_command(p, true)
+			t0 = now
+			step = 21
+		21:
+			if now - t0 < 3.6:
+				return false
+			_check(p.colonists > 0.0, "boarded again (%s)" % gm.fmt_pop(p.colonists))
 			w.try_land(p)
 			_check(p.landing == Ship.Landing.ASCENDING, "B lifts off")
 			t0 = now
