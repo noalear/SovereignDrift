@@ -37,11 +37,13 @@ func _start_from_command_line() -> void:
 	var args := OS.get_cmdline_user_args() + OS.get_cmdline_args()
 	for a in args:
 		if a == "--host":
+			Settings.use_profile("online")
 			Net.callsign = Settings.pilot_name
 			if Net.host() == OK:
 				_start_game()
 			return
 		if a.begins_with("--join="):
+			Settings.use_profile("online")
 			Net.callsign = Settings.pilot_name
 			var target: String = a.substr(7)
 			var port := Net.PORT
@@ -72,6 +74,7 @@ func _on_session_ended(reason: String) -> void:
 
 
 func _host_game() -> void:
+	Settings.use_profile("online")
 	Net.callsign = Settings.pilot_name
 	if Net.host() == OK:
 		_start_game()
@@ -80,6 +83,7 @@ func _host_game() -> void:
 
 
 func _join_game(address: String) -> void:
+	Settings.use_profile("online")
 	Net.callsign = Settings.pilot_name
 	var target := address.strip_edges()
 	var port := Net.PORT
@@ -146,6 +150,8 @@ func _start_free_flight() -> void:
 
 
 func _start_game(practice := false, opponent := true) -> void:
+	if not Net.is_active():
+		Settings.use_profile("single")
 	Settings.save_settings()
 	Sfx.play_ui("ui_start", 0.8)
 	if menu != null:
@@ -349,7 +355,7 @@ func _close_pause() -> void:
 
 
 func _save_career() -> void:
-	if world != null and world.player != null:
+	if world != null and world.player != null and world.records_career():
 		Settings.career["score"] = world.player.score
 		Settings.career["kills"] = world.player.kills
 		Settings.save_settings()

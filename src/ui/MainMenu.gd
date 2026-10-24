@@ -279,9 +279,7 @@ func _draw_main(vp: Vector2) -> void:
 	var w := 320.0
 	var x := (vp.x - w) * 0.5
 	var y := vp.y * 0.42
-	var rank := GameData.rank_name(GameData.rank_for(Settings.career["score"], Settings.career["kills"]))
-	draw_string(font, Vector2(0, y - 20), "%s %s of the %s   score %d   kills %d" % [rank, Settings.pilot_name, GameData.race(Settings.race_id)["name"], Settings.career["score"], Settings.career["kills"]],
-		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 17, Color(1, 0.95, 0.8))
+	draw_string(font, Vector2(0, y - 20), _profile_line("single"), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 17, Color(1, 0.95, 0.8))
 	_button(Rect2(x, y, w, 52), "Play: the Sol system", func(): play_pressed.emit())
 	_button(Rect2(x, y + 64, w * 0.5 - 4, 52), "Practice duel", func(): practice_pressed.emit())
 	_button(Rect2(x + w * 0.5 + 4, y + 64, w * 0.5 - 4, 52), "Free flight", func(): free_flight_pressed.emit())
@@ -293,10 +291,20 @@ func _draw_main(vp: Vector2) -> void:
 	draw_string(font, Vector2(0, y + 468), "Arrow keys, D-pad or stick to move   ·   Enter or A to choose   ·   Esc or B to go back", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14, Color(0.6, 0.7, 0.85))
 
 
+## "Rear Admiral Joiner of the Terran Alliance   score 30750   kills 2500"
+func _profile_line(which: String) -> String:
+	var p: Dictionary = Settings.profile_info(which)
+	var c: Dictionary = p["career"]
+	var rank := GameData.rank_name(GameData.rank_for(int(c.get("score", 0)), int(c.get("kills", 0))))
+	return "%s %s of the %s   score %d   kills %d" % [rank, p["name"], GameData.race(int(p["race"]))["name"], int(c.get("score", 0)), int(c.get("kills", 0))]
+
+
 func _draw_online(vp: Vector2) -> void:
 	var x := vp.x * 0.5 - 300.0
 	var y := vp.y * 0.36
-	draw_string(font, Vector2(x, y), "Co-op over a LAN or the internet: the host runs the round, friends drop in as %s pilots." % GameData.race(Settings.race_id)["name"],
+	draw_string(font, Vector2(0, y - 50), "Online profile: " + _profile_line("online"), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 17, Color(1, 0.95, 0.8))
+	draw_string(font, Vector2(0, y - 28), "Change it on the Pilot page.", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 13, Color(0.65, 0.72, 0.85))
+	draw_string(font, Vector2(x, y), "Co-op over a LAN or the internet: the host runs the round, friends drop in as %s pilots." % GameData.race(int(Settings.profile_info("online")["race"]))["name"],
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.8, 0.85, 0.95))
 	_button(Rect2(x, y + 20, 280, 48), "Host a game (port %d)" % Net.PORT, func(): host_pressed.emit())
 	draw_multiline_string(font, Vector2(x + 300, y + 40), "Friends join with your address. Over the internet, open UDP %d on your router or use Tailscale." % Net.PORT,
@@ -323,6 +331,13 @@ func _draw_online(vp: Vector2) -> void:
 
 func _draw_pilot(vp: Vector2) -> void:
 	var y := vp.y * 0.4
+	var profs := []
+	for k in Settings.PROFILES:
+		profs.append([k, Settings.PROFILE_NAMES[k]])
+	_choice(y - 120, "Profile", profs, Settings.profile, func(v):
+		Settings.use_profile(v)
+		name_edit.text = Settings.pilot_name, vp)
+	draw_string(font, Vector2(0, y - 52), _profile_line(Settings.profile), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 16, Color(1, 0.95, 0.8))
 	draw_string(font, Vector2(vp.x * 0.5 - 300, y - 10), "Pilot name", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(0.85, 0.9, 1.0))
 	name_edit.position = Vector2(vp.x * 0.5 - 80, y - 36)
 	name_edit.size = Vector2(300, 40)
@@ -338,9 +353,9 @@ func _draw_pilot(vp: Vector2) -> void:
 	draw_string(font, Vector2(vp.x * 0.5 - 300, y + 115), desc[Settings.race_id], HORIZONTAL_ALIGNMENT_LEFT, 600, 15, Color(0.8, 0.85, 0.95))
 	ShipArt.draw_ship(self, "Scout", Settings.race_id, 40.0, GameData.race(Settings.race_id)["color"], 0.4, 1.0, 0.0, Transform2D(-PI * 0.5, Vector2(vp.x * 0.5 + 220, y + 200)))
 	ShipArt.draw_ship(self, "Cruiser", Settings.race_id, 48.0, GameData.race(Settings.race_id)["color"], 0.4, 1.0, 0.0, Transform2D(-PI * 0.5, Vector2(vp.x * 0.5 + 320, y + 200)))
-	_button(Rect2(vp.x * 0.5 - 300, y + 160, 200, 44), "Reset career", func():
-		Settings.career = {"score": 0, "kills": 0, "deaths": 0, "rounds": 0, "wins": 0}
-		Settings.save_settings())
+	_button(Rect2(vp.x * 0.5 - 300, y + 160, 200, 44), "Reset career", func(): Settings.reset_career())
+	draw_multiline_string(font, Vector2(vp.x * 0.5 - 300, y + 312), "Single player and online keep separate pilots and careers. Practice duels and free flight never count toward either.",
+		HORIZONTAL_ALIGNMENT_LEFT, 600, 14, -1, Color(0.7, 0.76, 0.88))
 	_button(Rect2(vp.x * 0.5 - 300, y + 230, 160, 48), "Back", func(): _set_page("main"))
 
 

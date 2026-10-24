@@ -1138,7 +1138,8 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 	else:
 		notify_all("%s was lost." % s.pilot_name, Color(0.75, 0.75, 0.75))
 	if s.is_player:
-		Settings.career["deaths"] = Settings.career.get("deaths", 0) + 1
+		if records_career():
+			Settings.career["deaths"] = Settings.career.get("deaths", 0) + 1
 		Settings.save_settings()
 		player_died.emit()
 	if practice and not s.is_station:
@@ -1162,7 +1163,8 @@ func _on_ship_captured(s: Ship, _captor: Node) -> void:
 		return
 	Net.host_ship_died(s, _captor)
 	if s.is_player:
-		Settings.career["deaths"] = Settings.career.get("deaths", 0) + 1
+		if records_career():
+			Settings.career["deaths"] = Settings.career.get("deaths", 0) + 1
 		Settings.save_settings()
 		player_died.emit()
 	respawn_queue.append([s, elapsed + RESPAWN_DELAY])
@@ -1236,10 +1238,18 @@ func _respawns() -> void:
 	respawn_queue = keep
 
 
+## Practice duels and free flight are off the record: nothing earned there
+## reaches the pilot's profile.
+func records_career() -> bool:
+	return not practice
+
+
 func _on_rank_changed(s: Ship, level: int) -> void:
 	if s.is_player:
 		notify_all("%s promoted to %s!" % [s.pilot_name, GameData.rank_name(level)], Color(1, 0.9, 0.5))
 		Sfx.play_ui("rankup", 0.8)
+		if not records_career():
+			return
 		Settings.career["score"] = s.score
 		Settings.career["kills"] = s.kills
 		Settings.save_settings()
@@ -1303,7 +1313,7 @@ func _on_round_finished(result: Dictionary) -> void:
 	notify_all("The %s win the Sol system!" % GameData.race(winner)["name"], GameData.race(winner)["color"])
 	Engine.time_scale = 0.35
 	slowmo = 1.2
-	if player != null:
+	if player != null and records_career():
 		Settings.career["rounds"] = Settings.career.get("rounds", 0) + 1
 		if winner == player.race_id:
 			Settings.career["wins"] = Settings.career.get("wins", 0) + 1

@@ -20,7 +20,19 @@ var flight_assist := true     # the RCS holds the turn rate and stops a tumble
 var alt_fire_group := 2       # the weapon group the Alt-fire button shoots
 
 # Persistent career, kept between games like the original profile.
-var career := {"score": 0, "kills": 0, "deaths": 0, "rounds": 0, "wins": 0}
+var career := new_career()
+
+## Pilot profiles: one for single player, one for online play, each with its
+## own callsign, empire and career.  pilot_name, race_id and career above
+## always hold the profile in use; use_profile() swaps them.
+const PROFILES := ["single", "online"]
+const PROFILE_NAMES := {"single": "Single player", "online": "Online"}
+var profile := "single"
+var profiles := {}
+
+
+static func new_career() -> Dictionary:
+	return {"score": 0, "kills": 0, "deaths": 0, "rounds": 0, "wins": 0}
 
 
 func _ready() -> void:
@@ -46,6 +58,16 @@ func load_settings() -> void:
 	pilot_name = cfg.get_value("pilot", "name", pilot_name)
 	race_id = cfg.get_value("pilot", "race", race_id)
 	career = cfg.get_value("pilot", "career", career)
+	profiles = cfg.get_value("pilot", "profiles", {})
+	if not profiles.has("single"):
+		# from before profiles: the career so far was earned in single player
+		profiles["single"] = {"name": pilot_name, "race": race_id, "career": career}
+	if not profiles.has("online"):
+		profiles["online"] = {"name": pilot_name, "race": race_id, "career": new_career()}
+	profile = cfg.get_value("pilot", "profile", "single")
+	if not profile in PROFILES:
+		profile = "single"
+	_load_profile(profile)
 	last_join_ip = cfg.get_value("online", "last_join_ip", last_join_ip)
 	round_minutes = cfg.get_value("game", "round_minutes", round_minutes)
 
@@ -63,12 +85,50 @@ func save_settings() -> void:
 	cfg.set_value("video", "screen_shake", screen_shake)
 	cfg.set_value("video", "fullscreen", fullscreen)
 	cfg.set_value("video", "camera_zoom", camera_zoom)
+	_store_profile()
 	cfg.set_value("pilot", "name", pilot_name)
 	cfg.set_value("pilot", "race", race_id)
 	cfg.set_value("pilot", "career", career)
+	cfg.set_value("pilot", "profile", profile)
+	cfg.set_value("pilot", "profiles", profiles)
 	cfg.set_value("online", "last_join_ip", last_join_ip)
 	cfg.set_value("game", "round_minutes", round_minutes)
 	cfg.save(PATH)
+
+
+## Switch to the single-player or the online profile.
+func use_profile(which: String) -> void:
+	if not which in PROFILES or which == profile:
+		return
+	_store_profile()
+	profile = which
+	_load_profile(which)
+	save_settings()
+
+
+func profile_info(which: String) -> Dictionary:
+	if which == profile:
+		_store_profile()
+	return profiles.get(which, {"name": pilot_name, "race": race_id, "career": new_career()})
+
+
+func reset_career() -> void:
+	career = new_career()
+	save_settings()
+
+
+func _store_profile() -> void:
+	profiles[profile] = {"name": pilot_name, "race": race_id, "career": career}
+
+
+func _load_profile(which: String) -> void:
+	var p: Dictionary = profiles.get(which, {})
+	pilot_name = p.get("name", pilot_name)
+	race_id = int(p.get("race", race_id))
+	career = p.get("career", new_career())
+	for k in new_career():
+		if not career.has(k):
+			career[k] = 0
 
 
 func apply() -> void:

@@ -103,20 +103,20 @@ const STATION_ONLY := ["0001", "1006", "4011", "4503", "5007", "9301", "2004"]
 
 ## Internal bay volume of each hull.
 const HULL_BAYS := {
-	"Scout": 1300, "Destroyer": 1500, "Raider": 1500, "Marauder": 2100, "Cruiser": 1600,
+	"Scout": 1300, "Destroyer": 1500, "Raider": 1500, "Cruiser": 1600,
 	"BattleCruiser": 3000, "Battleship": 2200, "Dreadnought": 3000, "Starbase": 20000, "Freighter": 1800,
 }
 
 ## Crew aboard each hull.  Hits kill crew, damage control works as fast
 ## as there are hands for it, and boarding is crew against crew.
 const HULL_CREW := {
-	"Scout": 6, "Destroyer": 12, "Raider": 12, "Freighter": 8, "Marauder": 16, "Cruiser": 24,
+	"Scout": 6, "Destroyer": 12, "Raider": 12, "Freighter": 8, "Cruiser": 24,
 	"BattleCruiser": 36, "Battleship": 44, "Dreadnought": 60, "Starbase": 300,
 }
 
 ## Credits for a hull at the shipyard.
 const HULL_PRICE := {
-	"Scout": 0, "Destroyer": 400, "Marauder": 900, "Cruiser": 1500,
+	"Scout": 0, "Destroyer": 400, "Cruiser": 1500,
 	"BattleCruiser": 2600, "Battleship": 3600, "Dreadnought": 6000,
 }
 
@@ -184,10 +184,6 @@ const SHIPS := {
 		"modules": ["1001", "5001", "5502", "2003", "3003", "7003", "9201"],
 		"dock": [180, 0],
 		"weapons": [["4001", 0, 0, 0, -50, 50]]},
-	"Marauder": {"rank": 0, "speed": 0.25, "size": 30, "turn": 170.0, "aces": true,
-		"modules": ["1005", "5004", "2003", "3003", "7003", "9203", "9101"],
-		"dock": [180, 0],
-		"weapons": [["4501", 0, 0, 0, -120, 120], ["4018", 0, 0, 0, -40, 40], ["4003", 40, 0, 0, -90, 90], ["4003", -40, 0, 0, -90, 90]]},
 	"BattleCruiser": {"rank": 8, "speed": 0.22, "size": 46, "turn": 110.0, "aces": true,
 		"modules": ["1005", "5005", "2003", "3003", "7003", "9203"],
 		"dock": [180, 0],
@@ -195,7 +191,7 @@ const SHIPS := {
 }
 
 ## Ships a pilot may refit to at a friendly starbase, in rank order.
-const REFIT_ORDER := ["Scout", "Destroyer", "Marauder", "Cruiser", "BattleCruiser", "Battleship", "Dreadnought", "Starbase"]
+const REFIT_ORDER := ["Scout", "Destroyer", "Cruiser", "BattleCruiser", "Battleship", "Dreadnought", "Starbase"]
 
 # ---------------------------------------------------------------- ranks
 # name, level, active score, total score, total kills, duty
@@ -323,7 +319,7 @@ const STARBASES := {0: "Titan", 1: "Earth", 2: "Mars"}
 const RACE_PREF_TEMP := {0: 160, 1: 300, 2: 380, 3: 180}
 ## Colonists a hull's cabin holds, in millions.  Starbases never land.
 const COLONIST_CABIN := {
-	"Scout": 40, "Destroyer": 80, "Raider": 80, "Marauder": 100, "Cruiser": 160,
+	"Scout": 40, "Destroyer": 80, "Raider": 80, "Cruiser": 160,
 	"BattleCruiser": 200, "Battleship": 250, "Dreadnought": 400, "Freighter": 800, "Starbase": 0,
 }
 ## An invading colony fights as if it were this many times its size (the
