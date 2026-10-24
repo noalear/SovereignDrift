@@ -13,6 +13,15 @@ signal round_over(result: Dictionary)
 
 const MISSILE_SCRIPT := preload("res://src/weapons/Missile.gd")
 const RESPAWN_DELAY := 4.0
+## Computer pilots take longer to relaunch, pirates longer still, and none
+## of them ever appears inside this distance of the player: the next one
+## arrives from out of view, not on top of you.
+const AI_RESPAWN_DELAY := 15.0
+## Pirates are a rare visitor (Kyle: "super rare"): one raider, first seen
+## 6 to 12 minutes in, back 10 to 18 minutes after each loss.
+const PIRATE_FIRST := Vector2(360.0, 720.0)
+const PIRATE_RETURN := Vector2(600.0, 1080.0)
+const SPAWN_CLEAR := 2600.0
 ## Momentum carried per point of weapon damage (mass units * px/s): a
 ## torpedo nudges a Scout by about 6 px/s, a mine throws it at 70.
 const IMPULSE_PER_DAMAGE := 180.0
@@ -295,28 +304,32 @@ func _place_duelist(s: Ship) -> void:
 	s.rotation = a + PI
 
 
-## Two green pirate scouts prowl the player's home world from the start,
-## so there is an even, early fight to be had before the empire fleets
-## arrive.  They are in the roster from the first frame, so online
-## joiners see them too.
+## One pirate raider, held back for a rare visit: it sits benched (dead,
+## out of the world) until its time comes, then launches from Ceres, out
+## of the player's view.  It is in the roster from the first frame, so
+## online joiners have it too.
 func _spawn_pirate_scouts() -> void:
 	if player == null:
 		return
 	var home := _home_planet(player.race_id)
-	var names := [["Vex", "Rust Jackal"], ["Mako", "Bilge Hound"]]
-	for i in names.size():
-		var s := _make_ship("Pirate " + names[i][0], 3, "Scout", names[i][1], false)
-		s.rank = 0
-		var ai := AIPilot.new()
-		ai.name = "AI"
-		s.add_child(ai)
-		ai.setup(s, self, home, 1)
-		# start well outside sensor range, on the far side of the home world
-		var a := (player.global_position - home.global_position).angle() + PI + (i - 0.5) * 0.9
-		s.global_position = home.global_position + Vector2(cos(a), sin(a)) * (home.radius + 3600.0)
-		s.velocity = space.circular_orbit_velocity(home.body, s.global_position)
-		s.reset_physics_interpolation()
-		s.rotation = a + PI
+	var s := _make_ship("Pirate Vex", 3, "Scout", "Rust Jackal", false)
+	s.rank = 0
+	var ai := AIPilot.new()
+	ai.name = "AI"
+	s.add_child(ai)
+	ai.setup(s, self, home, 1)
+	_bench(s, randf_range(PIRATE_FIRST.x, PIRATE_FIRST.y))
+
+
+## Take a ship out of play until `delay` seconds from now.
+func _bench(s: Ship, delay: float) -> void:
+	s.dead = true
+	s.hull = 0.0
+	if s.body != null:
+		s.body.enabled = false
+	s.hide()
+	s.set_physics_process(false)
+	respawn_queue.append([s, elapsed + delay])
 
 
 func _starting_design(race_id: int, career: Dictionary) -> String:
@@ -1165,7 +1178,36 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 		elif not s.is_player and killer_ship == player:
 			duel_score[0] += 1
 		notify_all("Duel: you %d, pirates %d.%s" % [duel_score[0], duel_score[1], "" if s.is_player else "  Another pirate comes at you in a few seconds."], Color(1.0, 0.9, 0.6))
-	respawn_queue.append([s, elapsed + RESPAWN_DELAY + (6.0 if s.is_station else 0.0)])
+	respawn_queue.append([s, elapsed + _respawn_delay(s)])
+
+
+func _respawn_delay(s: Ship) -> float:
+	if s.is_station:
+		return RESPAWN_DELAY + 6.0
+	if s.is_player or practice or s.net_id in Net.seats.values():
+		return RESPAWN_DELAY
+	return randf_range(PIRATE_RETURN.x, PIRATE_RETURN.y) if s.race_id == 3 else AI_RESPAWN_DELAY
+
+
+## Put a computer pilot back at home, out of the player's view.  False when
+## every spot tried is too close (the player is camped at that home), so
+## the relaunch waits.
+func _place_clear_of_player(s: Ship) -> bool:
+	for i in 8:
+		_place_at_home(s, 400.0 * i)
+		if player == null or player.dead or s.global_position.distance_to(player.global_position) >= SPAWN_CLEAR:
+			return true
+	if starbase_of(s.race_id) == null:
+		# no starbase to launch from: come in from the far side of home
+		var home := _home_planet(s.race_id)
+		var away := (home.global_position - player.global_position).normalized()
+		var at := home.global_position + away * maxf(SPAWN_CLEAR - home.global_position.distance_to(player.global_position) + 200.0, home.radius + 400.0)
+		if at.distance_to(player.global_position) >= SPAWN_CLEAR:
+			s.global_position = at
+			s.velocity = space.circular_orbit_velocity(home.body, at)
+			s.reset_physics_interpolation()
+			return true
+	return false
 
 
 ## A boarded ship leaves the fight quietly: no blast and no loot (the
@@ -1183,7 +1225,7 @@ func _on_ship_captured(s: Ship, _captor: Node) -> void:
 			Settings.career["deaths"] = Settings.career.get("deaths", 0) + 1
 		Settings.save_settings()
 		player_died.emit()
-	respawn_queue.append([s, elapsed + RESPAWN_DELAY])
+	respawn_queue.append([s, elapsed + _respawn_delay(s)])
 
 
 ## A system shot out: tell the pilot who lost it and the one who did it.
@@ -1241,9 +1283,15 @@ func _respawns() -> void:
 			elif practice and not s.is_player and player != null and not player.dead:
 				_place_duelist(s)
 				s.respawn(s.global_position, s.velocity)
-			else:
+			elif s.is_player or s.net_id in Net.seats.values():
 				_place_at_home(s)
 				s.respawn(s.global_position, s.velocity)
+			elif _place_clear_of_player(s):
+				s.respawn(s.global_position, s.velocity)
+			else:
+				entry[1] = elapsed + 5.0      # the player sits on its home: try again later
+				keep.append(entry)
+				continue
 			Net.host_ship_respawned(s)
 			if s.is_player:
 				player_respawned.emit()

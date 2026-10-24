@@ -32,6 +32,7 @@ var hull_paid := 0                  # credits spent on the hull this visit
 
 var sel_kind := ""                  # "hp" | "bay" | "hold"
 var sel_index := -1
+var cat_mode := "upgrade"           # with a fitted part picked: "upgrade" (same kind) or "switch" (anything that fits)
 var cat_scroll := 0.0
 var cat_rect := Rect2()
 var buttons: Array = []             # [rect, callable, enabled]
@@ -171,12 +172,23 @@ func _mount(id: String) -> void:
 	if not from_hold and cost > credits:
 		_say("Not enough credits: %s costs %d." % [GameData.MODULES[id]["name"], cost])
 		return
+	if sel_kind == "hp" and GameData.weapon_class(id) > hardpoints[sel_index][5]:
+		_say("That mount only takes %s weapons." % GameData.class_name_of(hardpoints[sel_index][5]))
+		return
+	if sel_kind != "hp" and sel_kind != "bay":
+		return
+	# out of the hold first, so the part it replaces always has room there
+	if from_hold:
+		hold.erase(id)
+	else:
+		credits -= cost
 	if sel_kind == "hp":
-		if GameData.weapon_class(id) > hardpoints[sel_index][5]:
-			_say("That mount only takes %s weapons." % GameData.class_name_of(hardpoints[sel_index][5]))
-			return
+		var group := GameData.default_weapon_group(id)
+		var old = mounts[sel_index]
+		if old != null and _same_family(old["id"], id):
+			group = int(old.get("group", group))     # an upgrade keeps its fire group
 		_unmount_hp(sel_index)
-		mounts[sel_index] = {"id": id, "stock": false, "group": GameData.default_weapon_group(id)}
+		mounts[sel_index] = {"id": id, "stock": false, "group": group}
 	elif sel_kind == "bay":
 		if sel_index >= 0 and sel_index < modules.size():
 			_unmount_bay(sel_index)
@@ -184,12 +196,6 @@ func _mount(id: String) -> void:
 		else:
 			modules.append({"id": id, "stock": false})
 			sel_index = modules.size() - 1
-	else:
-		return
-	if from_hold:
-		hold.erase(id)
-	else:
-		credits -= cost
 	Sfx.play_ui("click", 0.5)
 	_say("%s fitted%s." % [GameData.MODULES[id]["name"], " from the hold" if from_hold else " for %d credits" % cost])
 
@@ -237,6 +243,68 @@ func _cycle_group(i: int) -> void:
 	mounts[i]["group"] = g
 	Sfx.play_ui("click", 0.4)
 	_say("%s now fires with group %d (keys %s - %s select a group in flight)." % [GameData.MODULES[mounts[i]["id"]]["name"], g, Keybinds.short_text("weapon_group_1"), Keybinds.short_text("weapon_group_4")])
+
+
+## Two parts of one kind: the same function, and for launch tubes the
+## same ammunition.  An upgrade or an Equip swaps like for like.
+static func _same_family(a: String, b: String) -> bool:
+	var ma: Dictionary = GameData.MODULES[a]
+	var mb: Dictionary = GameData.MODULES[b]
+	if ma["func"] != mb["func"]:
+		return false
+	return ma["func"] != "tube" or ma["p"][3] == mb["p"][3]
+
+
+## Where Equip would put a hold part: ["hp", mount] or ["bay", index]
+## (index == modules.size() adds a bay part), or [] when it has nowhere to
+## go.  It replaces a part of the same kind when there is one, otherwise
+## takes an empty mount or adds to the bays if they have room.
+func _equip_slot(id: String) -> Array:
+	if GameData.is_bay_part(id):
+		for i in modules.size():
+			if _same_family(modules[i]["id"], id):
+				return ["bay", i] if _bays_fit(id, i) else []
+		return ["bay", modules.size()] if _bays_fit(id, -1) else []
+	var cls := GameData.weapon_class(id)
+	for i in hardpoints.size():
+		if mounts[i] != null and _same_family(mounts[i]["id"], id) and hardpoints[i][5] >= cls:
+			return ["hp", i]
+	for i in hardpoints.size():
+		if mounts[i] == null and hardpoints[i][5] >= cls:
+			return ["hp", i]
+	return []
+
+
+## Would the bays hold `id`, replacing bay part `replace` (or added, -1)?
+func _bays_fit(id: String, replace: int) -> bool:
+	var d := current_design()
+	if replace >= 0:
+		d["modules"][replace] = id
+	else:
+		d["modules"].append(id)
+	var st := GameData.stats_for(d)
+	return st["bay_used"] <= st["bay_cap"]
+
+
+func _equip_hold(i: int) -> void:
+	if i < 0 or i >= hold.size():
+		return
+	var id: String = hold[i]
+	var slot := _equip_slot(id)
+	if slot.is_empty():
+		_say("Nowhere to fit %s on this hull." % GameData.MODULES[id]["name"])
+		return
+	var old = null
+	if slot[0] == "hp":
+		old = mounts[slot[1]]
+	elif slot[1] < modules.size():
+		old = modules[slot[1]]
+	sel_kind = slot[0]
+	sel_index = slot[1]
+	cat_mode = "upgrade"
+	_mount(id)
+	if old != null:
+		_say("%s fitted in place of %s%s." % [GameData.MODULES[id]["name"], GameData.MODULES[old["id"]]["name"], " (welded stock part, scrapped)" if old["stock"] else ", now in the hold"])
 
 
 func _sell_hold(i: int) -> void:
@@ -406,7 +474,8 @@ func _draw_hulls(r: Rect2) -> void:
 		buttons.append([row, _select.bind("hold", i), true])
 		var idx := buttons.size() - 1
 		draw_rect(row, Color(0.25, 0.45, 0.8, 0.8) if selected else (Color(0.06, 0.1, 0.2, 0.7) if hover != idx else Color(0.14, 0.24, 0.45, 0.9)))
-		draw_string(font, row.position + Vector2(8, 19), GameData.MODULES[id]["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, TEXT)
+		draw_string(font, row.position + Vector2(8, 19), _fit(GameData.MODULES[id]["name"], row.size.x - 140, 14), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, TEXT)
+		_button(Rect2(row.end.x - 122, row.position.y + 2, 54, 23), "Equip", _equip_hold.bind(i), not _equip_slot(id).is_empty(), 12)
 		_button(Rect2(row.end.x - 64, row.position.y + 2, 60, 23), "Sell %d" % (GameData.price(id) / 2), _sell_hold.bind(i), true, 12)
 		y += 30
 
@@ -424,6 +493,7 @@ func _select(kind: String, index: int) -> void:
 	sel_kind = kind
 	sel_index = index
 	cat_scroll = 0.0
+	cat_mode = "upgrade"
 
 
 func _draw_centre(r: Rect2) -> void:
@@ -635,14 +705,23 @@ func _draw_right(r: Rect2) -> void:
 		_:
 			slot_text = "click a mount or a bay on the ship"
 	draw_string(font, Vector2(x, y), "%s  ·  %s" % [title, slot_text], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.6, 0.8, 1.0))
-	var has_part := (sel_kind == "hp" and mounts[sel_index] != null) or (sel_kind == "bay" and sel_index < modules.size())
-	if has_part:
+	var current := _selected_part()
+	if not current.is_empty():
 		_button(Rect2(r.end.x - 110, y - 16, 96, 24), "Remove", _remove_selected, true, 13)
+		_button(Rect2(r.end.x - 222, y - 16, 104, 24), "Upgrades" if cat_mode == "switch" else "Switch out", func():
+			cat_mode = "switch" if cat_mode == "upgrade" else "upgrade"
+			cat_scroll = 0.0, true, 13)
+		y += 20
+		var what := ("Upgrades for %s" if cat_mode == "upgrade" else "Switch %s out for") % GameData.MODULES[current]["name"]
+		draw_string(font, Vector2(x, y), _fit(what, r.size.x - 28, 13), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, GOLD)
 	y += 12
 	cat_rect = Rect2(x, y, r.size.x - 28, r.end.y - y - 10)
 	if sel_kind != "hp" and sel_kind != "bay":
 		return
 	var list := _catalogue_rows()
+	if list.is_empty() and not current.is_empty():
+		draw_string(font, cat_rect.position + Vector2(8, 22), "This is the best of its kind. Press Switch out to see what else fits.", HORIZONTAL_ALIGNMENT_LEFT, cat_rect.size.x - 16, 13, DIM)
+		return
 	var row_h := 30.0
 	var visible := int(cat_rect.size.y / row_h)
 	cat_scroll = clampf(cat_scroll, 0.0, maxf(list.size() - visible, 0.0))
@@ -673,6 +752,8 @@ func _catalogue_rows() -> Array:
 	var out := []
 	var want_bay := sel_kind == "bay"
 	var cls: int = hardpoints[sel_index][5] if sel_kind == "hp" else 2
+	var current := _selected_part()
+	var upgrades_only := not current.is_empty() and cat_mode == "upgrade"
 	var ids: Array = GameData.MODULES.keys()
 	ids.sort_custom(func(a, b):
 		var fa: String = GameData.MODULES[a]["func"]
@@ -685,6 +766,8 @@ func _catalogue_rows() -> Array:
 			continue
 		var mod: Dictionary = GameData.MODULES[id]
 		if GameData.is_bay_part(id) != want_bay:
+			continue
+		if upgrades_only and not _is_upgrade(current, id):
 			continue
 		var race := GameData.part_race(id)
 		var locked := race >= 0 and race != base.race_id and not blueprints.has(id)
@@ -708,6 +791,25 @@ func _catalogue_rows() -> Array:
 			pcol = GOLD if price <= credits else BAD
 		out.append({"id": id, "name": mod["name"], "info": _part_info(id), "price": ptxt, "pcol": pcol, "ok": ok})
 	return out
+
+
+## Is `id` an upgrade for the fitted part: the same kind, a higher mark
+## where parts come in marks (Power plant III > IV), else any other model.
+static func _is_upgrade(current: String, id: String) -> bool:
+	if id == current or not _same_family(id, current):
+		return false
+	if GameData.tier(current) > 1 or GameData.tier(id) > 1:
+		return GameData.tier(id) > GameData.tier(current)
+	return true
+
+
+## The part fitted in the selected mount or bay slot, or "".
+func _selected_part() -> String:
+	if sel_kind == "hp" and sel_index >= 0 and sel_index < mounts.size() and mounts[sel_index] != null:
+		return mounts[sel_index]["id"]
+	if sel_kind == "bay" and sel_index >= 0 and sel_index < modules.size():
+		return modules[sel_index]["id"]
+	return ""
 
 
 func _part_info(id: String) -> String:
