@@ -68,6 +68,14 @@ void fragment() {
 		a = clamp(a + flare * 0.5 * fade, 0.0, 1.0);
 		COLOR = vec4(c, a);
 	} else {
+		if (kind == 5) {
+			// minor bodies are lumpy, not round
+			float ang = atan(uv.y, uv.x);
+			float lump = fbm(vec3(cos(ang) * 1.3, sin(ang) * 1.3, seed * 0.37)) - 0.5;
+			uv /= 1.0 + lump * 0.24;
+			r2 = dot(uv, uv);
+			r = sqrt(r2);
+		}
 		float body = 1.0 - smoothstep(0.94, 0.97, r);
 		float halo = atmosphere * exp(-max(r - 0.94, 0.0) * 14.0) * (1.0 - body) * smoothstep(extent / 1.25, extent / 1.25 * 0.9, r);
 		if (body <= 0.0 && halo <= 0.001) {
@@ -101,9 +109,17 @@ void fragment() {
 			surf = mix(color_a.rgb, color_b.rgb, h);
 			surf = mix(surf, vec3(1.0), smoothstep(0.6, 0.8, h) * 0.5);
 		} else if (kind == 5) {
-			float h = fbm(sp * 4.0);
-			float crater = smoothstep(0.35, 0.3, noise(sp * 6.0));
-			surf = mix(color_a.rgb, color_b.rgb, h) * (1.0 - crater * 0.4);
+			// dark regolith pocked with craters whose walls catch the light
+			float c0 = noise(sp * 5.0);
+			float h = fbm(sp * 3.0);
+			vec3 e = vec3(0.04, 0.0, 0.0);
+			float hx = fbm((sp + e.xyy) * 3.0) - h + (noise((sp + e.xyy) * 5.0) - c0) * 1.2;
+			float hy = fbm((sp + e.yxy) * 3.0) - h + (noise((sp + e.yxy) * 5.0) - c0) * 1.2;
+			vec3 nb = normalize(n - vec3(hx, hy, 0.0) * 2.0);
+			diff = clamp(dot(nb, l), 0.0, 1.0);
+			term = smoothstep(-0.05, 0.25, dot(nb, l));
+			float crater = smoothstep(0.32, 0.26, c0);
+			surf = mix(color_a.rgb, color_b.rgb, h) * (1.0 - crater * 0.25);
 		} else {
 			float h = fbm(sp * 2.4);
 			float crater = (kind == 6) ? smoothstep(0.3, 0.26, noise(sp * 5.0)) : 0.0;

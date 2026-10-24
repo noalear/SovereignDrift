@@ -12,6 +12,7 @@ var beams: Array = []        # {a, b, color, age}
 var shockwaves: Array = []
 var shards: Array = []       # pieces of a wrecked painting {tex, poly, uvs, pos, vel, angle, spin, age, life, burn}
 var droplets: Array = []     # Arcean coolant {pos, vel, age, wet, life, size}
+var gravel: Array = []       # bits of a broken asteroid {pos, vel, age, life, size, color}
 var glow: Node2D             # additive layer
 const WRECK_LIFE := 3.2
 
@@ -55,6 +56,25 @@ func explosion(pos: Vector2, size: float, color: Color, big: bool = false, sound
 	if sound.is_empty():
 		sound = "bigexplode" if big else "explode"
 	Sfx.play(sound, pos, 1.0 if big else 0.85, clampf(1.25 - size / 160.0, 0.75, 1.15))
+
+
+## An asteroid breaks: no fire, just a puff of dust and a spray of gravel
+## that drifts off with the rock's own motion.
+func rock_burst(pos: Vector2, vel: Vector2, r: float, color: Color) -> void:
+	for i in 5 + int(r * 0.4):
+		var a := randf() * TAU
+		var off := Vector2(cos(a), sin(a))
+		smoke.append({"pos": pos + off * r * randf() * 0.6, "vel": vel + off * randf_range(8.0, 40.0), "age": 0.0,
+				"life": randf_range(1.2, 2.4), "size": r * randf_range(0.5, 0.9), "shade": color.v * randf_range(1.3, 1.9)})
+	for i in 10 + int(r * 1.2):
+		var a := randf() * TAU
+		var off := Vector2(cos(a), sin(a))
+		var shade := randf_range(0.6, 1.3)
+		gravel.append({"pos": pos + off * r * randf() * 0.7, "vel": vel + off * randf_range(20.0, 120.0), "age": 0.0,
+				"life": randf_range(1.0, 2.6), "size": randf_range(0.5, 0.07 * r + 0.7),
+				"color": Color(color.r * shade, color.g * shade, color.b * shade)})
+	explosions.append({"pos": pos, "vel": vel, "age": 0.0, "life": 0.25, "size": r * 0.5, "hot": Color(1.0, 0.95, 0.85), "cool": color})
+	Sfx.play("explode", pos, 0.7, clampf(1.3 - r / 60.0, 0.9, 1.25))
 
 
 ## A ship dies: a fireball, and its painting breaks into jagged shards that
@@ -208,6 +228,10 @@ func _process(delta: float) -> void:
 			if d["age"] > d["wet"]:
 				d["vel"] *= 1.0 - 1.2 * delta   # the vapour spreads and slows
 	droplets = droplets.filter(func(d): return d["age"] < d["wet"] + d["life"])
+	for g in gravel:
+		g["age"] += delta
+		g["pos"] += g["vel"] * delta
+	gravel = gravel.filter(func(g): return g["age"] < g["life"])
 	queue_redraw()
 	glow.queue_redraw()
 
@@ -229,6 +253,14 @@ func _draw() -> void:
 		var t: float = vt / d["life"]
 		var r: float = d["size"] * (2.0 + 9.0 * sqrt(t))
 		draw_texture_rect(soft, Rect2(d["pos"] - Vector2(r, r), Vector2(r, r) * 2.0), false, Color(0.75, 1.0, 0.85, 0.22 * (1.0 - t)))
+	for g in gravel:
+		# a grain lit on the side facing the Sun, at the origin
+		var c: Color = g["color"]
+		var a := clampf((1.0 - g["age"] / g["life"]) / 0.3, 0.0, 1.0)
+		var sz: float = g["size"]
+		var sun: Vector2 = -(g["pos"] as Vector2).normalized()
+		draw_circle(g["pos"], sz, Color(c.r * 0.35, c.g * 0.35, c.b * 0.35, a))
+		draw_circle(g["pos"] + sun * sz * 0.35, sz * 0.65, Color(c.r * 1.4, c.g * 1.4, c.b * 1.4, a))
 	# the wreck: pieces of the painting, hot, then charred, then gone
 	for p in shards:
 		var t: float = p["age"] / p["life"]

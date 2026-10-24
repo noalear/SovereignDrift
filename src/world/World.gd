@@ -962,7 +962,7 @@ func break_rock(d: Debris) -> void:
 	var pos := d.global_position
 	var vel: Vector2 = d.body.vel
 	var r := d.rock_radius
-	fx.explosion(pos, r * 1.2, Color(0.7, 0.65, 0.6))
+	fx.rock_burst(pos, vel, r, d.albedo)
 	remove_debris(d)
 	if r >= 9.0:
 		var pieces := 2 + (1 if r > 15.0 else 0)
@@ -971,6 +971,7 @@ func break_rock(d: Debris) -> void:
 			var off := Vector2(cos(a), sin(a))
 			var child := spawn_rock(pos + off * r * 0.6, vel + off * randf_range(15.0, 45.0), r * 0.58, randi())
 			child.body.ang_vel = randf_range(-2.0, 2.0)
+			child.match_material(d)
 
 
 ## Friendly bases and colonies top up a ship's tanks when it sits close.
