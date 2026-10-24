@@ -81,10 +81,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		Settings.save_settings()
 		world.notify(ship, "Flight assist on: the thrusters hold your turn." if ship.flight_assist else "Flight assist off: you spin until you stop yourself.")
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and event.shift_pressed:
+		# a ship under the cursor becomes the target; a world opens its info
+		# card (again closes it); empty space closes the card
 		var pos: Vector2 = world.get_global_mouse_position()
 		var s: Ship = world.ship_at(pos, 40.0 / world.camera.zoom.x)
 		if s != null and s != ship:
 			ship.target = s
+		else:
+			var pl: Planet = world.planet_at(pos, 30.0 / world.camera.zoom.x)
+			world.inspected_planet = null if pl == world.inspected_planet else pl
+			if pl != null:
+				Sfx.play_ui("click", 0.4)
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_MIDDLE:
 		var pos: Vector2 = world.get_global_mouse_position()
 		var s: Ship = world.ship_at(pos, 40.0 / world.camera.zoom.x)

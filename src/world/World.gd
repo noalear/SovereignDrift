@@ -34,6 +34,7 @@ var paused := false
 var elapsed := 0.0
 var respawn_queue: Array = []   # [ship, time]
 var planet_by_name := {}
+var inspected_planet: Planet = null   # the world on the player's info card (shift-click)
 var bodies_layer: Node2D
 var debris_layer: Node2D
 var ships_layer: Node2D
@@ -669,6 +670,21 @@ func ship_at(pos: Vector2, tolerance: float) -> Ship:
 		if d < s.size + tolerance and d < best_d:
 			best_d = d
 			best = s
+	return best
+
+
+## The world under a point, if any: the nearest whose drawn disc (plus
+## the tolerance) holds it.  Not the Sun.
+func planet_at(pos: Vector2, tolerance: float) -> Planet:
+	var best: Planet = null
+	var best_d := INF
+	for p in planets:
+		if p.look == "Sun":
+			continue
+		var d := pos.distance_to(p.global_position) - p.drawn_radius()
+		if d < tolerance and d < best_d:
+			best_d = d
+			best = p
 	return best
 
 

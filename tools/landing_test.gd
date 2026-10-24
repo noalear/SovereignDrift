@@ -105,6 +105,10 @@ func _process(_delta: float) -> bool:
 			_set_ferries(w, false)
 			_park(w, luna)
 			luna_before = luna.population
+			# the shift-click info card
+			_check(w.planet_at(luna.global_position + Vector2(luna.radius, 0), 10.0) == luna, "a click on Luna's edge picks Luna, not Earth")
+			var card: Array = luna.info_lines(p.race_id)
+			_check(card[0][0] == "Luna" and card.any(func(r): return r[0].begins_with("People")) and card.any(func(r): return r[0].begins_with("Defences")), "Luna's info card has its people and defences")
 			_check(p.landing_refusal(luna) == "", "can land on Luna when low and slow (%s)" % p.landing_refusal(luna))
 			w.try_land(p)
 			_check(p.landing == Ship.Landing.DESCENDING, "B starts the descent")

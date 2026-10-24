@@ -226,27 +226,21 @@ func _draw_world_card() -> void:
 	if p == null or p.look == "Sun":
 		return
 	var player: Ship = world.player
-	var lines := [p.body_name]
-	if p.is_colonised():
-		lines.append("%s colony: %s" % [GameData.race(p.owner_race)["adj"], GameData.fmt_pop(p.population)])
-		lines.append("supports %s" % GameData.fmt_pop(p.optimal_population(p.owner_race)))
-		if p.is_defenceless():
-			lines.append("DEFENCES DOWN: land colonists to take it")
-	elif not p.has_surface():
-		lines.append("gas giant: no surface")
-	else:
-		lines.append("uninhabited")
-		if player != null:
-			lines.append("supports %s %ss" % [GameData.fmt_pop(p.optimal_population(player.race_id)), GameData.race(player.race_id)["name"]])
+	var rows: Array = p.info_lines(player.race_id if player != null else 1)
 	var at := to_map(p.global_position) + Vector2(18, 14)
 	var w := 0.0
-	for l in lines:
-		w = maxf(w, font.get_string_size(l, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x)
-	var box := Rect2(at, Vector2(w + 16.0, lines.size() * 16.0 + 8.0))
+	for row in rows:
+		w = maxf(w, font.get_string_size(row[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x)
+	var box := Rect2(at, Vector2(w + 16.0, rows.size() * 16.0 + 8.0))
+	if box.end.x > size.x - 8.0:
+		box.position.x = to_map(p.global_position).x - 18.0 - box.size.x
+	box.position.y = clampf(box.position.y, 8.0, size.y - box.size.y - 8.0)
+	at = box.position
 	draw_rect(box, PANEL)
 	draw_rect(box, Color(0.4, 0.6, 0.9, 0.5), false, 1.0)
-	for i in lines.size():
-		draw_string(font, at + Vector2(8, 18 + i * 16), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.9, 0.95, 1.0) if i == 0 else DIM)
+	for i in rows.size():
+		var col: Color = {"title": Color(0.9, 0.95, 1.0), "good": Color(0.55, 1.0, 0.65), "warn": Color(1.0, 0.7, 0.3)}.get(rows[i][1], DIM)
+		draw_string(font, at + Vector2(8, 18 + i * 16), rows[i][0], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, col)
 
 
 func _dashed(a: Vector2, b: Vector2, col: Color) -> void:
