@@ -107,6 +107,13 @@ const HULL_BAYS := {
 	"BattleCruiser": 3000, "Battleship": 2200, "Dreadnought": 3000, "Starbase": 20000, "Freighter": 1800,
 }
 
+## Crew aboard each hull.  Hits kill crew, damage control works as fast
+## as there are hands for it, and boarding is crew against crew.
+const HULL_CREW := {
+	"Scout": 6, "Destroyer": 12, "Raider": 12, "Freighter": 8, "Marauder": 16, "Cruiser": 24,
+	"BattleCruiser": 36, "Battleship": 44, "Dreadnought": 60, "Starbase": 300,
+}
+
 ## Credits for a hull at the shipyard.
 const HULL_PRICE := {
 	"Scout": 0, "Destroyer": 400, "Marauder": 900, "Cruiser": 1500,
@@ -115,7 +122,9 @@ const HULL_PRICE := {
 
 # ------------------------------------------------------------- missiles
 # warhead, firing velocity (fraction of light), guidance, trigger, seek
-# range, max speed (fraction of light), life (seconds), radius
+# range, max speed (fraction of light), life (seconds), radius.  Optional:
+# "sys" scales the damage to the systems near the hit (ShipSystems), and
+# "heat" seekers home on the exhaust, so their hits go into the engines.
 
 const MISSILES := {
 	"001": {"name": "torpedo", "warhead": 150, "fire_v": 0.60, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.20, "life": 3.2, "radius": 4, "look": "bolt"},
@@ -123,11 +132,11 @@ const MISSILES := {
 	"003": {"name": "plasma", "warhead": 500, "fire_v": 0.35, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "plasma"},
 	"004": {"name": "grenade", "warhead": 1500, "fire_v": 0.30, "guided": false, "trigger": "prox", "prox": 64, "seek_range": 0, "max_v": 0.95, "life": 3.2, "radius": 7, "look": "grenade"},
 	"008": {"name": "smart missile", "warhead": 180, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 4, "look": "missile", "turn": 3.5, "accel": 220},
-	"009": {"name": "seeker", "warhead": 400, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 5, "look": "missile", "turn": 2.5, "accel": 220},
+	"009": {"name": "seeker", "warhead": 400, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 5, "look": "missile", "turn": 2.5, "accel": 220, "heat": true},
 	"010": {"name": "rapid torpedo", "warhead": 100, "fire_v": 0.70, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.80, "life": 3.2, "radius": 3, "look": "bolt"},
 	"011": {"name": "rapid plasma", "warhead": 400, "fire_v": 0.80, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.00, "life": 3.2, "radius": 5, "look": "plasma"},
 	"018": {"name": "cannon shell", "warhead": 750, "fire_v": 0.40, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "shell"},
-	"020": {"name": "disruptor bolt", "warhead": 220, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320},
+	"020": {"name": "disruptor bolt", "warhead": 220, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320, "sys": 1.8},
 	"021": {"name": "drone", "warhead": 90, "fire_v": 0.25, "guided": true, "trigger": "impact", "seek_range": 700, "max_v": 0.5, "life": 9.0, "radius": 4, "look": "drone", "turn": 4.5, "accel": 260},
 }
 

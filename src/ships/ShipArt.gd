@@ -449,7 +449,7 @@ static func _overlay(m: Dictionary, icon: String, pos: Vector2, width: float, ro
 	if not free:
 		pos = _snap(m["mask"], m["rect"], pos, width * 0.4, m["taken"], width * 0.85)
 		m["taken"].append(pos)
-	m["overlays"].append({"tex": t, "pos": pos, "w": width, "h": width * t.get_height() / t.get_width(), "rot": rot, "a": alpha, "anchor": anchor})
+	m["overlays"].append({"tex": t, "icon": icon, "pos": pos, "w": width, "h": width * t.get_height() / t.get_width(), "rot": rot, "a": alpha, "anchor": anchor})
 
 
 ## Fitted systems, placed where they read best on a top-down hull.
@@ -517,8 +517,10 @@ static func _turret_overlay(m: Dictionary, w: Array, index: int, size: float) ->
 
 # ------------------------------------------------------------------ draw
 
+## `broken` maps a part icon, "engines" or "t<weapon index>" to how badly
+## that system is damaged (0..1, 1 offline): those parts are drawn dark.
 static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: float, cloak_alpha: float, damage: float,
-		xform: Transform2D = Transform2D.IDENTITY, aims: Array = [], flash: float = 0.0) -> void:
+		xform: Transform2D = Transform2D.IDENTITY, aims: Array = [], flash: float = 0.0, broken: Dictionary = {}) -> void:
 	var a := cloak_alpha
 	var size: float = m["size"]
 	var rect: Rect2 = m["rect"]
@@ -546,19 +548,22 @@ static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: flo
 	var tint: Color = m["tint"]
 	var pm := Color(tint.r * bright * dark, tint.g * bright * dark, tint.b * bright * dark, a)
 	for o in m["overlays"]:
-		_draw_icon(c, xform, o["tex"], o["pos"], o["w"], o["h"], o["rot"], Color(pm.r, pm.g, pm.b, a * o["a"]), o["anchor"])
+		var k := 1.0 - 0.6 * float(broken.get(o.get("icon", ""), 0.0))
+		_draw_icon(c, xform, o["tex"], o["pos"], o["w"], o["h"], o["rot"], Color(pm.r * k, pm.g * k, pm.b * k, a * o["a"]), o["anchor"])
 	# weapons, turrets turned to their live aim
 	for t in m["turrets"]:
 		var ang: float = t["fire"]
 		if t["turret"] and t["index"] < aims.size():
 			ang = aims[t["index"]]
-		_draw_icon(c, xform, t["tex"], t["pos"], t["w"], t["h"], ang, pm, t["anchor"])
+		var k := 1.0 - 0.6 * float(broken.get("t%d" % t["index"], 0.0))
+		_draw_icon(c, xform, t["tex"], t["pos"], t["w"], t["h"], ang, Color(pm.r * k, pm.g * k, pm.b * k, pm.a), t["anchor"])
 	c.draw_set_transform_matrix(xform)
 	# idle nozzle glow
 	if a > 0.05 and not m["station"]:
 		var glow: Color = m["glow"]
+		var live := 1.0 - float(broken.get("engines", 0.0))
 		for nz in m["nozzles"]:
-			c.draw_circle(nz["pos"], nz["r"] * 0.6, Color(glow.r, glow.g, glow.b, (0.3 + 0.6 * thrusting) * a))
+			c.draw_circle(nz["pos"], nz["r"] * 0.6, Color(glow.r, glow.g, glow.b, (0.3 + 0.6 * thrusting) * a * live))
 	# damage: scorch marks and sparks of exposed frame
 	if damage > 0.25:
 		var rng := RandomNumberGenerator.new()

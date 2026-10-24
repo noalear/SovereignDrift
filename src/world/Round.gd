@@ -170,10 +170,10 @@ func _finish(winner: int, how: String) -> void:
 	phase = "over"
 	var pilots := []
 	for s in world.ships:
-		if s.is_station:
+		if s.is_station or s.is_prize:
 			continue
 		pilots.append({"name": s.pilot_name, "race": s.race_id, "rank": s.rank, "kills": round_kills(s), "deaths": s.deaths,
-			"captures": s.captures, "score": round_score(s), "is_player": s.is_player, "hull": s.design_name, "credits_earned": s.credits_earned})
+			"captures": s.captures, "boarded": s.ships_captured, "score": round_score(s), "is_player": s.is_player, "hull": s.design_name, "credits_earned": s.credits_earned})
 	pilots.sort_custom(func(a, b): return a["score"] > b["score"])
 	result = {"winner": winner, "how": how, "elapsed": elapsed, "standings": standings(), "pilots": pilots, "events": events.duplicate()}
 	note("%s win the system by %s" % [GameData.race(winner)["name"], "conquest" if how == "conquest" else "planets held"], winner)

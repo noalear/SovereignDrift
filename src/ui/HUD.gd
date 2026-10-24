@@ -85,6 +85,8 @@ func _draw() -> void:
 	_draw_aim(p, vp)
 	_draw_pointers(p, vp)
 	_draw_heat(p, vp)
+	if not p.dead:
+		_draw_disabled(p, vp)
 	if p.dead:
 		_draw_dead(vp)
 	if show_help:
@@ -109,6 +111,9 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 	var w := 300.0
 	draw_rect(Rect2(x - 10, y - 34, w + 20, 148), Color(0.02, 0.04, 0.08, 0.6))
 	draw_string(font, Vector2(x, y - 12), "%s   %s" % [p.ship_name, p.design_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, p.race_color())
+	if not p.systems.list.is_empty():
+		draw_rect(Rect2(x - 10, y - 66, w + 20, 30), Color(0.02, 0.04, 0.08, 0.6))
+		_draw_systems(p, Vector2(x, y - 60), w)
 	_bar(Vector2(x, y), w, 19, p.shield / maxf(p.shield_max, 1.0), Color(0.3, 0.6, 1.0, 0.85), "Shields", "%d / %d" % [int(p.shield), int(p.shield_max)])
 	_bar(Vector2(x, y + 22), w, 19, p.hull / maxf(p.hull_max, 1.0), Color(0.95, 0.55, 0.25, 0.85) if p.hull / p.hull_max > 0.3 else Color(1, 0.2, 0.2, 0.9), "Hull", "%d / %d" % [int(p.hull), int(p.hull_max)])
 	_bar(Vector2(x, y + 44), w, 19, p.energy / maxf(p.energy_max, 1.0), Color(0.95, 0.85, 0.3, 0.85), "Energy", "%d" % int(p.energy))
@@ -127,9 +132,55 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 		flags.append("QUANTUM DRIVE")
 	if p.autopilot:
 		flags.append("AUTOPILOT")
+	if p.is_disabled():
+		flags.append("DISABLED")
+	if p.boarding != null and is_instance_valid(p.boarding):
+		flags.append("BOARDING %d%%" % int(p.board_progress * 100.0))
+	if p.boarded_by != null and is_instance_valid(p.boarded_by):
+		flags.append("BOARDERS!")
 	if p.inputs["boost"] and p.has_boost and p.inputs["thrust"] > 0.0:
 		flags.append("BOOST")
-	draw_string(font, Vector2(x, y + 106), "Speed %4d   %s" % [int(p.local_velocity().length()), "  ".join(flags)], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.95, 1.0))
+	draw_string(font, Vector2(x, y + 106), "Speed %4d   Crew %d/%d   %s" % [int(p.local_velocity().length()), int(ceil(p.crew)), p.crew_max, "  ".join(flags)], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.95, 1.0))
+
+
+## One pill per system: green whole, amber damaged, red offline, with a
+## fill showing its health.
+func _draw_systems(s: Ship, pos: Vector2, width: float) -> void:
+	var n := s.systems.list.size()
+	if n == 0:
+		return
+	var gap := 3.0
+	var w := minf((width - gap * (n - 1)) / n, 46.0)
+	var x := pos.x
+	for e in s.systems.list:
+		var h: float = e["hp"] / e["max"]
+		var col := Color(0.35, 0.9, 0.45)
+		if e["offline"]:
+			col = Color(1.0, 0.25, 0.2) if fmod(time * 2.0, 1.0) < 0.65 else Color(0.5, 0.1, 0.1)
+		elif h < ShipSystems.DAMAGED_BELOW:
+			col = Color(1.0, 0.75, 0.25)
+		var r := Rect2(Vector2(x, pos.y), Vector2(w, 18))
+		draw_rect(r, Color(0, 0, 0, 0.5))
+		draw_rect(Rect2(r.position, Vector2(w * clampf(h, 0.0, 1.0), 18)), Color(col.r, col.g, col.b, 0.45))
+		draw_rect(r, col, false, 1.0)
+		draw_string(font, r.position + Vector2(0, 13), e["tag"], HORIZONTAL_ALIGNMENT_CENTER, w, 11, Color(1, 1, 1, 0.95))
+		x += w + gap
+
+
+## The cockpit's warnings: dead in space, boarders aboard, our own boarding.
+func _draw_disabled(p: Ship, vp: Vector2) -> void:
+	var y := vp.y * 0.22
+	if p.boarded_by != null and is_instance_valid(p.boarded_by):
+		var b: Ship = p.boarded_by
+		_text(Vector2(0, y), "BOARDERS FROM %s" % b.ship_name.to_upper(), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 26, Color(1.0, 0.35, 0.25))
+		_text(Vector2(0, y + 28), "Our crew %d against their %d.  Shoot them off, or get the engines back and run." % [int(ceil(p.crew)), int(ceil(b.crew))], HORIZONTAL_ALIGNMENT_CENTER, vp.x, 16, Color(1, 0.9, 0.85))
+		return
+	if p.is_disabled():
+		var eta := p.systems.restart_eta(p.crew_fraction())
+		var what := "No crew left aboard" if p.crew < 0.5 else ("%s offline" % eta.get("label", "Engines"))
+		_text(Vector2(0, y), "DEAD IN SPACE: %s" % what.to_upper(), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 26, Color(1.0, 0.45, 0.25))
+		if not eta.is_empty():
+			_text(Vector2(0, y + 28), "Damage control: back online in about %d s" % int(ceil(eta["eta"])), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 16, Color(1, 0.9, 0.8))
 
 
 func _draw_weapons(p: Ship, vp: Vector2) -> void:
@@ -143,13 +194,23 @@ func _draw_weapons(p: Ship, vp: Vector2) -> void:
 	for g in range(1, GameData.WEAPON_GROUPS + 1):
 		var names := p.group_weapons(g)
 		var ready := false
+		var out := 0
+		var count := 0
 		for w in p.weapons:
-			if int(w["group"]) == g and w["cooldown"] <= 0.0 and p.energy >= w["cost"] and w["ammo"] != 0:
+			if int(w["group"]) != g:
+				continue
+			count += 1
+			# a mount that is shot out does not fire
+			if p.systems.is_offline("w%d" % w["index"]):
+				out += 1
+			elif w["cooldown"] <= 0.0 and p.energy >= w["cost"] and w["ammo"] != 0:
 				ready = true
 		var selected := g == p.weapon_group
 		if selected:
 			draw_rect(Rect2(x - 6, ly - 13, 288, 17), Color(0.25, 0.45, 0.8, 0.45))
 		var text := "%d  %s" % [g, ", ".join(names) if not names.is_empty() else "-"]
+		if out > 0:
+			text += "  OFFLINE" if out == count else "  (%d out)" % out
 		var col := Color(0.9, 1.0, 0.9) if ready else Color(0.6, 0.6, 0.6)
 		if names.is_empty():
 			col = Color(0.45, 0.5, 0.55)
@@ -195,7 +256,8 @@ func _draw_target(p: Ship, vp: Vector2) -> void:
 	# readout
 	var x := vp.x - 330.0
 	var y := 24.0
-	draw_rect(Rect2(x - 10, y - 4, 320, 112), Color(0.02, 0.04, 0.08, 0.6))
+	var tall := 112.0 + (60.0 if t is Ship and not t.systems.list.is_empty() else 0.0)
+	draw_rect(Rect2(x - 10, y - 4, 320, tall), Color(0.02, 0.04, 0.08, 0.6))
 	if t is Ship:
 		draw_string(font, Vector2(x, y + 14), "%s   %s %s" % [t.pilot_name, GameData.race(t.race_id)["adj"], t.design_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, col)
 		draw_string(font, Vector2(x, y + 34), "%s   range %d" % [GameData.rank_name(t.rank), int(t.global_position.distance_to(p.global_position))], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.9, 0.9))
@@ -203,6 +265,22 @@ func _draw_target(p: Ship, vp: Vector2) -> void:
 		_bar(Vector2(x, y + 66), 300, 18, t.hull / maxf(t.hull_max, 1.0), Color(0.95, 0.55, 0.25, 0.85), "Hull", "%d" % int(t.hull))
 		if not vis:
 			draw_string(font, Vector2(x, y + 102), "Contact lost", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 0.7, 0.5))
+		elif not t.systems.list.is_empty():
+			_draw_systems(t, Vector2(x, y + 90), 300)
+			var line := "Crew %d/%d" % [int(ceil(t.crew)), t.crew_max]
+			var lcol := Color(0.9, 0.9, 0.9)
+			if p.boarding == t:
+				line += "   BOARDING %d%%   (K calls it off)" % int(p.board_progress * 100.0)
+				lcol = Color(0.55, 0.9, 1.0)
+				_bar(Vector2(x, y + 132), 300, 10, p.board_progress, Color(0.5, 0.85, 1.0, 0.9), "", "")
+			elif t.is_disabled() and t.race_id != p.race_id:
+				var why := Capture.why_not(p, t)
+				lcol = Color(1.0, 0.6, 0.3) if fmod(time * 2.0, 1.0) < 0.7 else Color(1.0, 0.85, 0.5)
+				if why == "far":
+					line += "   DISABLED: close to %d, then K" % int(Capture.board_range(p, t))
+				else:
+					line += "   DISABLED: " + ("K to board" if why == "" else Capture.reason_text(why, p, t))
+			draw_string(font, Vector2(x, y + 126), line, HORIZONTAL_ALIGNMENT_LEFT, 300, 13, lcol)
 
 
 func _draw_nav(p: Ship, vp: Vector2) -> void:
@@ -475,7 +553,7 @@ func _draw_aim(p: Ship, vp: Vector2) -> void:
 func _draw_dead(vp: Vector2) -> void:
 	var a := clampf(dead_time, 0.0, 1.0)
 	draw_rect(Rect2(Vector2.ZERO, vp), Color(0.3, 0.0, 0.0, 0.25 * a))
-	draw_string(font, Vector2(0, vp.y * 0.4), "Your ship was destroyed", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 40, Color(1, 0.8, 0.7, a))
+	draw_string(font, Vector2(0, vp.y * 0.4), "Your ship was captured" if world.player.captured else "Your ship was destroyed", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 40, Color(1, 0.8, 0.7, a))
 	var left := maxf(World.RESPAWN_DELAY - dead_time, 0.0)
 	draw_string(font, Vector2(0, vp.y * 0.4 + 40), "Relaunching in %d..." % int(ceil(left)), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, Color(1, 1, 1, a))
 
@@ -518,7 +596,7 @@ func _draw_help(vp: Vector2) -> void:
 		[_keys("tactical_map"), "system map (hold or tap)"], [_keys("nav_next"), "next nav planet"], [_keys("autopilot"), "autopilot to the nav planet"],
 		["", ""],
 		["SHIP", ""],
-		[_keys("refit"), "shipyard, at your starbase"], [_keys("trade"), "trade with your target (online)"],
+		[_keys("board"), "board a disabled target"], [_keys("refit"), "shipyard, at your starbase"], [_keys("trade"), "trade with your target (online)"],
 	]
 	for extra in [["land", "land on the world below / lift off"], ["colonists_board", "take colonists on (landed)"], ["colonists_unload", "put colonists down (landed)"]]:
 		if InputMap.has_action(extra[0]):
@@ -543,6 +621,6 @@ func _draw_help(vp: Vector2) -> void:
 				draw_string(font, Vector2(col[1] + 200.0, ly), desc, HORIZONTAL_ALIGNMENT_LEFT, 250, 15, Color(0.85, 0.9, 1.0))
 			ly += 22
 	var fy := y + 66 + rows * 22.0 + 10
-	draw_string(font, Vector2(x, fy), "Destroy enemy ships and bombard enemy colonies until they surrender.", HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
+	draw_string(font, Vector2(x, fy), "Destroy or capture enemy ships (shoot out engines or reactor, then board with %s), and bombard enemy colonies until they surrender." % Keybinds.short_text("board"), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
 	draw_string(font, Vector2(x, fy + 22), "Wrecks drop parts and blueprints.  Dock at your starbase (%s) to refit and set weapon groups." % Keybinds.short_text("refit"), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
 	draw_string(font, Vector2(x, fy + 44), "Change any key or gamepad button in Settings > Controls.", HORIZONTAL_ALIGNMENT_CENTER, w, 14, Color(0.7, 0.8, 0.95))
