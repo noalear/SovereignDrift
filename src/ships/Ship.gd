@@ -123,6 +123,7 @@ var beam_targets := []             # beams fired this frame, for drawing
 var aim_point := Vector2.INF       # where the pilot wants turrets to point (world)
 var has_turret := false
 var last_hit_angle := 0.0
+var shield_bubble: ShieldBubble
 var net_id := 0                    # online: the id the host and clients share
 var is_puppet := false             # online: shown from the host's snapshots, not simulated
 var docked := false                # in the shipyard: controls are off
@@ -140,6 +141,9 @@ func setup(p_world: Node, p_design: String, p_race: int, p_pilot: String, p_ship
 	body.restitution = 0.25
 	body.friction = 0.35
 	refit(p_design)
+	shield_bubble = ShieldBubble.new()
+	add_child(shield_bubble)
+	shield_bubble.setup(self)
 	engine_sound = EngineSound.new()
 	add_child(engine_sound)
 	engine_sound.setup(self)
@@ -196,6 +200,8 @@ func refit(p_design: Variant) -> void:
 	_build_weapons()
 	art_model = ShipArt.build_model(design, race_id, size)
 	_build_body()
+	if shield_bubble != null:
+		shield_bubble.fit()
 	queue_redraw()
 
 
@@ -1037,21 +1043,12 @@ func _draw() -> void:
 	if art_model.is_empty():
 		art_model = ShipArt.build_model(design, race_id, size)
 	ShipArt.draw_model(self, art_model, base, thrust_level, cloak_alpha, dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0))
-	# shield ripple where the shot landed
-	if hit_flash > 0.0 and shield > 0.0:
-		var c := Color(0.5, 0.75, 1.0, hit_flash * 5.0 * cloak_alpha)
-		var spread := 0.9 + (0.15 - hit_flash) * 6.0
-		draw_arc(Vector2.ZERO, size * 1.35, last_hit_angle - spread, last_hit_angle + spread, 24, c, 3.5, true)
-		var c2 := Color(0.7, 0.85, 1.0, hit_flash * 2.0 * cloak_alpha)
-		draw_arc(Vector2.ZERO, size * 1.35, 0, TAU, 40, c2, 1.5, true)
+	# the shield is drawn by shield_bubble
 	# turret arcs for the pilot's own ship
 	if is_player and Settings.mouse_aim and aim_point != Vector2.INF:
 		for w in weapons:
 			if is_turret(w) and w["arc1"] - w["arc0"] < TAU - 0.2:
 				draw_arc(Vector2.ZERO, size * 1.1, w["arc0"], w["arc1"], 24, Color(1, 1, 1, 0.12), 1.0, true)
-	if invulnerable > 0.0:
-		var c := Color(1, 1, 1, 0.25 + 0.25 * sin(invulnerable * 20.0))
-		draw_arc(Vector2.ZERO, size * 1.5, 0, TAU, 40, c, 2.0, true)
 	if warping and warp_charge < WARP_CHARGE_TIME:
 		var c := Color(0.6, 0.8, 1.0, warp_charge / WARP_CHARGE_TIME)
 		draw_arc(Vector2.ZERO, size * (2.6 - 1.4 * warp_charge / WARP_CHARGE_TIME), 0, TAU, 48, c, 2.5, true)
