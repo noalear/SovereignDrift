@@ -1,6 +1,7 @@
-## ShieldBubble -- the shield drawn around a whole ship.  Its colour, the
-## cells still lit and a flicker near the end show how strong it is; hits
-## ripple out from where they land and it bursts when it goes down.
+## ShieldBubble -- the shield drawn around a whole ship: faint, soft-edged
+## and the same colour for everyone.  How bright it is, the cells still lit
+## and a flicker near the end show how strong it is; hits ripple out from
+## where they land and it shatters when it goes down.
 class_name ShieldBubble
 extends Node2D
 

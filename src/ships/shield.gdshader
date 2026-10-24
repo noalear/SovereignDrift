@@ -1,10 +1,11 @@
 shader_type canvas_item;
 
-// A ship's shield: an elliptical bubble of hexagonal cells around the whole
-// hull.  Its colour runs blue -> amber -> red with strength, cells drop out
-// as it weakens, a gauge round the rim shows the charge left, it flickers
-// when nearly gone, hits ripple across it from where they land, and it
-// flashes white as it collapses.
+// A ship's shield: a faint elliptical bubble of hexagonal cells around the
+// whole hull, the same pale colour for every side so it never reads as
+// friend or foe.  It is about a fifth opaque at full charge and has no hard
+// edge: it fades out toward its rim.  As it weakens it thins out, cells
+// drop away and the rest flicker near the end; hits light it up where they
+// land and ripple across it, and it shatters when it fails.
 
 uniform float strength = 1.0;       // shield / shield_max
 uniform float alpha = 1.0;          // cloak and fades
@@ -36,60 +37,47 @@ void fragment() {
 		discard;
 	}
 	float z = sqrt(max(1.0 - r * r, 0.0));
-	// rim light, strongest at the edge like a real bubble seen side-on
-	float rim = pow(1.0 - z, 2.2);
-	float edge_aa = 1.0 - smoothstep(0.965, 1.0, r);
+	// brighter toward the rim like a bubble seen side-on, but faded out
+	// before the edge so there is no outline
+	float soft = 1.0 - smoothstep(0.78, 1.0, r);
+	float rim = pow(1.0 - z, 1.6) * soft;
 	// cells in world proportions, a little bent toward the rim
 	vec2 cp = p * aspect * 9.0 / (0.6 + 0.4 * z);
 	vec3 h = hex(cp);
 	float line = 1.0 - smoothstep(0.0, 0.07, h.x);
-	// weaker shields lose cells; nearly gone, the rest flicker
+	// weaker shields thin out and lose cells; nearly gone, the rest flicker
 	float cell = hash(h.yz);
 	float intact = step(cell, strength * 1.15 - 0.05);
-	float flick = strength < 0.25 ? 0.55 + 0.45 * step(0.4, hash(h.yz + floor(TIME * 18.0))) : 1.0;
-	vec3 blue = vec3(0.35, 0.72, 1.0);
-	vec3 amber = vec3(1.0, 0.78, 0.3);
-	vec3 red = vec3(1.0, 0.3, 0.22);
-	vec3 col = mix(red, mix(amber, blue, smoothstep(0.35, 0.7, strength)), smoothstep(0.1, 0.35, strength));
-	// fill and rim stay faintly through lost cells so the bubble reads as
-	// worn rather than holed; the cell lines go with the cells
-	float fill = (0.04 + 0.34 * rim) * (0.4 + 0.6 * intact);
-	float lines = 0.16 * line * intact * (0.4 + rim);
-	// a gauge along the rim: lit from the bow back round both sides in
-	// proportion to the charge, so a glance tells how much is left
-	float band = smoothstep(0.885, 0.915, r) * (1.0 - smoothstep(0.945, 0.97, r));
-	float around = abs(atan(p.y, p.x)) / 3.14159265;
-	float gauge = band * (step(around, strength) * 0.55 + 0.08);
-	float a = strength > 0.0 ? (fill + lines + gauge) * flick : 0.0;
+	float flick = strength < 0.25 ? 0.5 + 0.5 * step(0.4, hash(h.yz + floor(TIME * 18.0))) : 1.0;
+	float charge = 0.45 + 0.55 * strength;
+	vec3 col = vec3(0.82, 0.9, 1.0);
+	float body = (0.07 * soft + 0.13 * rim) * (0.5 + 0.5 * intact) + 0.08 * line * intact * (0.4 + rim) * soft;
+	float a = strength > 0.0 ? body * charge * flick : 0.0;
 	// hits: a flash where it landed and a ring running out across the bubble
+	float hit = 0.0;
 	for (int i = 0; i < 4; i++) {
 		vec4 hv = hits[i];
 		if (hv.w <= 0.0 || hv.z > 0.9) {
 			continue;
 		}
-		float d = length((p - hv.xy * 0.92) * aspect);
+		float d = length((p - hv.xy * 0.85) * aspect);
 		float fade = 1.0 - hv.z / 0.9;
 		float ring = exp(-pow((d - hv.z * 1.4) * 9.0, 2.0)) * fade;
 		float flash = exp(-d * d * 22.0) * max(1.0 - hv.z / 0.22, 0.0);
 		float glow = exp(-d * d * 6.0) * fade * fade;   // the cells round the impact light up
-		float k = (ring * (0.5 + 1.4 * line) + glow * (0.15 + 1.2 * line) + flash * 2.0) * hv.w;
-		a += k;
-		col = mix(col, vec3(0.92, 0.97, 1.0), clamp((flash + glow * line * 0.6) * hv.w, 0.0, 1.0));
+		hit += (ring * (0.15 + 0.4 * line) + glow * (0.05 + 0.35 * line) + flash * 0.5) * hv.w;
 	}
-	// collapse: a white flash, then the cells shatter one by one, red, and
-	// the last of them go about half a second after the shield fell
+	a += hit * (0.4 + 0.6 * soft);
+	// collapse: the cells shatter one by one and are gone in half a second
 	if (collapse < 0.5) {
 		float t = collapse / 0.5;
 		float gone = step(hash(h.yz * 1.7 + 3.1) * 0.9 + 0.1, t);
-		float burst = (1.0 - gone) * (1.0 - t * 0.6) * (0.03 + 0.8 * line + 0.35 * rim);
-		a += burst + (1.0 - smoothstep(0.0, 0.15, t)) * 0.3 * rim;
-		col = mix(vec3(1.0, 0.35, 0.25), vec3(1.0, 0.95, 0.9), 1.0 - smoothstep(0.0, 0.3, t));
+		a += (1.0 - gone) * (1.0 - t) * (0.03 + 0.3 * line) * (0.5 + 0.5 * soft);
 	}
-	// respawn protection: a white shimmer
+	// respawn protection: a gentle white shimmer
 	if (guard > 0.0) {
 		float sh = 0.5 + 0.5 * sin(TIME * 9.0 + (p.x + p.y) * 6.0);
-		a += guard * (0.12 + 0.35 * rim) * (0.6 + 0.4 * sh);
-		col = mix(col, vec3(1.0), guard * 0.7);
+		a += guard * (0.04 + 0.1 * rim) * (0.6 + 0.4 * sh);
 	}
-	COLOR = vec4(col, clamp(a, 0.0, 0.85) * edge_aa * alpha);
+	COLOR = vec4(col, clamp(a, 0.0, 0.5) * alpha);
 }

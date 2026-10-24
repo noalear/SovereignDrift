@@ -74,6 +74,7 @@ func _draw() -> void:
 			return
 	var p := world.player
 	var vp := get_viewport_rect().size
+	_draw_labels(p, vp)
 	_draw_status(p, vp)
 	_draw_weapons(p, vp)
 	_draw_target(p, vp)
@@ -93,6 +94,60 @@ func _draw() -> void:
 		_draw_help(vp)
 	else:
 		draw_string(font, Vector2(vp.x * 0.5 - 150, vp.y - 14), "H: help   Esc: menu", HORIZONTAL_ALIGNMENT_CENTER, 300, 14, Color(1, 1, 1, 0.45))
+
+
+## Names in the world: every planet and moon under its body, and every
+## ship you can see above it, green for your side and red for anyone else.
+## Planets are placed first; a label that would land on one already
+## placed is skipped, so crowded moons and fleets don't pile up.
+func _draw_labels(p: Ship, vp: Vector2) -> void:
+	var cam := world.camera
+	var centre := world.camera_centre()
+	var screen_rect := Rect2(Vector2(-80, -40), vp + Vector2(160, 80))
+	var placed: Array[Rect2] = []
+	var bodies := world.planets.duplicate()
+	bodies.sort_custom(func(a, b): return a.parent_body == null and b.parent_body != null)
+	for pl in bodies:
+		var at: Vector2 = (world.drawn_position(pl) - centre) * cam.zoom + vp * 0.5
+		var r: float = pl.drawn_radius() * cam.zoom.x
+		if not screen_rect.grow(r).has_point(at):
+			continue
+		var moon: bool = pl.parent_body != null
+		var size := 12 if moon else 14
+		var col := Color(0.85, 0.9, 0.97, 0.85 if moon else 1.0)
+		var pos := at + Vector2(0, r + 4.0 + size)
+		var w := font.get_string_size(pl.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+		var box := Rect2(pos + Vector2(-w * 0.5, -size), Vector2(w, size + 4))
+		if _crowded(box, placed):
+			continue
+		placed.append(box)
+		_text(pos - Vector2(w * 0.5, 0), pl.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, size, col)
+	for sh in world.ships:
+		if sh == p or sh.dead or sh.docked or not sh.visible or not sh.visible_to(p):
+			continue
+		var at: Vector2 = (world.drawn_position(sh) - centre) * cam.zoom + vp * 0.5
+		if not screen_rect.has_point(at):
+			continue
+		var reach: float = sh.size
+		if sh.shield_bubble != null:
+			reach = maxf(reach, maxf(sh.shield_bubble.half.x, sh.shield_bubble.half.y) + sh.shield_bubble.position.length())
+		var friend: bool = sh.race_id == p.race_id
+		var col := Color(0.45, 1.0, 0.5) if friend else Color(1.0, 0.38, 0.32)
+		var text: String = sh.ship_name if sh.is_station else sh.pilot_name
+		var pos := at - Vector2(0, reach * cam.zoom.x + 8.0)
+		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+		var box := Rect2(pos + Vector2(-w * 0.5, -13), Vector2(w, 17))
+		if _crowded(box, placed):
+			continue
+		placed.append(box)
+		_text(pos - Vector2(w * 0.5, 0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
+
+
+func _crowded(box: Rect2, placed: Array[Rect2]) -> bool:
+	for b in placed:
+		if b.intersects(box):
+			return true
+	return false
 
 
 func _bar(pos: Vector2, w: float, h: float, frac: float, color: Color, label: String, value: String) -> void:

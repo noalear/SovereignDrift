@@ -160,6 +160,14 @@ func quad_extent() -> float:
 	return 2.6 if look == "Sun" else 1.5
 
 
+## How far out the drawn body reaches: the shader paints planets a little
+## larger than their physical radius, and a colony ring sits outside that.
+func drawn_radius() -> float:
+	if look == "Sun":
+		return radius
+	return maxf(radius * 1.19, radius + 12.0 if is_colonised() else 0.0)
+
+
 ## Solid ground to land on: not the Sun, not a gas giant.
 func has_surface() -> bool:
 	return look != "Sun" and habitable < 100
