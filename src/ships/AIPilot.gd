@@ -345,7 +345,7 @@ func _act(delta: float) -> void:
 				i["fire_secondary"] = aligned and dist < 650.0 and randf() < 0.8
 				i["fire_beam"] = dist < 420.0 and absf(diff2) < 1.8
 				i["fire_missile"] = dist < 1200.0 and dist > 300.0 and fmod(Time.get_ticks_msec() / 1000.0, 3.0) < 0.2
-				i["fire_mine"] = dist < 220.0 and randf() < 0.02
+				i["fire_mine"] = _mine_ok(tgt, dist) and randf() < 0.02
 			else:
 				i["fire_primary"] = false
 		State.EVADE:
@@ -356,7 +356,7 @@ func _act(delta: float) -> void:
 				i["thrust"] = 1.0
 				i["strafe"] = evade_dir
 				i["boost"] = ship.energy > ship.energy_max * 0.3
-				i["fire_mine"] = randf() < 0.05
+				i["fire_mine"] = _mine_ok(tgt, away.length()) and randf() < 0.05
 				i["fire_beam"] = false
 			_avoid_planets(delta)
 		State.FERRY:
@@ -540,3 +540,12 @@ func _avoid_planets(_delta: float) -> void:
 		ship.inputs["strafe"] = -side
 		if to.length() < danger:
 			ship.inputs["brake"] = false
+
+
+## Mines go out behind a ship, into the path of whoever is chasing it, and
+## never point-blank: the pursuer has room to see the mine and turn away.
+func _mine_ok(tgt: Node2D, dist: float) -> bool:
+	if tgt == null or not is_instance_valid(tgt) or dist < 260.0 or dist > 750.0:
+		return false
+	var to: Vector2 = tgt.global_position - ship.global_position
+	return absf(wrapf(to.angle() - ship.rotation, -PI, PI)) > PI * 0.65

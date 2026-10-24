@@ -557,7 +557,11 @@ func _fly(delta: float) -> void:
 	# the orbit guard: with assist on, a course that would end on a planet's
 	# surface is flown into a circular orbit on the ship's own engines
 	var hands_off: bool = t == 0.0 and st == 0.0 and not inputs["brake"]
-	var guard := _orbit_guard_force(fwd, f0, delta) if flight_assist and (hands_off or not is_player) else Vector2.ZERO
+	var guard := Vector2.ZERO
+	if flight_assist and (hands_off or not is_player):
+		guard = _orbit_guard_force(fwd, f0, delta)
+	else:
+		orbit_guard = false     # the pilot has the stick: never leave the guard holding the engines
 	if orbit_guard:
 		f = guard
 		engine_level = f.length() / maxf(thrust_force, 1.0)
@@ -964,6 +968,23 @@ func _clearance(body: Node2D) -> float:
 	return body.radius + size + 500.0
 
 
+## The berth autopilot gives a body on the way to the nav target.  Bodies
+## that sit beside the destination (its moons, its planet, a belt rock next
+## to Mars) are passed close, just clear of their surface: the final
+## approach has to go by them, and a wide berth would push the ship off the
+## approach for ever.  The same goes for a body we are already close to,
+## after lifting off or launching beside it: just climb clear of it.
+func _route_clearance(body: Node2D) -> float:
+	if body.look != "Sun":
+		var full := _clearance(body)
+		if global_position.distance_to(body.global_position) < full:
+			return body.radius + size + 70.0
+		if nav_target != null and nav_target.look != "Sun" \
+				and body.global_position.distance_to(nav_target.global_position) < full + _clearance(nav_target) + 300.0:
+			return body.radius + size + 70.0
+	return _clearance(body)
+
+
 func _sun_safe_radius(sun: Node2D) -> float:
 	return _clearance(sun)
 
@@ -984,7 +1005,7 @@ func _first_blocker(to: Vector2) -> Node2D:
 		var along := rel.dot(dir)
 		if along <= 0.0 or along >= length or along >= best_along:
 			continue
-		if absf(rel.cross(dir)) < _clearance(p):
+		if absf(rel.cross(dir)) < _route_clearance(p):
 			best = p
 			best_along = along
 	return best
@@ -1005,6 +1026,9 @@ func _route(to: Vector2) -> Dictionary:
 		var out: Vector2 = global_position - sun.global_position
 		if out.length() < _clearance(sun):
 			return {"to": out.normalized() * 1500.0, "detour": true, "around": sun}
+	# on the final approach, inside the moons' own orbits: straight in
+	if nav_target != null and to.length() - nav_target.radius < nav_target.radius * 0.6 + 500.0:
+		return {"to": to, "detour": false}
 	var leg := to
 	var around: Node2D = null
 	# the leg to a waypoint can itself cross another body: route round that first
@@ -1019,7 +1043,7 @@ func _route(to: Vector2) -> Dictionary:
 			perp = -perp                # pass on the side we are already on
 		if absf(perp.dot(-rel)) < 1.0 and get_instance_id() % 2 == 0:
 			perp = -perp                # dead on the line: pick a side and keep it
-		leg = body.global_position + perp * _clearance(body) * 1.6 - global_position
+		leg = body.global_position + perp * _route_clearance(body) * 1.6 - global_position
 	if around == null:
 		return {"to": to, "detour": false}
 	return {"to": leg, "detour": true, "around": around}

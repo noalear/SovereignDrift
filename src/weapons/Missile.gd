@@ -162,12 +162,23 @@ func _draw() -> void:
 			draw_circle(Vector2.ZERO, radius, color)
 			draw_circle(Vector2.ZERO, radius * 0.5, Color(0.4, 0.2, 0.1))
 		"mine":
-			var blink := fmod(age, 1.0) < 0.15
-			draw_circle(Vector2.ZERO, radius, color)
+			# a mine must read from across the screen: a red trigger ring
+			# that pulses, a soft glow, and a spiked body with a beacon that
+			# blinks faster once it is armed
+			var hot := armed <= 0.0
+			var rate := 3.0 if hot else 1.0
+			var blink := fmod(age * rate, 1.0) < 0.3
+			var pulse := 0.5 + 0.5 * sin(age * TAU * rate * 0.5)
+			var trigger: float = radius + float(data.get("prox", 0.0))
+			draw_circle(Vector2.ZERO, trigger, Color(1, 0.15, 0.1, (0.05 + 0.05 * pulse) if hot else 0.03))
+			draw_arc(Vector2.ZERO, trigger, 0, TAU, 40, Color(1, 0.25, 0.15, (0.45 + 0.35 * pulse) if hot else 0.2), 2.0, true)
+			draw_circle(Vector2.ZERO, radius * 2.2, Color(1, 0.3, 0.2, 0.18 + 0.12 * pulse))
 			for i in 6:
 				var a := TAU * i / 6.0 + age * 0.5
-				draw_line(Vector2.ZERO, Vector2(cos(a), sin(a)) * radius * 1.7, color, 2.0)
-			draw_circle(Vector2.ZERO, radius * 0.4, Color(1, 0.2, 0.2) if blink else Color(0.4, 0.1, 0.1))
+				draw_line(Vector2.ZERO, Vector2(cos(a), sin(a)) * radius * 1.9, color, 3.0, true)
+			draw_circle(Vector2.ZERO, radius * 1.1, color)
+			draw_circle(Vector2.ZERO, radius * 1.1, Color(0.2, 0.2, 0.22), false, 1.5, true)
+			draw_circle(Vector2.ZERO, radius * 0.5, Color(1, 0.25, 0.2) if blink else Color(0.45, 0.1, 0.1))
 		"missile":
 			draw_line(Vector2(-radius * 3.0, 0), Vector2(radius * 2.0, 0), color, radius * 0.8)
 			draw_line(Vector2(-radius * 3.0, 0), Vector2(-radius * 6.0, 0), Color(1, 0.7, 0.3, 0.7), radius * 0.6)
