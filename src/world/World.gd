@@ -460,7 +460,7 @@ func _follow_camera(delta: float) -> void:
 	camera.global_position = cam_cur
 	# shake decays quickly; the offset is in screen pixels so divide by zoom
 	if shake > 0.0:
-		shake = maxf(shake - delta * 18.0, 0.0)
+		shake = maxf(shake - delta * 18.0 * SHAKE_SCALE, 0.0)
 		var a := randf() * TAU
 		camera.offset = Vector2(cos(a), sin(a)) * shake * Settings.screen_shake / camera.zoom.x
 	else:
@@ -534,8 +534,12 @@ func set_paused(p: bool) -> void:
 		slowmo = 0.0
 
 
+## Kyle: shake at a tenth of its first strength.  The Settings choice
+## (Off / Light / Full) scales on top of this.
+const SHAKE_SCALE := 0.1
+
 func add_shake(amount: float) -> void:
-	shake = minf(shake + amount, 28.0)
+	shake = minf(shake + amount * SHAKE_SCALE, 28.0 * SHAKE_SCALE)
 
 
 ## What the music should feel like right now.
