@@ -1043,8 +1043,7 @@ func _on_ship_damaged(s: Ship, amount: float) -> void:
 
 func _on_ship_died(s: Ship, killer: Node) -> void:
 	var big := s.size > 40.0
-	fx.explosion(s.global_position, s.size * 1.6, s.race_color(), big)
-	fx.wreck(s.body.hull, s.global_position, s.velocity, s.rotation, s.angular_velocity, s.race_color())
+	fx.ship_destroyed(s)
 	# the wave rocks nearby ships and rocks; the loot it leaves is spared
 	blast(s.global_position, s.size * 5.0, s.mass * 25.0, [PhysicsBody.Kind.SHIP, PhysicsBody.Kind.ROCK])
 	if player != null:

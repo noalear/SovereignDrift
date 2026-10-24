@@ -66,24 +66,28 @@ func post_step(delta: float) -> void:
 
 
 func _draw() -> void:
+	# salvage reads as the real thing: the part itself tumbling in a soft
+	# glow (cyan and ghostly for a blueprint), credits as a gold glimmer
 	var fade := clampf((life - age) / 5.0, 0.0, 1.0)
+	var pulse := 0.75 + 0.25 * sin(age * 4.0)
+	var soft := Fx.soft_texture()
 	match kind:
 		"credits":
-			var g := Color(1.0, 0.85, 0.3, fade)
-			var d := PackedVector2Array([Vector2(0, -8), Vector2(7, 0), Vector2(0, 8), Vector2(-7, 0)])
-			draw_colored_polygon(d, Color(0.5, 0.35, 0.05, fade))
-			d.append(d[0])
-			draw_polyline(d, g, 1.5, true)
-			draw_circle(Vector2.ZERO, 2.0 + sin(age * 6.0), Color(1, 1, 0.8, fade))
+			draw_texture_rect(soft, Rect2(-16, -16, 32, 32), false, Color(1.0, 0.75, 0.25, 0.45 * pulse * fade))
+			draw_texture_rect(soft, Rect2(-6, -6, 12, 12), false, Color(1.0, 0.95, 0.7, 0.95 * fade))
 		"blueprint":
-			var c := Color(0.4, 1.0, 1.0, fade)
-			draw_rect(Rect2(-8, -8, 16, 16), Color(0.05, 0.3, 0.35, fade))
-			draw_rect(Rect2(-8, -8, 16, 16), c, false, 1.5)
-			draw_line(Vector2(-4, -3), Vector2(4, -3), c, 1.0)
-			draw_line(Vector2(-4, 0), Vector2(4, 0), c, 1.0)
-			draw_line(Vector2(-4, 3), Vector2(2, 3), c, 1.0)
+			draw_texture_rect(soft, Rect2(-18, -18, 36, 36), false, Color(0.3, 0.9, 1.0, 0.35 * pulse * fade))
+			_draw_part(Color(0.55, 1.0, 1.0, 0.75 * fade))
 		_:
-			var c := Color(0.8, 0.9, 1.0, fade)
-			draw_rect(Rect2(-7, -7, 14, 14), Color(0.2, 0.3, 0.45, fade))
-			draw_rect(Rect2(-7, -7, 14, 14), c, false, 1.5)
-			draw_circle(Vector2.ZERO, 3.0 + sin(age * 6.0), Color(1, 1, 1, fade))
+			draw_texture_rect(soft, Rect2(-18, -18, 36, 36), false, Color(0.75, 0.85, 1.0, 0.3 * pulse * fade))
+			_draw_part(Color(1, 1, 1, fade))
+
+
+func _draw_part(mod: Color) -> void:
+	var tex := ShipArt.part_texture(ShipArt.module_icon(module_id))
+	if tex == null:
+		draw_circle(Vector2.ZERO, 5.0, mod)
+		return
+	var w := 22.0
+	var h := w * tex.get_height() / tex.get_width()
+	draw_texture_rect(tex, Rect2(-w * 0.5, -h * 0.5, w, h), false, mod)

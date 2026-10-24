@@ -86,6 +86,24 @@ static func weapon_icon(id: String) -> String:
 	return "torpedo"
 
 
+## The parts-sheet picture for any module, for salvage and the hold.
+static func module_icon(id: String) -> String:
+	var f: String = GameData.MODULES[id]["func"]
+	match f:
+		"beam", "tube": return weapon_icon(id)
+		"shield": return "shield"
+		"armor": return "armor"
+		"eng": return "nozzle"
+		"sensor": return "sensor"
+		"stealth": return "cloak"
+		"repair": return "repair"
+		"regen": return "regen"
+		"ram": return "ram"
+		"boost": return "booster"
+		"qdrv": return "qdrv"
+	return "reactor"
+
+
 ## Engine flame colour per empire.
 static func glow_color(race_id: int) -> Color:
 	match race_id:
