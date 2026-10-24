@@ -11,11 +11,13 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 5
+const PROTOCOL := 6
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
 const STATS_EVERY := 2.0        # scores, ranks and the round clock
+const SYSTEMS_EVERY := 0.25     # damaged systems, crews and boardings (changes only)
+const SYSTEMS_FULL_EVERY := 8   # ...and everything every this many sends
 
 enum Role { OFFLINE, HOST, CLIENT }
 
@@ -32,6 +34,9 @@ var input_seq := 0
 var snapshot_timer := 0.0
 var ping_timer := 0.0
 var stats_timer := 0.0
+var systems_timer := 0.0
+var systems_sends := 0
+var _systems_sent := {}          # net_id -> the bytes last sent (host)
 var ping_ms := 0.0
 var snapshots_received := 0
 var inputs_received := 0
@@ -206,7 +211,7 @@ func _seat_ai(s: Node, on: bool) -> void:
 func _seat_player(peer_id: int, name: String) -> Node:
 	var best: Node = null
 	for s in world.ships:
-		if s.is_player or s.is_station or s.net_id in seats.values():
+		if s.is_player or s.is_station or s.is_prize or s.net_id in seats.values():
 			continue
 		if s.race_id != world.player.race_id:
 			continue
@@ -232,9 +237,13 @@ func _roster() -> Array:
 		var s: Node = ships_by_id[id]
 		if not is_instance_valid(s):
 			continue
-		out.append([s.net_id, s.pilot_name, s.race_id, s.design_name, s.ship_name, s.score, s.kills, s.rank, s.dead,
-			s.global_position, s.velocity, s.rotation, s.design])
+		out.append(_roster_row(s))
 	return out
+
+
+func _roster_row(s: Node) -> Array:
+	return [s.net_id, s.pilot_name, s.race_id, s.design_name, s.ship_name, s.score, s.kills, s.rank, s.dead,
+		s.global_position, s.velocity, s.rotation, s.design, s.hull_race, s.is_prize]
 
 
 ## The round as the HUD and the map show it.
@@ -369,6 +378,9 @@ func _rpc_command(cmd: String) -> void:
 				_rpc_open_shipyard.rpc_id(multiplayer.get_remote_sender_id(), base.net_id, s.credits, s.hold, s.blueprints)
 		"undock":
 			s.docked = false
+		_ when cmd.begins_with("board:"):
+			# the client's target travels with the command; targets are local
+			world.capture.try_board(s, ships_by_id.get(int(cmd.get_slice(":", 1)), null))
 
 
 func _apply_remote_inputs() -> void:
@@ -419,7 +431,7 @@ func host_ship_died(s: Node, killer: Node) -> void:
 	if not is_host() or seats.is_empty():
 		return
 	var kid: int = killer.net_id if killer is Ship else 0
-	_rpc_ship_died.rpc(s.net_id, kid)
+	_rpc_ship_died.rpc(s.net_id, kid, s.captured)
 
 
 func host_ship_respawned(s: Node) -> void:
@@ -547,19 +559,7 @@ func _rpc_welcome(my_id: int, elapsed: float, roster: Array, owners: PackedInt32
 		if owners[i] != p.owner_race and owners[i] >= 0 and p.is_colonised():
 			p.surrender_to(owners[i])
 	for row in roster:
-		var s: Node = world._make_ship(row[1], row[2], row[3], row[4], row[0] == my_id)
-		if row.size() > 12 and row[12] is Dictionary:
-			s.refit(row[12])
-		s.net_id = row[0]
-		s.score = row[5]
-		s.kills = row[6]
-		s.rank = row[7]
-		s.global_position = row[9]
-		s.velocity = row[10]
-		s.rotation = row[11]
-		if row[8]:
-			s._die(null)
-		ships_by_id[s.net_id] = s
+		var s: Node = _add_from_row(row, my_id)
 		if row[0] == my_id:
 			s.is_puppet = false
 			s.pilot_name = callsign
@@ -577,6 +577,124 @@ func _rpc_welcome(my_id: int, elapsed: float, roster: Array, owners: PackedInt32
 			p.age = row[4]
 	status.emit("In the game as %s." % world.player.design_name)
 	world.notify_all("Joined %s. Press H for the controls." % "the host's game", Color(0.7, 1.0, 0.7))
+
+
+## A ship from a roster row, as the host sent it.
+func _add_from_row(row: Array, my_id: int) -> Node:
+	var s: Node = world._make_ship(row[1], row[2], row[3], row[4], row[0] == my_id, row[13] if row.size() > 13 else -1)
+	if row.size() > 12 and row[12] is Dictionary:
+		s.refit(row[12])
+	s.net_id = row[0]
+	s.score = row[5]
+	s.kills = row[6]
+	s.rank = row[7]
+	s.global_position = row[9]
+	s.velocity = row[10]
+	s.rotation = row[11]
+	s.is_prize = row.size() > 14 and row[14]
+	if row[8]:
+		s._die(null)
+	ships_by_id[s.net_id] = s
+	return s
+
+
+## A ship that joined mid-round: a captured prize.
+@rpc("authority", "reliable")
+func _rpc_ship_added(row: Array) -> void:
+	if world == null or ships_by_id.has(row[0]):
+		return
+	var s: Node = _add_from_row(row, local_net_id)
+	s.is_puppet = true
+
+
+@rpc("authority", "reliable")
+func _rpc_ship_removed(net_id: int) -> void:
+	var s: Node = ships_by_id.get(net_id, null)
+	ships_by_id.erase(net_id)
+	if client != null:
+		client.forget(net_id)
+	if s != null and is_instance_valid(s) and world != null:
+		world.remove_ship(s)
+
+
+## Damaged systems, crews and boardings, for the HUD and the ship art.
+## Per ship: net_id u16, crew u8 (share of crew_max), board target u16,
+## board progress u8, system count u8, one byte per system.
+@rpc("authority", "unreliable_ordered", "call_remote", 3)
+func _rpc_systems(data: PackedByteArray) -> void:
+	if world == null:
+		return
+	var b := StreamPeerBuffer.new()
+	b.data_array = data
+	var n := b.get_u16()
+	for k in n:
+		var id := b.get_u16()
+		var crew := b.get_u8() / 255.0
+		var board_id := b.get_u16()
+		var board := b.get_u8() / 255.0
+		var count := b.get_u8()
+		var bytes := PackedByteArray()
+		for i in count:
+			bytes.append(b.get_u8())
+		var s: Node = ships_by_id.get(id, null)
+		if s == null or not is_instance_valid(s):
+			continue
+		s.crew = crew * s.crew_max
+		s.systems.unpack(bytes)
+		s.apply_systems()
+		var target: Node = ships_by_id.get(board_id, null)
+		if s.boarding != null and is_instance_valid(s.boarding) and s.boarding != target:
+			s.boarding.boarded_by = null
+		s.boarding = target if board_id != 0 else null
+		s.board_progress = board
+		if s.boarding != null:
+			s.boarding.boarded_by = s
+
+
+func _send_systems(full: bool) -> void:
+	var b := StreamPeerBuffer.new()
+	var rows := []
+	for id in ships_by_id:
+		var s: Node = ships_by_id[id]
+		if not is_instance_valid(s) or s.is_station:
+			continue
+		var bytes: PackedByteArray = s.systems.pack()
+		var board_id: int = s.boarding.net_id if s.boarding != null and is_instance_valid(s.boarding) else 0
+		var head := PackedByteArray([int(clampf(s.crew_fraction(), 0.0, 1.0) * 255.0), board_id & 255, board_id >> 8, int(s.board_progress * 255.0)])
+		var key := head + bytes
+		if not full and _systems_sent.get(id, PackedByteArray()) == key:
+			continue
+		_systems_sent[id] = key
+		rows.append([id, head, board_id, bytes])
+	if rows.is_empty():
+		return
+	b.put_u16(rows.size())
+	for r in rows:
+		b.put_u16(r[0])
+		b.put_u8(r[1][0])
+		b.put_u16(r[2])
+		b.put_u8(r[1][3])
+		b.put_u8(r[3].size())
+		for x in r[3]:
+			b.put_u8(x)
+	_rpc_systems.rpc(b.data_array)
+
+
+func host_ship_added(s: Node) -> void:
+	if not is_host():
+		return
+	_register(s)
+	if not seats.is_empty():
+		_rpc_ship_added.rpc(_roster_row(s))
+
+
+func host_ship_removed(s: Node) -> void:
+	if not is_host():
+		return
+	ships_by_id.erase(s.net_id)
+	_systems_sent.erase(s.net_id)
+	if not seats.is_empty():
+		_rpc_ship_removed.rpc(s.net_id)
 
 
 @rpc("authority", "reliable")
@@ -677,9 +795,10 @@ func _rpc_boom(mid: int, pos: Vector2, splash: float) -> void:
 
 
 @rpc("authority", "reliable")
-func _rpc_ship_died(net_id: int, killer_id: int) -> void:
+func _rpc_ship_died(net_id: int, killer_id: int, was_captured: bool = false) -> void:
 	var s: Node = ships_by_id.get(net_id, null)
 	if s != null and is_instance_valid(s) and not s.dead:
+		s.captured = was_captured
 		s._die(ships_by_id.get(killer_id, null))
 	if client != null:
 		client.forget(net_id)
@@ -1111,6 +1230,11 @@ func _physics_process(delta: float) -> void:
 	if snapshot_timer <= 0.0:
 		snapshot_timer += SNAPSHOT_INTERVAL
 		_send_snapshots()
+	systems_timer -= delta
+	if systems_timer <= 0.0:
+		systems_timer = SYSTEMS_EVERY
+		systems_sends += 1
+		_send_systems(systems_sends % SYSTEMS_FULL_EVERY == 0)
 	stats_timer -= delta
 	if stats_timer <= 0.0:
 		stats_timer = STATS_EVERY

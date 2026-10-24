@@ -98,6 +98,14 @@ func _process(_delta: float) -> bool:
 		for s in w.ships:
 			kills += s.kills
 		print("total kills=", kills, " planets per race=", w.planet_counts)
+		var boarded := 0
+		var prizes := 0
+		var disabled := 0
+		for s in w.ships:
+			boarded += s.ships_captured
+			prizes += 1 if s.is_prize and not s.dead else 0
+			disabled += 1 if not s.dead and s.is_disabled() else 0
+		print("ships captured=", boarded, " prizes flying=", prizes, " disabled now=", disabled)
 		main._show_menu()
 	return false
 

@@ -11,6 +11,7 @@ extends Node2D
 signal died(ship: Ship, killer: Node)
 signal damaged(ship: Ship, amount: float)
 signal rank_changed(ship: Ship, level: int)
+signal system_failed(ship: Ship, system: Dictionary, attacker: Node)
 
 const BOOST_SPEED_MULT := 1.5
 const BOOST_ACCEL_MULT := 2.2
@@ -30,6 +31,9 @@ const SPIN_UP_TIME := 0.12
 ## Lowest point of a pass over a planet that the orbit guard will allow,
 ## above the surface plus the hull.
 const ORBIT_MARGIN := 40.0
+## Share of the crew a hull's worth of damage kills (beams burn through
+## plating, not people: they pass a tenth of this, as in the original).
+const CREW_LOSS := 0.7
 
 var world: Node = null
 var design_name := "Scout"
@@ -128,6 +132,22 @@ var net_id := 0                    # online: the id the host and clients share
 var is_puppet := false             # online: shown from the host's snapshots, not simulated
 var docked := false                # in the shipyard: controls are off
 var art_model: Dictionary = {}     # the sprite model, rebuilt on refit
+var hull_race := -1                # whose shipyard built the hull (the painting); -1: race_id
+
+# systems that can be shot out, boarding and prizes (see ShipSystems, World.try_board)
+var systems := ShipSystems.new()
+var boarding: Ship = null          # the disabled ship we are boarding
+var board_progress := 0.0          # 0..1
+var board_lost := 0.0              # seconds the boarding conditions have been broken
+var boarded_by: Ship = null        # who is boarding us
+var claimed_by: Ship = null        # a computer pilot closing in to board us
+var board_start_crew := 1.0        # the defenders when the boarding began
+var crew := 6.0                    # hands aboard; hits kill them, bases and colonies make up the numbers
+var crew_max := 6
+var captured := false              # set while the ship is taken: it leaves without a blast
+var is_prize := false              # a captured ship flown by a prize crew; never respawns
+var prize_of: Ship = null          # the pilot whose prize this is
+var ships_captured := 0            # this round's boarding captures, for the scoreboard
 
 
 ## Human pilots (local or seated online) fire by weapon group; computer
@@ -158,6 +178,8 @@ func group_weapons(g: int) -> Array:
 func setup(p_world: Node, p_design: String, p_race: int, p_pilot: String, p_ship_name: String) -> void:
 	world = p_world
 	race_id = p_race
+	if hull_race < 0:
+		hull_race = p_race
 	pilot_name = p_pilot
 	group_fire = is_player
 	ship_name = p_ship_name
@@ -219,16 +241,75 @@ func refit(p_design: Variant) -> void:
 		thrust_force = mass * 8.0
 		burn_rate = engine_power * BURN_PER_ENGINE * 0.1
 	fuel = fuel_max
+	crew_max = GameData.HULL_CREW.get(design_name, 10)
+	crew = crew_max
 	accel = thrust_force / wet_mass()
 	energy = energy_max
 	shield = shield_max
 	hull = hull_max
 	_build_weapons()
-	art_model = ShipArt.build_model(design, race_id, size)
+	art_model = ShipArt.build_model(design, hull_race, size)
+	systems.build(self)
+	apply_systems()
 	_build_body()
 	if shield_bubble != null:
 		shield_bubble.fit()
 	queue_redraw()
+
+
+## Set the ship's working numbers from its systems' health: damaged
+## engines push less, a hurt reactor recharges slower, broken shield
+## generators hold less, blind sensors see less.  Called whenever a
+## system's efficiency moves.
+func apply_systems() -> void:
+	var b := systems.base
+	if b.is_empty():
+		return
+	systems.changed = false
+	var eng := systems.efficiency("engines")
+	thrust_force = b["thrust_force"] * eng
+	max_speed = b["max_speed"] * (0.6 + 0.4 * eng if eng > 0.0 else 1.0)
+	has_boost = b["has_boost"] and eng >= 1.0
+	energy_regen = b["energy_regen"] * systems.efficiency("reactor")
+	var sh := systems.efficiency("shields")
+	shield_max = b["shield_max"] * sh
+	shield_regen = b["shield_regen"] * sh
+	shield = minf(shield, shield_max)
+	var sn := systems.efficiency("sensors")
+	sensor_range = b["sensor_range"] * lerpf(ShipSystems.BLIND_SENSORS, 1.0, sn)
+	can_cloak = b["can_cloak"] and not systems.is_offline("cloak")
+	if cloaked and not can_cloak:
+		set_cloak_forced_off()
+	qdrv = b["qdrv"] if not systems.is_offline("qdrv") else 0.0
+	if warping and (qdrv <= 0.0 or engines_out()):
+		end_warp()
+
+
+## Dead in space: engines or reactor shot out, or nobody left aboard.
+func is_disabled() -> bool:
+	return systems.disabled() or (crew < 0.5 and not is_station)
+
+
+## Is a pilot of `race` boarding us, or on the way to?  Its friends hold
+## their fire so it can take us alive.
+func spoken_for(race: int) -> bool:
+	for c in [boarded_by, claimed_by]:
+		if c != null and is_instance_valid(c) and not c.dead and c.race_id == race and (c.boarding == self or c.target == self):
+			return true
+	return false
+
+
+func crew_fraction() -> float:
+	return crew / maxf(crew_max, 1.0)
+
+
+func engines_out() -> bool:
+	return systems.is_offline("engines")
+
+
+func set_cloak_forced_off() -> void:
+	cloaked = false
+	Sfx.play("uncloak", global_position, 0.6)
 
 
 ## Dry mass plus the fuel on board.
@@ -239,7 +320,7 @@ func wet_mass() -> float:
 func _build_body() -> void:
 	if body == null:
 		return
-	body.set_hull(CollisionHulls.for_ship(design, race_id, size))
+	body.set_hull(CollisionHulls.for_ship(design, hull_race, size))
 	body.set_mass(wet_mass())
 	# a starbase holds its spot beside its world: solid, unmovable
 	body.set_kinematic(is_station)
@@ -255,14 +336,14 @@ func _build_weapons() -> void:
 	for w in design["weapons"]:
 		var m: Dictionary = GameData.MODULES[w[0]]
 		# shots leave from the turret as drawn on the painted hull
-		var spot := ShipArt.weapon_spot(design["name"], race_id, size, w)
+		var spot := ShipArt.weapon_spot(design["name"], hull_race, size, w)
 		var entry := {
 			"id": w[0], "name": m["name"], "kind": m["func"],
 			"mount_angle": spot.angle(), "mount_radius": spot.length(),
 			"fire_angle": deg_to_rad(float(w[3])),
 			"arc0": deg_to_rad(float(w[4])), "arc1": deg_to_rad(float(w[5])),
 			"cooldown": 0.0, "cost": 0.0, "ammo": -1, "missile": "", "slot": "primary",
-			"range": 0.0, "group": GameData.weapon_group_of(w),
+			"range": 0.0, "group": GameData.weapon_group_of(w), "index": weapons.size(),
 		}
 		if m["func"] == "tube":
 			var mid: String = m["p"][3]
@@ -405,7 +486,8 @@ func _fly(delta: float) -> void:
 	var spin_up := SPIN_UP_TIME + size / 200.0
 	var torque_max := body.inertia * w_max / spin_up
 	var rcs_level := 0.0
-	if fuel <= 0.0:
+	var dead_drive := fuel <= 0.0 or engines_out()
+	if dead_drive:
 		torque_max *= 0.3          # reaction wheels on reactor power only
 	if flight_assist or turn != 0.0:
 		var w_target := turn * w_max
@@ -440,11 +522,11 @@ func _fly(delta: float) -> void:
 	if orbit_guard:
 		f = guard
 		engine_level = f.length() / maxf(thrust_force, 1.0)
-	if fuel <= 0.0:
+	if dead_drive:
 		f = Vector2.ZERO
 		engine_level = 0.0
 	# over the rated speed the drive field drags the ship back toward it
-	if sp > vmax and not inputs["brake"] and not orbit_guard:
+	if sp > vmax and not inputs["brake"] and not orbit_guard and not dead_drive:
 		var over := sp - vmax
 		var pull_a := minf(over / delta, accel * 1.5 + 60.0)
 		f -= lv.normalized() * pull_a * body.mass
@@ -471,7 +553,7 @@ func _fly(delta: float) -> void:
 func _orbit_guard_force(fwd: Vector2, f0: float, delta: float) -> Vector2:
 	var was := orbit_guard
 	orbit_guard = false
-	if world == null or world.space == null or fuel <= 0.0 or is_station or docked:
+	if world == null or world.space == null or fuel <= 0.0 or is_station or docked or engines_out():
 		return Vector2.ZERO
 	var p: PhysicsBody = world.space.dominant_body(global_position)
 	if p == null or p.is_sun or p.gm <= 0.0:
@@ -605,7 +687,11 @@ func start_warp() -> void:
 	if warping:
 		return
 	var why := ""
-	if qdrv <= 0.0:
+	if systems.is_offline("qdrv"):
+		why = "Quantum drive offline: damage control is on it."
+	elif engines_out():
+		why = "Engines offline: no warp."
+	elif qdrv <= 0.0:
 		why = "No quantum drive fitted."
 	elif cloaked:
 		why = "Can't warp while cloaked."
@@ -747,6 +833,18 @@ func _autopilot(delta: float) -> void:
 
 
 func _systems(delta: float) -> void:
+	# damage control: the host's word is final online, so clients only show it
+	if not Net.is_client():
+		# damage control works as fast as there are hands for it
+		var back := systems.tick(delta, regen_rate + repair_rate, crew_fraction())
+		for e in back:
+			if world != null:
+				world.notify(self, "%s back online." % e["label"])
+	if systems.changed:
+		apply_systems()
+	if systems.is_offline("reactor"):
+		# the batteries run flat without a reactor behind them
+		energy = maxf(energy - energy_max * 0.25 * delta, 0.0)
 	energy = minf(energy + energy_regen * delta * 0.1, energy_max)
 	# the reactor cracks a trickle of propellant, so nobody is stranded for good
 	if fuel < fuel_max and energy > energy_max * 0.3 and not refuelling:
@@ -815,6 +913,8 @@ func _weapons(delta: float) -> void:
 					want = inputs["fire_beam"]
 		if not want or warping:
 			continue
+		if systems.is_offline("w%d" % w["index"]):
+			continue
 		if w["kind"] == "beam":
 			_fire_beam(w, delta)
 		elif w["cooldown"] <= 0.0:
@@ -856,7 +956,8 @@ func _fire_tube(w: Dictionary) -> void:
 	if energy < w["cost"]:
 		return
 	energy -= w["cost"]
-	w["cooldown"] = w["rate"]
+	# a damaged mount reloads slower
+	w["cooldown"] = w["rate"] / maxf(systems.weapon_efficiency(w["index"]), 0.1)
 	if w["ammo"] > 0:
 		w["ammo"] -= 1
 	if cloaked:
@@ -903,7 +1004,10 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 	var hit: Dictionary = world.raycast_beam(self, origin, Vector2.RIGHT.rotated(ang), w["range"])
 	var end: Vector2 = hit["point"]
 	if hit["body"] != null and not Net.is_client():   # damage is the host's
-		hit["body"].take_damage(w["dps"] * delta, self, end)
+		if hit["body"] is Ship:
+			hit["body"].take_damage(w["dps"] * delta * systems.weapon_efficiency(w["index"]), self, end, 1.0, "", 0.1)
+		else:
+			hit["body"].take_damage(w["dps"] * delta * systems.weapon_efficiency(w["index"]), self, end)
 		# a beam leans on what it burns
 		world.push_node(hit["body"], Vector2.RIGHT.rotated(ang) * w["dps"] * delta * World.IMPULSE_PER_DAMAGE * 0.5, end)
 	beam_targets.append([origin, end])
@@ -913,7 +1017,10 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 
 # --------------------------------------------------------------- damage
 
-func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO) -> void:
+## `at` is where the hit landed (Vector2.ZERO: nowhere in particular);
+## `sys_mult` and `focus` say how hard it is on the ship's systems (see
+## ShipSystems.hit).
+func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_mult: float = 1.0, focus: String = "", crew_mult: float = 1.0) -> void:
 	if dead or invulnerable > 0.0:
 		return
 	if attacker is Ship and attacker != self:
@@ -934,23 +1041,49 @@ func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO) -> v
 	elif attacker is Node2D:
 		last_hit_angle = (attacker.global_position - global_position).angle() - rotation
 	var remaining := amount
+	var bleed := 0.0
 	if shield > 0.0:
 		var absorbed := minf(shield, remaining)
 		shield -= absorbed
 		remaining -= absorbed
+		bleed = absorbed * ShipSystems.SHIELD_BLEED
 		if absorbed > 4.0:
 			Sfx.play(Sfx.leveled("shield", module_levels.get("shield", 1)), global_position, 0.5, randf_range(0.92, 1.08))
 	if remaining > 0.0:
 		remaining = maxf(remaining - armor * 0.02 * remaining, remaining * 0.6)
 		hull -= remaining
+		_hit_systems(remaining + bleed, attacker, at, sys_mult, focus)
+		if not Net.is_client() and not is_station:
+			crew = maxf(crew - crew_max * remaining / maxf(hull_max, 1.0) * CREW_LOSS * crew_mult, 0.0)
 		if remaining > 4.0:
 			var armor_level: int = module_levels.get("armor", 0)
 			Sfx.play(Sfx.leveled("hit_armor", armor_level) if armor_level > 0 else "hit", global_position, 0.55, randf_range(0.85, 1.15))
 			if world != null:
 				world.spawn_sparks(at if at != Vector2.ZERO else global_position, 4, race_color())
+	elif bleed > 0.0:
+		_hit_systems(bleed, attacker, at, sys_mult, focus)
 	damaged.emit(self, amount)
 	if hull <= 0.0:
 		_die(attacker)
+
+
+## Pass a hit's hull damage on to the systems near where it landed.
+func _hit_systems(amount: float, attacker: Node, at: Vector2, sys_mult: float, focus: String) -> void:
+	if Net.is_client() or systems.list.is_empty():
+		return
+	var local := Vector2.INF
+	if at != Vector2.ZERO:
+		local = (at - global_position).rotated(-rotation)
+	var was_disabled := systems.disabled()
+	var broke := systems.hit(amount, local, size, sys_mult, focus)
+	if systems.changed:
+		apply_systems()
+	for e in broke:
+		system_failed.emit(self, e, attacker)
+		if world != null:
+			world.spawn_sparks(global_position + (e["pts"][0] as Vector2).rotated(rotation), 10, Color(1.0, 0.6, 0.2))
+	if not was_disabled and systems.disabled():
+		Sfx.play("hit", global_position, 0.8, 0.55)
 
 
 func _die(killer: Node) -> void:
@@ -959,6 +1092,9 @@ func _die(killer: Node) -> void:
 	dead = true
 	hull = 0.0
 	deaths += 1
+	boarding = null
+	board_progress = 0.0
+	boarded_by = null
 	set_cloak(false)
 	warping = false
 	if engine_sound != null:
@@ -972,6 +1108,7 @@ func _die(killer: Node) -> void:
 
 func respawn(at: Vector2, vel: Vector2) -> void:
 	dead = false
+	captured = false
 	refit(design)
 	global_position = at
 	velocity = vel
@@ -1019,36 +1156,38 @@ func try_pickup(module_id: String) -> bool:
 	var level := int(module_id.substr(3, 1))
 	var f: String = m["func"]
 	var have: int = module_levels.get(f, 0)
+	# the systems' whole numbers change; apply_systems derates them again
+	var b := systems.base
 	match f:
 		"shield":
 			if level <= have:
 				return false
-			var add: float = m["p"][0] - (shield_max if have > 0 else 0.0)
-			shield_max = m["p"][0]
-			shield_regen = shield_max * 0.06
-			shield = minf(shield + maxf(add, 0.0), shield_max)
+			var add: float = m["p"][0] - (b["shield_max"] if have > 0 else 0.0)
+			b["shield_max"] = m["p"][0]
+			b["shield_regen"] = b["shield_max"] * 0.06
+			shield = minf(shield + maxf(add, 0.0), b["shield_max"])
 		"eng":
 			if level <= have:
 				return false
-			thrust_force *= 1.25
+			b["thrust_force"] *= 1.25
 			fuel = fuel_max
 		"sensor":
 			if level <= have:
 				return false
-			sensor_range = 600.0 + m["p"][0] * 40.0
+			b["sensor_range"] = 600.0 + m["p"][0] * 40.0
 		"power":
 			if level <= have:
 				return false
 			energy_max += m["power"] * 2.0
-			energy_regen += m["power"] * 0.2
+			b["energy_regen"] += m["power"] * 0.2
 		"stealth":
-			if can_cloak:
+			if b["can_cloak"]:
 				return false
-			can_cloak = true
+			b["can_cloak"] = true
 		"boost":
-			if has_boost and level <= have:
+			if b["has_boost"] and level <= have:
 				return false
-			has_boost = true
+			b["has_boost"] = true
 		"armor":
 			if level <= have:
 				return false
@@ -1057,11 +1196,44 @@ func try_pickup(module_id: String) -> bool:
 			hull += m["p"][0] * 2
 		_:
 			return false
+	apply_systems()
 	module_levels[f] = level
 	return true
 
 
 # ---------------------------------------------------------------- drawing
+
+## Smoke, fire and sparks where the systems are hurt: a thin wisp on a
+## damaged one, flames and arcing on one that is out.
+func _draw_system_damage() -> void:
+	var a := cloak_alpha
+	if a < 0.1:
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	for e in systems.list:
+		var h: float = e["hp"] / e["max"]
+		if h >= ShipSystems.DAMAGED_BELOW and not e["offline"]:
+			continue
+		var lvl := 1.0 if e["offline"] else 1.0 - h / ShipSystems.DAMAGED_BELOW
+		for p: Vector2 in e["pts"]:
+			var seed_v := p.x * 13.1 + p.y * 7.7
+			# smoke drifting off the wound
+			for k in 3:
+				var ph := fmod(now * 0.7 + k / 3.0 + seed_v, 1.0)
+				var off := Vector2(-ph * size * 0.5, sin(seed_v + k) * size * 0.12 * ph)
+				draw_circle(p + off, size * (0.05 + 0.1 * ph) * (0.6 + lvl), Color(0.12, 0.11, 0.1, (1.0 - ph) * 0.5 * lvl * a))
+			if e["offline"]:
+				var flick := 0.6 + 0.4 * sin(now * 23.0 + seed_v)
+				draw_circle(p, size * 0.08 * flick, Color(1.0, 0.45, 0.1, 0.75 * a))
+				draw_circle(p, size * 0.04 * flick, Color(1.0, 0.9, 0.5, 0.9 * a))
+				# arcing sparks now and then
+				if fmod(now * 3.0 + seed_v, 1.0) < 0.35:
+					var ang := now * 9.0 + seed_v
+					var q := p + Vector2(cos(ang), sin(ang)) * size * 0.2
+					draw_line(p, q, Color(0.7, 0.85, 1.0, 0.8 * a), 1.2)
+			elif fmod(now * 1.7 + seed_v, 1.0) < 0.15 * lvl:
+				draw_circle(p, size * 0.035, Color(1.0, 0.7, 0.3, 0.8 * a))
+
 
 func _draw() -> void:
 	if dead:
@@ -1072,8 +1244,21 @@ func _draw() -> void:
 	for w in weapons:
 		aims.append(w.get("aim_vis", w["fire_angle"]))
 	if art_model.is_empty():
-		art_model = ShipArt.build_model(design, race_id, size)
-	ShipArt.draw_model(self, art_model, base, thrust_level, cloak_alpha, dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0))
+		art_model = ShipArt.build_model(design, hull_race, size)
+	var broken := systems.broken_map()
+	ShipArt.draw_model(self, art_model, base, thrust_level, cloak_alpha, dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0), broken)
+	if not broken.is_empty():
+		_draw_system_damage()
+	if is_disabled() and cloak_alpha > 0.3:
+		# a dead ship's running light blinks red, so it can be found and boarded
+		var blink := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 1000.0 * 5.0)
+		draw_arc(Vector2.ZERO, size * 1.25, 0, TAU, 40, Color(1.0, 0.25, 0.15, 0.25 + 0.3 * blink), 1.5, true)
+	if boarding != null and is_instance_valid(boarding) and not boarding.dead:
+		# the docking tractor holds the prize alongside
+		var to := (boarding.global_position - global_position).rotated(-rotation)
+		var c := Color(0.55, 0.9, 1.0, 0.35 + 0.25 * sin(Time.get_ticks_msec() / 90.0))
+		draw_line(Vector2.ZERO, to, c, 3.0, true)
+		draw_line(Vector2.ZERO, to, Color(1, 1, 1, 0.5), 1.0, true)
 	# the shield is drawn by shield_bubble
 	# turret arcs for the pilot's own ship
 	if is_player and Settings.mouse_aim and aim_point != Vector2.INF:

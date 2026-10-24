@@ -54,6 +54,7 @@ var last_player_damage := -100.0
 var last_player_fire := -100.0
 var income_timer := 60.0         # planets pay their empire every minute
 var round_rules: Round = null     # the Conquest rules; the host runs them
+var capture: Capture = null       # boarding and prizes; the host runs them
 var practice := false            # Practice duel: you, your starbase, one pirate at a time
 var practice_opponent := true    # false: Free flight, practice with no pirate at all
 var duel_score := [0, 0]         # practice: [your kills, their kills]
@@ -96,6 +97,7 @@ func _ready() -> void:
 	camera.zoom = Vector2.ONE * target_zoom * BASE_ZOOM
 	space = PhysicsSpace.new()
 	space.filter = Callable(self, "_can_collide")
+	capture = Capture.new(self)
 	_build_system()
 	_spawn_rocks()
 	if Net.is_client():
@@ -344,15 +346,19 @@ func _home_planet(race_id: int) -> Planet:
 	return planet_by_name.get(name, planets[0])
 
 
-func _make_ship(pilot: String, race_id: int, design: String, ship_name: String, is_player: bool) -> Ship:
+## `hull_race` is whose shipyard built the hull, when it is not the
+## pilot's own (a captured prize keeps its painting).
+func _make_ship(pilot: String, race_id: int, design: String, ship_name: String, is_player: bool, hull_race: int = -1) -> Ship:
 	var s := Ship.new()
 	s.name = pilot
 	s.is_player = is_player
+	s.hull_race = hull_race
 	ships_layer.add_child(s)
 	s.setup(self, design, race_id, pilot, ship_name)
 	s.died.connect(_on_ship_died)
 	s.damaged.connect(_on_ship_damaged)
 	s.rank_changed.connect(_on_rank_changed)
+	s.system_failed.connect(_on_system_failed)
 	ships.append(s)
 	space.add_body(s.body)
 	return s
@@ -521,6 +527,7 @@ func _physics_process(delta: float) -> void:
 	_collide_missiles()
 	_collect_powerups()
 	_refuel(delta)
+	capture.tick(delta)
 	_respawns()
 	_score_planets(delta)
 	_follow_camera(delta)
@@ -611,6 +618,8 @@ func nearest_enemy_ship(pos: Vector2, race_id: int, range_px: float, viewer: Shi
 	for s in ships:
 		if s.dead or s.race_id == race_id:
 			continue
+		if s.spoken_for(race_id):
+			continue      # a friend is taking that one alive
 		if viewer != null and not s.visible_to(viewer):
 			continue
 		elif viewer == null and s.cloaked:
@@ -887,7 +896,10 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 	if splash <= 0.0:
 		if hit != null:
 			var at := m.hit_point if m.hit_point != Vector2.INF else pos
-			hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else m.owner_ship, at)
+			if hit is Ship:
+				hit.take_damage(m.warhead, attacker if attacker is Ship else m.owner_ship, at, m.data.get("sys", 1.0), "engines" if m.data.get("heat", false) else "")
+			else:
+				hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else m.owner_ship, at)
 			if hit is Ship and m.data.has("drain"):
 				hit.energy = maxf(hit.energy - m.data["drain"], 0.0)
 				if hit.cloaked:
@@ -904,7 +916,8 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		var d := pos.distance_to(s.global_position) - s.size * 0.5
 		if d < splash:
 			var f := 1.0 - maxf(d, 0.0) / splash
-			s.take_damage(m.warhead * f, attacker if attacker is Ship else null, s.global_position)
+			# the blast hits the side of the hull that faces it
+			s.take_damage(m.warhead * f, attacker if attacker is Ship else null, s.body.closest_surface_point(pos), m.data.get("sys", 1.0))
 	for p in planets:
 		var d := pos.distance_to(p.global_position) - p.radius
 		if d < splash and p.is_colonised():
@@ -975,19 +988,30 @@ func break_rock(d: Debris) -> void:
 
 
 ## Friendly bases and colonies top up a ship's tanks when it sits close.
+## Friendly bases and colonies also make up a thinned crew.
+const CREW_FROM_BASE := 2.0       # hands a second from a starbase
+const CREW_FROM_COLONY := 0.5     # hands a second from a colony
 func _refuel(delta: float) -> void:
 	for s in ships:
 		s.refuelling = false
-		if s.dead or s.fuel >= s.fuel_max:
+		if s.dead or (s.fuel >= s.fuel_max and s.crew >= s.crew_max):
 			continue
 		var rate := 0.0
+		var hands := 0.0
 		for o in ships:
 			if o.is_station and not o.dead and o.race_id == s.race_id and o != s and o.global_position.distance_to(s.global_position) < o.size + 260.0:
 				rate = maxf(rate, 0.12)
+				hands = CREW_FROM_BASE
 		for p in planets:
 			if p.is_colonised() and p.owner_race == s.race_id and p.global_position.distance_to(s.global_position) < p.radius + 220.0:
 				rate = maxf(rate, 0.04)
-		if rate > 0.0:
+				hands = maxf(hands, CREW_FROM_COLONY)
+		if hands > 0.0 and s.crew < s.crew_max and s.boarded_by == null:
+			var was_crew := s.crew
+			s.crew = minf(s.crew + hands * delta, s.crew_max)
+			if s.is_player and was_crew < s.crew_max and s.crew >= s.crew_max:
+				notify(s, "Crew at full strength (%d)." % s.crew_max)
+		if rate > 0.0 and s.fuel < s.fuel_max:
 			s.refuelling = true
 			var was := s.fuel
 			s.refuel(s.fuel_max * rate * delta)
@@ -1043,6 +1067,9 @@ func _on_ship_damaged(s: Ship, amount: float) -> void:
 
 
 func _on_ship_died(s: Ship, killer: Node) -> void:
+	if s.captured:
+		_on_ship_captured(s, killer)
+		return
 	var big := s.size > 40.0
 	fx.ship_destroyed(s)
 	# the wave rocks nearby ships and rocks; the loot it leaves is spared
@@ -1119,11 +1146,71 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 	respawn_queue.append([s, elapsed + RESPAWN_DELAY + (6.0 if s.is_station else 0.0)])
 
 
+## A boarded ship leaves the fight quietly: no blast and no loot (the
+## captor has had both), and the pilot relaunches at home.  Capture.take
+## did the scoring.
+func _on_ship_captured(s: Ship, _captor: Node) -> void:
+	fx.spark(s.global_position, 14, Color(0.6, 0.85, 1.0))
+	if Net.is_client():
+		if s.is_player:
+			player_died.emit()
+		return
+	Net.host_ship_died(s, _captor)
+	if s.is_player:
+		Settings.career["deaths"] = Settings.career.get("deaths", 0) + 1
+		Settings.save_settings()
+		player_died.emit()
+	respawn_queue.append([s, elapsed + RESPAWN_DELAY])
+
+
+## A system shot out: tell the pilot who lost it and the one who did it.
+func _on_system_failed(s: Ship, e: Dictionary, attacker: Node) -> void:
+	var vital: bool = e["kind"] in ShipSystems.VITAL
+	if s.is_player or s.net_id in Net.seats.values():
+		notify(s, "%s offline!%s" % [e["label"], "  We're dead in space: damage control is on it." if vital and s.is_disabled() else ""])
+		if s.is_player:
+			Sfx.play_ui("alarm", 0.6)
+	if attacker is Ship and attacker != s:
+		if vital and s.is_disabled():
+			notify(attacker, "%s's %s is disabled: %s out. Close in and press K to board." % [s.pilot_name, s.design_name, e["label"].to_lower()])
+		else:
+			notify(attacker, "Hit: %s's %s is out." % [s.pilot_name, e["label"].to_lower()])
+
+
+## The player (or a seated online pilot) asks to board its target.
+func try_board(s: Ship) -> void:
+	if Net.is_client():
+		Net.client_command("board:%d" % (s.target.net_id if s.target is Ship and is_instance_valid(s.target) else 0))
+		return
+	capture.try_board(s, s.target)
+
+
+## Take a ship out of the world for good (a prize that is lost or sold).
+func remove_ship(s: Ship) -> void:
+	if not ships.has(s):
+		return
+	for o in ships:
+		if o.boarding == s:
+			capture.cancel(o, "")
+		if o.target == s:
+			o.target = null
+		if o.prize_of == s:
+			o.prize_of = null
+	ships.erase(s)
+	space.remove_body(s.body)
+	Net.host_ship_removed(s)
+	s.queue_free()
+
+
 func _respawns() -> void:
 	var keep := []
 	for entry in respawn_queue:
 		var s: Ship = entry[0]
-		if elapsed >= entry[1]:
+		if not is_instance_valid(s):
+			continue
+		if elapsed >= entry[1] and s.is_prize:
+			remove_ship(s)        # a prize's crew does not come back
+		elif elapsed >= entry[1]:
 			var home := _home_planet(s.race_id)
 			if s.is_station:
 				var at := _station_spot(home)

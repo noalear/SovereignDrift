@@ -61,6 +61,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		select_group(_group_key(event))
 	elif event.is_action_pressed("weapon_group_next"):
 		select_group(_next_group())
+	elif event.is_action_pressed("board"):
+		world.try_board(ship)
 	elif event.is_action_pressed("flight_assist"):
 		ship.flight_assist = not ship.flight_assist
 		Settings.flight_assist = ship.flight_assist

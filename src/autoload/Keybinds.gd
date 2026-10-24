@@ -36,6 +36,7 @@ const ACTIONS := [
 	["land", "Land / lift off", "Ship"],
 	["colonists_board", "Take colonists on", "Ship"],
 	["colonists_unload", "Put colonists down", "Ship"],
+	["board", "Board a disabled target", "Ship"],
 	["refit", "Shipyard (at a starbase)", "Ship"],
 	["trade", "Trade (online)", "Ship"],
 	["tactical_map", "System map", "Interface"],

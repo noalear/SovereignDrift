@@ -25,6 +25,11 @@ var parked := false
 var trade_done := false
 var credits_before := -1
 var offer_sent := false
+var disabled_one := false
+var captured_one := false
+var capture_victim: Node = null
+var saw_disabled := false
+var saw_prize := false
 
 
 func _init() -> void:
@@ -109,6 +114,35 @@ func _process(_delta: float) -> bool:
 					s.global_position = base.global_position + Vector2(base.size + 100.0, 0)
 					s.velocity = base.velocity
 					print("[host] parked the joiner at the starbase")
+	# systems and capture: the host shoots out an enemy's engines, then
+	# boards it; the client should see both
+	if is_host and w != null and joiner_seen_at > 0 and now - joiner_seen_at > 4000 and not disabled_one:
+		disabled_one = true
+		for s in w.ships:
+			if not s.dead and not s.is_station and s.race_id != p.race_id and not s.is_player:
+				capture_victim = s
+				break
+		if capture_victim != null:
+			var e: Dictionary = capture_victim.systems.get_system("engines")
+			e["hp"] = 0.0
+			e["offline"] = true
+			capture_victim.systems.quiet = -1000.0
+			capture_victim.apply_systems()
+			print("[host] knocked out the engines of %s" % capture_victim.pilot_name)
+	if is_host and capture_victim != null and is_instance_valid(capture_victim) and not capture_victim.dead and not captured_one:
+		capture_victim.systems.quiet = -1000.0
+		if now - joiner_seen_at > 6000:
+			captured_one = true
+			var purse: int = p.credits
+			w.capture.take(p, capture_victim)
+			p.credits = purse       # keep the trade check's arithmetic
+			print("[host] captured %s" % capture_victim.ship_name)
+	if not is_host and w != null:
+		for s in w.ships:
+			if s.is_prize:
+				saw_prize = true
+			elif not s.dead and s.systems.is_offline("engines"):
+				saw_disabled = true
 	if not is_host and p != null and world_seen_at > 0 and now - world_seen_at > 9000 and frames % 7 == 0 and not shipyard_opened and not build_sent:
 		net.client_command("refit")   # the host parked us at the base a moment ago
 	if not is_host and shipyard_opened and not build_sent and p != null:
@@ -177,5 +211,7 @@ func _finish(w) -> void:
 		_check(trade_seen and trade_done, "trade window opened and settled for the joiner")
 		var rd = w.round_rules
 		_check(rd != null and rd.elapsed > 5.0 and rd.phase != "", "round clock arrived (%s, %s)" % [(rd.clock_text() if rd else "-"), (rd.phase if rd else "-")])
+		_check(saw_disabled, "a ship's shot-out engines showed on the client")
+		_check(saw_prize, "the host's prize ship appeared on the client")
 		_check(net.client != null and net.client.correction_px < 60.0, "reconciliation error small (%.1f px)" % (net.client.correction_px if net.client else -1.0))
 	print("[%s] %s" % [_tag(), "FAILED" if failed else "passed"])

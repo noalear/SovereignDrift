@@ -36,10 +36,26 @@ Press H or F1 in game for the controls card.
 | F, M, L, C | Seeking missiles, mine, laser, cloak |
 | T / Tab, R, Shift+click | Next target, nearest enemy, target under cursor |
 | N, G, U | Next nav planet, autopilot to it, refit at your starbase |
+| K | Board a disabled target (shoot out its engines or reactor first) |
 | V | Flight assist on/off (the thrusters hold your turn and stop a tumble) |
 | F9, Alt+Enter, Esc | Next song, full screen, menu |
 
 On a gamepad the left stick flies, the right stick aims, RT/LT fire.
+
+### Ship systems, crews and capture
+
+Every ship's engines, reactor, shield generators, sensors, quantum drive,
+cloak and weapon mounts sit where they are drawn on the hull, and hits damage
+the systems near the impact: shoot a ship in the stern to knock its engines
+out, broadside it to take its shields. Damaged systems work at reduced
+strength; offline ones stop until damage control restarts them, which goes
+as fast as the crew allows. Hits also kill crew. A ship with its engines or
+reactor out is dead in space, and you can board it (K): the tractor holds it
+alongside while your crew fights its crew, and a ship taken from a computer
+pilot flies with you under a prize crew. The balance numbers live at the top
+of `src/ships/ShipSystems.gd` and `src/world/Capture.gd`;
+`tools/capture_test.gd` reports how much hull is left when ships are
+disabled, and `tools/battle_sim.gd` runs a whole round of computer pilots.
 
 ## Layout
 
