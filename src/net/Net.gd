@@ -11,7 +11,7 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 10
+const PROTOCOL := 11
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -213,7 +213,7 @@ func _seat_ai(s: Node, on: bool) -> void:
 func _seat_player(peer_id: int, name: String, career_score: int = 0, career_kills: int = 0) -> Node:
 	var best: Node = null
 	for s in world.ships:
-		if s.is_player or s.is_station or s.is_prize or s.net_id in seats.values():
+		if s.is_player or s.is_station or s.is_prize or s.support or s.net_id in seats.values():
 			continue
 		if s.race_id != world.player.race_id:
 			continue
@@ -251,7 +251,7 @@ func _roster() -> Array:
 
 func _roster_row(s: Node) -> Array:
 	return [s.net_id, s.pilot_name, s.race_id, s.design_name, s.ship_name, s.score, s.kills, s.rank, s.dead,
-		s.global_position, s.velocity, s.rotation, s.design, s.hull_race, s.is_prize]
+		s.global_position, s.velocity, s.rotation, s.design, s.hull_race, s.is_prize, s.support]
 
 
 ## The round as the HUD and the map show it.
@@ -287,7 +287,7 @@ func _powerup_list() -> Array:
 	for id in powerups_by_id:
 		var p: Node = powerups_by_id[id]
 		if is_instance_valid(p):
-			out.append([id, p.module_id, p.global_position, p.velocity, p.age])
+			out.append([id, p.spawn_id, p.global_position, p.velocity, p.age])
 	return out
 
 
@@ -395,6 +395,8 @@ func _rpc_command(cmd: String) -> void:
 			world.colonist_command(s, true)
 		"colonists_unload":
 			world.colonist_command(s, false)
+		_ when cmd.begins_with("cargo:"):
+			world.cargo_command(s, cmd.get_slice(":", 1), float(cmd.get_slice(":", 2)))
 
 
 func _apply_remote_inputs() -> void:
@@ -462,7 +464,7 @@ func host_powerup_spawned(p: Node) -> void:
 	p.set_meta("net_id", pid)
 	powerups_by_id[pid] = p
 	if not seats.is_empty():
-		_rpc_powerup.rpc(pid, p.module_id, p.global_position, p.velocity)
+		_rpc_powerup.rpc(pid, p.spawn_id, p.global_position, p.velocity)
 
 
 func host_powerup_taken(p: Node, by: Node) -> void:
@@ -627,6 +629,7 @@ func _add_from_row(row: Array, my_id: int) -> Node:
 	s.velocity = row[10]
 	s.rotation = row[11]
 	s.is_prize = row.size() > 14 and row[14]
+	s.support = row.size() > 15 and row[15]
 	if row[8]:
 		s._die(null)
 	ships_by_id[s.net_id] = s
@@ -954,6 +957,14 @@ func _rpc_colonies(state: Array) -> void:
 func _rpc_economy(rows: Array) -> void:
 	if world != null and world.economy != null:
 		world.economy.unpack(rows)
+
+
+## The seated pilot's cargo hold and what the spaceport is still moving.
+@rpc("authority", "reliable")
+func _rpc_cargo(cargo: Dictionary, orders: Dictionary) -> void:
+	if world != null and world.player != null:
+		world.player.cargo = cargo
+		world.player.cargo_orders = orders
 
 
 @rpc("authority", "reliable")
@@ -1331,3 +1342,4 @@ func _physics_process(delta: float) -> void:
 			if s != null and is_instance_valid(s):
 				_rpc_purse.rpc_id(peer_id, s.credits, s.hold, s.blueprints)
 				_rpc_cabin.rpc_id(peer_id, s.colonists, s.transfer)
+				_rpc_cargo.rpc_id(peer_id, s.cargo, s.cargo_orders)

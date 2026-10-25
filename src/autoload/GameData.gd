@@ -322,6 +322,22 @@ const COLONIST_CABIN := {
 	"Scout": 40, "Destroyer": 80, "Raider": 80, "Cruiser": 160,
 	"BattleCruiser": 200, "Battleship": 250, "Dreadnought": 400, "Freighter": 800, "Starbase": 0,
 }
+## Cargo a hull's hold carries, in units of a resource (the Resources
+## update).  The Freighter is the supply ship; starbases hold stock of their
+## own later, not in a hold.
+const CARGO_HOLD := {
+	"Scout": 10, "Destroyer": 20, "Raider": 30, "Cruiser": 40,
+	"BattleCruiser": 60, "Battleship": 80, "Dreadnought": 120, "Freighter": 300, "Starbase": 0,
+}
+## Each empire's computer supply ships: [pilot, ship name].
+const SUPPLY_SHIPS := {
+	0: [["Gatherer", "Plenty"], ["Forager", "Harvest Moon"]],
+	1: [["Quartermaster", "Providence"], ["Purser", "Endeavour"]],
+	2: [["Tithe", "Tribute"], ["Toll", "Plunder"]],
+}
+## Credits a unit of each resource is worth to a hauler who brings it where
+## it is short (and the base price at trade stations later).
+const RESOURCE_PRICE := {"metals": 1.0, "ice": 1.0, "food": 1.0, "fuel": 2.0, "exotics": 4.0, "alloys": 3.0}
 ## An invading colony fights as if it were this many times its size (the
 ## original's offensive_factor of 200%).  Defenders behind their shields
 ## fight it on even terms.

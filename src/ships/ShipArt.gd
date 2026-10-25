@@ -58,9 +58,6 @@ static func hull_texture(hull_name: String, race_id: int) -> Texture2D:
 	else:
 		match hull_name:
 			"Raider": file = "Destroyer"
-			"Freighter":
-				folder = "terran"
-				file = "Cruiser"
 	return texture("res://assets/ships/%s/%s.png" % [folder, file])
 
 

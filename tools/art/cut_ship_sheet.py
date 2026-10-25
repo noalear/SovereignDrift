@@ -1,6 +1,9 @@
 # Cut a ChatGPT reference sheet of six hulls (Scout..Dreadnought, nose
 # right, on black, names along the bottom) into transparent PNGs.
-#   python3 tools/art/cut_ship_sheet.py <sheet.png> <out_dir>
+#   python3 tools/art/cut_ship_sheet.py <sheet.png> <out_dir> [names] [label_top]
+# names: comma-separated, left to right (default the six hulls); label_top:
+# the fraction of the height where the labels start (default 0.82).  The
+# supply ships: ... ref-supply-ships.png out Terran,Arcean,Drengin 0.72
 # Then copy the PNGs into assets/ships/<empire>/ and run godot --import.
 import sys
 import numpy as np
@@ -10,23 +13,23 @@ im = Image.open(src).convert("RGB")
 a = np.asarray(im).astype(np.float32)
 H, W, _ = a.shape
 mx = a.max(axis=2)
-label_top = int(H * 0.82)          # names sit below this line
+names = sys.argv[3].split(",") if len(sys.argv) > 3 else ["Scout", "Destroyer", "Cruiser", "BattleCruiser", "Battleship", "Dreadnought"]
+label_top = int(H * (float(sys.argv[4]) if len(sys.argv) > 4 else 0.82))   # names sit below this line
 mask = mx > 22
 mask[label_top:, :] = False
 from scipy import ndimage
 # group pixels into ships: dilate so a ship's thin antennae and pods join
-# its hull, then take the six biggest blobs, left to right
+# its hull, then take the biggest blobs, one per name, left to right
 grown = ndimage.binary_dilation(mask, iterations=4)
 lab, n = ndimage.label(grown)
 sizes = ndimage.sum(np.ones_like(lab), lab, index=range(1, n + 1))
-keep = sorted(range(1, n + 1), key=lambda i: -sizes[i - 1])[:6]
+keep = sorted(range(1, n + 1), key=lambda i: -sizes[i - 1])[:len(names)]
 boxes = ndimage.find_objects(lab)
 blobs = sorted([(boxes[i - 1][1].start, boxes[i - 1][1].stop, i) for i in keep])
 merged = [(x0, x1) for x0, x1, _ in blobs]
 labels_kept = [i for _, _, i in blobs]
-names = ["Scout", "Destroyer", "Cruiser", "BattleCruiser", "Battleship", "Dreadnought"]
 print("runs", merged)
-assert len(merged) == 6, len(merged)
+assert len(merged) == len(names), len(merged)
 for name, (x0, x1), li in zip(names, merged, labels_kept):
     own = (lab == li)
     sub = own[:, x0:x1]

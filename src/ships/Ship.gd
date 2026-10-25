@@ -156,6 +156,13 @@ var colonists := 0.0               # people aboard
 var cabin := 0.0                   # people the hull can carry
 var transfer := 0                  # while landed: +1 boarding colonists, -1 putting them down
 var colonist_origin: Planet = null # where the colonists aboard came from (no pay for taking them home)
+var cargo := {}                    # resource -> units aboard (the Resources update)
+var cargo_max := 0.0               # units the hold carries
+var cargo_origin: Planet = null    # where the cargo was last loaded (no pay for taking it back)
+var cargo_orders := {}             # on the ground: resource -> units still to move (+ load, - unload)
+var support := false               # a computer hauler: works for the empire, not on the scoreboard
+const CARGO_MASS := 0.4            # mass of a unit of cargo
+const CARGO_RATE := 30.0           # units a second through a spaceport
 var art_model: Dictionary = {}     # the sprite model, rebuilt on refit
 var hull_race := -1                # whose shipyard built the hull (the painting); -1: race_id
 
@@ -267,6 +274,8 @@ func refit(p_design: Variant) -> void:
 		burn_rate = engine_power * BURN_PER_ENGINE * 0.1
 	cabin = float(GameData.COLONIST_CABIN.get(design_name, 60)) * 1e6
 	colonists = minf(colonists, cabin)
+	cargo_max = float(GameData.CARGO_HOLD.get(design_name, 20))
+	_trim_cargo()
 	fuel = fuel_max
 	crew_max = GameData.HULL_CREW.get(design_name, 10)
 	crew = crew_max
@@ -341,7 +350,34 @@ func set_cloak_forced_off() -> void:
 
 ## Dry mass plus the fuel on board.
 func wet_mass() -> float:
-	return mass + fuel * FUEL_MASS
+	return mass + fuel * FUEL_MASS + cargo_total() * CARGO_MASS
+
+
+func cargo_total() -> float:
+	var n := 0.0
+	for k in cargo:
+		n += cargo[k]
+	return n
+
+
+func cargo_space() -> float:
+	return maxf(cargo_max - cargo_total(), 0.0)
+
+
+## A smaller hold after a refit: what no longer fits is lost, the most
+## plentiful first.
+func _trim_cargo() -> void:
+	var over := cargo_total() - cargo_max
+	while over > 0.01:
+		var top := ""
+		for k in cargo:
+			if top == "" or cargo[k] > cargo[top]:
+				top = k
+		var n := minf(cargo[top], over)
+		cargo[top] -= n
+		over -= n
+		if cargo[top] <= 0.01:
+			cargo.erase(top)
 
 
 func _build_body() -> void:
@@ -856,6 +892,7 @@ func _end_landing() -> void:
 	land_scale = 1.0
 	scale = Vector2.ONE
 	transfer = 0
+	cargo_orders.clear()
 	body.enabled = not dead
 
 
@@ -1374,6 +1411,9 @@ func _die(killer: Node) -> void:
 	if engine_sound != null:
 		engine_sound.silence()
 	died.emit(self, killer)
+	cargo.clear()                      # what the wreck spilled is salvage now
+	cargo_orders.clear()
+	cargo_origin = null
 	if body != null:
 		body.enabled = false
 	hide()

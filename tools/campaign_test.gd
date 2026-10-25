@@ -73,6 +73,8 @@ func _start() -> void:
 	p.credits = 777
 	p.hold = ["4001", "5002"]
 	p.colonists = 12000000.0
+	p.cargo = {"ice": 7.0}
+	p.cargo_origin = earth
 	var at: Vector2 = w.planet_by_name["Mars"].global_position + Vector2(900, 0)
 	p.global_position = at
 	p.body.pos = at
@@ -125,6 +127,9 @@ func _start() -> void:
 	_check(names_after == names_before, "the same pilots fly")
 	p = w.player
 	_check(p.credits == 777 and p.hold == ["4001", "5002"] and absf(p.colonists - 12000000.0) < 1.0, "the player's purse, hold and colonists come back")
+	_check(absf(p.cargo.get("ice", 0.0) - 7.0) < 0.01 and p.cargo_origin == earth, "the player's cargo comes back, loaded at Earth")
+	var haulers := w.ships.filter(func(x): return x.support)
+	_check(haulers.size() == 6 and haulers.all(func(x): return (x.get_node("AI") as AIPilot).hauler), "the supply ships come back as supply ships (%d)" % haulers.size())
 	_check(p.global_position.distance_to(at) < 50.0, "the player is where they were (%.0f px off)" % p.global_position.distance_to(at))
 	var ai2: Ship = null
 	for s in w.ships:

@@ -1,5 +1,6 @@
 # Screenshots of the Resources update for a visual check: the main menu's
-# campaign buttons, Earth's planet card with its stockpile, and the ledger.
+# campaign buttons, Earth's planet card with its stockpile, the ledger, the
+# cargo hold on the ground, cargo crates floating in space and the help card.
 #   xvfb-run -a -s "-screen 0 1920x1080x24" godot --path . --rendering-driver opengl3 -s tools/resources_shots.gd
 extends SceneTree
 
@@ -57,5 +58,39 @@ func _process(_delta: float) -> bool:
 			main.ledger = lg
 		if frames == 280:
 			_shot("res_ledger")
+			main._close_ledger()
+			w.inspected_planet = null
+			var p: Ship = w.player
+			p.refit("Freighter")
+			var earth: Planet = w.planet_by_name["Earth"]
+			var dir := (earth.global_position - w.sun.global_position).normalized().rotated(0.7)
+			p.global_position = earth.global_position + dir * (earth.radius + 90.0)
+			p.velocity = earth.velocity
+			p.body.pos = p.global_position
+			p.body.vel = p.velocity
+			p.invulnerable = 1e9
+			w.try_land(p)
+		if frames == 420:
+			var p: Ship = w.player
+			p.cargo = {"food": 120.0, "metals": 35.0}
+			p.cargo_origin = w.planet_by_name["Luna"]
+			var ev := InputEventAction.new()
+			ev.action = "cargo"
+			ev.pressed = true
+			main._unhandled_input(ev)
+		if frames == 440:
+			_shot("res_cargo")
+			main._close_cargo()
+			w.try_land(w.player)
+		if frames == 560:
+			var p: Ship = w.player
+			for i in 5:
+				var k: String = Economy.RESOURCES[i]
+				w.spawn_powerup("rs:%s:%d" % [k, 10 + i * 7], p.global_position + Vector2(120 + i * 50, -80 + i * 30), p.velocity)
+		if frames == 600:
+			_shot("res_crates")
+			main.hud.show_help = true
+		if frames == 620:
+			_shot("res_help")
 			return true
 	return false
