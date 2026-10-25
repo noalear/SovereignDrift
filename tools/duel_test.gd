@@ -29,6 +29,7 @@ var board_size := 0
 var deaths_seen := 0
 var respawned := false
 var died_at := -1
+var round2_deaths := -1
 
 
 func _init() -> void:
@@ -79,7 +80,7 @@ func _process(_delta: float) -> bool:
 		w.player.inputs["thrust"] = 0.3
 		w.player.inputs["turn"] = 0.2
 	var done: bool = (left_at > 0 and now - left_at > 4000) or (world_seen_at > 0 and now - world_seen_at > 60000) if is_host \
-		else (world_seen_at > 0 and now - world_seen_at > 24000)
+		else (world_seen_at > 0 and now - world_seen_at > 30000)
 	if done:
 		_finish(w)
 		quit(1 if failed else 0)
@@ -95,6 +96,10 @@ func _host_step(w, now: int) -> void:
 		joiner_seen_at = now
 		_check(w.duel_rules.leaderboard().size() == Duel.PILOTS, "a computer pilot made room for the joiner (%d pilots)" % w.duel_rules.leaderboard().size())
 		_check(joiner.design_name == Duel.HULL and joiner.race_id == 0, "the joiner flies a %s of their own empire" % joiner.design_name)
+		# the computer pilots sit out round 1, so only the test's own
+		# kills happen in it (round 2 brings them back)
+		for s in w.duel_rules.bots():
+			w._bench(s, 1e9)
 	if joiner_seen_at < 0:
 		return
 	var t := now - joiner_seen_at
@@ -112,17 +117,14 @@ func _host_step(w, now: int) -> void:
 		_check(w.capture.why_not(p, joiner) == "duel", "no boarding in a duel")
 		joiner.take_damage(1e6, p)
 		_check(p.kills == 1 and joiner.deaths == 1, "the kill counted (kills %d, joiner deaths %d)" % [p.kills, joiner.deaths])
-	if step == 1 and t > 5000:
+	if step == 1 and t > 7500 and joiner != null and not joiner.dead:
 		step = 2
-		# one kill short of the win, then the winning kill on a computer pilot
+		# one kill short of the win, then the winning kill on the joiner again
 		p.kills = Duel.KILLS_TO_WIN - 1
-		for s in w.duel_rules.bots():
-			if not s.dead:
-				s.invulnerable = 0.0
-				s.take_damage(1e6, p)
-				break
+		joiner.invulnerable = 0.0
+		joiner.take_damage(1e6, p)
 		_check(w.duel_rules.break_left > 0.0 and w.duel_rules.winner_name == "HostPilot", "the tenth kill wins the round")
-	if step == 2 and t > 9500 and joiner != null and not joiner.dead:
+	if step == 2 and joiner != null and not joiner.dead and joiner.invulnerable < 2.5:
 		step = 3
 		joiner.take_damage(50.0, p)
 		_check(joiner.hull == joiner.hull_max and w.duel_rules.break_left > 0.0, "nobody takes damage in the ceasefire")
@@ -153,10 +155,12 @@ func _client_step(w, now: int) -> void:
 	if died_at > 0 and not w.player.dead:
 		respawned = true
 	deaths_seen = maxi(deaths_seen, w.player.deaths)
-	if du.killed_by != "":
+	if du.killed_by != "" and saw_killer == "":
 		saw_killer = du.killed_by
 	if du.break_left > 0.0 and du.winner_name != "":
 		saw_winner = du.winner_name
+	if du.round_no == 2 and saw_round < 2:
+		round2_deaths = w.player.deaths
 	saw_round = maxi(saw_round, du.round_no)
 
 
@@ -183,6 +187,7 @@ func _finish(w) -> void:
 		_check(saw_killer == "HostPilot", "the death screen names the killer (%s)" % saw_killer)
 		_check(deaths_seen >= 1 and respawned, "the joiner died and relaunched")
 		_check(saw_host_kills >= Duel.KILLS_TO_WIN, "the board showed the host's kills (%d)" % saw_host_kills)
+		_check(deaths_seen >= 2, "both of the host's kills on the joiner counted (%d deaths)" % deaths_seen)
 		_check(saw_winner == "HostPilot", "the winner was announced (%s)" % saw_winner)
-		_check(saw_round == 2 and w.player.deaths == 0, "round 2 arrived with a clean slate (round %d, deaths %d)" % [saw_round, w.player.deaths])
+		_check(saw_round == 2 and round2_deaths == 0, "round 2 arrived with a clean slate (round %d, deaths %d)" % [saw_round, round2_deaths])
 	print("[%s] %s" % [_tag(), "FAILED" if failed else "passed"])
