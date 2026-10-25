@@ -65,8 +65,13 @@ var last_player_fire := -100.0
 var income_timer := 60.0         # planets pay their empire every minute
 var round_rules: Round = null     # the Conquest rules; the host runs them
 var capture: Capture = null       # boarding and prizes; the host runs them
+var economy: Economy = null       # resources and stockpiles; the host runs them
 var practice := false            # Practice duel: you, your starbase, one pirate at a time
 var practice_opponent := true    # false: Free flight, practice with no pirate at all
+var campaign := false            # a campaign: no round clock, saved as it goes (SaveGame)
+var campaign_data := {}          # a saved campaign to pick up, read before _ready
+var autosave_timer := AUTOSAVE_EVERY
+const AUTOSAVE_EVERY := 120.0
 var duel_score := [0, 0]         # practice: [your kills, their kills]
 const START_CREDITS := 250
 const SUN_HEAT_RADII := 4.0       # the heat zone reaches this many Sun radii above the surface
@@ -108,7 +113,10 @@ func _ready() -> void:
 	space = PhysicsSpace.new()
 	space.filter = Callable(self, "_can_collide")
 	capture = Capture.new(self)
+	economy = Economy.new(self)
 	_build_system()
+	if not Net.is_client():
+		economy.seed_stocks()
 	_spawn_rocks()
 	if Net.is_client():
 		# the ships come from the host, and so does the round: this Round
@@ -119,9 +127,15 @@ func _ready() -> void:
 	elif practice:
 		_spawn_practice()
 	else:
-		_spawn_pilots()
+		if campaign_data.is_empty():
+			_spawn_pilots()
+		else:
+			SaveGame.restore_planets(self, campaign_data)
+			SaveGame.restore_ships(self, campaign_data)
 		round_rules = Round.new()
-		round_rules.setup(self, Settings.round_minutes)
+		round_rules.setup(self, 0 if campaign else Settings.round_minutes)
+		if not campaign_data.is_empty():
+			SaveGame.restore_round(self, campaign_data)
 		round_rules.finished.connect(_on_round_finished)
 		if Net.is_host():
 			Net.host_attach(self)
@@ -545,9 +559,27 @@ func _physics_process(delta: float) -> void:
 	_landed_ships(delta)
 	_refuel(delta)
 	capture.tick(delta)
+	if not practice:
+		economy.tick(delta)
 	_respawns()
 	_score_planets(delta)
+	if campaign and not game_over:
+		autosave_timer -= delta
+		if autosave_timer <= 0.0:
+			save_campaign(false)
 	_follow_camera(delta)
+
+
+## Save the campaign; `loud` tells the player (an autosave stays quiet
+## unless the disk refuses).
+func save_campaign(loud: bool = true) -> bool:
+	autosave_timer = AUTOSAVE_EVERY
+	if not campaign or game_over:
+		return false
+	var ok := SaveGame.write(self)
+	if player != null and (loud or not ok):
+		notify(player, "Campaign saved." if ok else "Could not save the campaign.")
+	return ok
 
 
 func set_paused(p: bool) -> void:
@@ -1373,6 +1405,8 @@ func _score_planets(delta: float) -> void:
 ## career, and let Main show the scoreboard.
 func _on_round_finished(result: Dictionary) -> void:
 	game_over = true
+	if campaign:
+		SaveGame.erase()           # the war is won or lost: the campaign is over
 	var winner: int = result["winner"]
 	notify_all("The %s win the Sol system!" % GameData.race(winner)["name"], GameData.race(winner)["color"])
 	Engine.time_scale = 0.35

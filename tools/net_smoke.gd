@@ -220,5 +220,7 @@ func _finish(w) -> void:
 		_check(rd != null and rd.elapsed > 5.0 and rd.phase != "", "round clock arrived (%s, %s)" % [(rd.clock_text() if rd else "-"), (rd.phase if rd else "-")])
 		_check(saw_disabled, "a ship's shot-out engines showed on the client")
 		_check(saw_prize, "the host's prize ship appeared on the client")
+		var earth_stock: float = w.planet_by_name["Earth"].stock.get("food", 0.0)
+		_check(earth_stock > 0.0, "the stockpiles arrived (Earth food %d)" % int(earth_stock))
 		_check(net.client != null and net.client.correction_px < 60.0, "reconciliation error small (%.1f px)" % (net.client.correction_px if net.client else -1.0))
 	print("[%s] %s" % [_tag(), "FAILED" if failed else "passed"])

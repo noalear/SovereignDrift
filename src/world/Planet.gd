@@ -36,6 +36,8 @@ var habitable := 0              # hydrosphere, percent (the original's hydpc): 1
 var velocity := Vector2.ZERO    # orbital velocity, for leading shots
 var accel := Vector2.ZERO       # the rail's acceleration (centripetal, plus the parent's)
 var body: PhysicsBody = null    # the world's solid, kinematic circle for this body
+var richness := {}              # resource -> 0..5, what the world yields (Economy.richness)
+var stock := {}                 # resource -> units piled up here (Economy)
 
 # colony
 var owner_race := -1
@@ -74,6 +76,8 @@ func setup(p_world: Node, row: Array, parent: Planet, seed_value: int) -> void:
 	temperature = row[6]
 	habitable = row[7]
 	radius = float(row[8])
+	richness = Economy.richness(look, body_class, temperature, habitable, mass, radius)
+	stock = Economy.empty_stock()
 	if body_class == "Moon":
 		orbit_radius = float(row[2]) * 1.6 + (parent.radius if parent else 0.0)
 	else:
@@ -409,10 +413,13 @@ func info_lines(viewer: int) -> Array:
 	var mass_text := "under 0.01" if mass < 0.01 else (("%.2f" % mass) if mass < 10.0 else str(int(mass)))
 	rows.append(["%s   %d K   %smass %s Earths" % [kind, temperature, ("water %d%%   " % habitable) if habitable < 100 else "", mass_text], "sub"])
 	if look == "Sun":
+		rows.append(["Yields  %s   (a solar forge station only)" % Economy.yields_text(richness), "line"])
 		return rows
 	if not has_surface():
 		rows.append(["No surface to land on or settle", "line"])
+		rows.append(["Yields  %s   (a skimmer station only)" % Economy.yields_text(richness), "line"])
 		return rows
+	rows.append(["Yields  %s" % Economy.yields_text(richness), "line"])
 	var viewer_name: String = GameData.race(viewer)["name"]
 	if not is_colonised():
 		rows.append(["Uninhabited", "line"])
@@ -438,6 +445,7 @@ func info_lines(viewer: int) -> Array:
 		rows.append(["DEFENCES DOWN%s" % ((" for %d s" % int(ceil(silenced))) if silenced > 0.0 else ""), "warn"])
 	else:
 		rows.append(["Defences  %d gun%s, range %d   shields %d%%   hull %d%%" % [weapons.size(), "" if weapons.size() == 1 else "s", int(defence_range), int(100.0 * shield / maxf(shield_max, 1.0)), int(100.0 * hull / maxf(hull_max, 1.0))], "line"])
+	rows.append_array(stock_lines(viewer))
 	if owner_race <= 2:
 		var mult: float = world.round_rules.bonus_multiplier() if world != null and world.round_rules != null else 1.0
 		rows.append(["Pays %s %d credits a minute" % ["your side" if mine else "its owners", int(10 * mult)], "line"])
@@ -450,6 +458,31 @@ func info_lines(viewer: int) -> Array:
 		rows.append(["Knock out its defences, then land over %s colonists" % GameData.fmt_pop(population / GameData.OFFENSIVE_FACTOR), "line"])
 	if not mine:
 		rows.append(["Would support %s %ss (climate %d%%)" % [GameData.fmt_pop(optimal_population(viewer)), viewer_name, int(GameData.climate(viewer, temperature) * 100.0)], "line"])
+	return rows
+
+
+## The colony's stockpile and output, for its own side; others only see
+## that there is one.
+func stock_lines(viewer: int) -> Array:
+	if not is_colonised():
+		return []
+	if owner_race != viewer:
+		return [["Stockpile: unknown", "line"]]
+	var have := []
+	for k in Economy.RESOURCES:
+		if stock.get(k, 0.0) >= 0.5:
+			have.append("%s %d" % [Economy.NAMES[k], int(stock[k])])
+	var rows := [["Stock  %s   (holds %d of each)" % ["  ".join(have) if not have.is_empty() else "empty", int(Economy.cap(self))], "line"]]
+	var rates := Economy.production(self)
+	var making := []
+	for k in Economy.RESOURCES:
+		if rates[k] >= 0.05:
+			var full: bool = stock.get(k, 0.0) >= Economy.cap(self) - 0.01
+			making.append("%s +%s%s" % [Economy.NAMES[k], ("%.1f" % rates[k]) if rates[k] < 10.0 else str(int(rates[k])), " (full)" if full else ""])
+	if silenced > 0.0:
+		rows.append(["Making nothing while its defences are down", "warn"])
+	elif not making.is_empty():
+		rows.append(["Making  %s a minute" % "  ".join(making), "line"])
 	return rows
 
 
