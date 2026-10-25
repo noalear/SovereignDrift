@@ -132,7 +132,7 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 		var reach: float = sh.size
 		if sh.shield_bubble != null:
 			reach = maxf(reach, maxf(sh.shield_bubble.half.x, sh.shield_bubble.half.y) + sh.shield_bubble.position.length())
-		var friend: bool = sh.race_id == p.race_id
+		var friend: bool = sh.team() == p.team()
 		var col := Color(0.45, 1.0, 0.5) if friend else Color(1.0, 0.38, 0.32)
 		var text: String = sh.ship_name if sh.is_station else sh.pilot_name
 		var pos := at - Vector2(0, reach * cam.zoom.x + 8.0)
@@ -293,7 +293,7 @@ func _draw_target(p: Ship, vp: Vector2) -> void:
 	var screen := (world.drawn_position(t) - world.camera_centre()) * cam.zoom + vp * 0.5
 	var r: float = (t.size if t is Ship else t.radius) * cam.zoom.x + 10.0
 	var col: Color = t.race_color() if t is Ship else Color(1, 1, 1)
-	if t is Ship and t.race_id == p.race_id:
+	if t is Ship and t.team() == p.team():
 		col = Color(0.5, 1.0, 0.5)
 	var vis: bool = t is Planet or t.visible_to(p)
 	if vis and screen.x > -50 and screen.x < vp.x + 50 and screen.y > -50 and screen.y < vp.y + 50:
@@ -329,7 +329,7 @@ func _draw_target(p: Ship, vp: Vector2) -> void:
 				line += "   BOARDING %d%%   (K calls it off)" % int(p.board_progress * 100.0)
 				lcol = Color(0.55, 0.9, 1.0)
 				_bar(Vector2(x, y + 132), 300, 10, p.board_progress, Color(0.5, 0.85, 1.0, 0.9), "", "")
-			elif t.is_disabled() and t.race_id != p.race_id:
+			elif t.is_disabled() and t.team() != p.team():
 				var why := Capture.why_not(p, t)
 				lcol = Color(1.0, 0.6, 0.3) if fmod(time * 2.0, 1.0) < 0.7 else Color(1.0, 0.85, 0.5)
 				if why == "far":
@@ -430,7 +430,7 @@ func _draw_radar(p: Ship, vp: Vector2) -> void:
 		if d.length() > r:
 			continue
 		var col := s.race_color()
-		var hostile := s.race_id != p.race_id
+		var hostile := s.team() != p.team()
 		if s.is_station:
 			draw_rect(Rect2(c + d - Vector2(4, 4), Vector2(8, 8)), col)
 		else:
@@ -463,6 +463,9 @@ func _draw_messages(vp: Vector2) -> void:
 func _draw_rank(p: Ship, vp: Vector2) -> void:
 	var x := 24.0
 	var y := 24.0
+	if world.duel_rules != null:
+		_draw_duel(p, vp)
+		return
 	var rank := GameData.rank_name(p.rank)
 	var next := ""
 	if p.rank + 1 < GameData.RANKS.size():
@@ -611,6 +614,33 @@ func _draw_round(vp: Vector2) -> void:
 		draw_rect(Rect2(cx - bw * 0.5, 84, bw * rd.hold_timer / Round.HOLD_SECONDS, 5), hc)
 
 
+## A duel: your tally top left, the round's leaderboard top centre in
+## two columns, and the winner between rounds.
+func _draw_duel(p: Ship, vp: Vector2) -> void:
+	var du: Duel = world.duel_rules
+	_text(Vector2(24, 24), "%s   kills %d   deaths %d" % [p.pilot_name, p.kills, p.deaths], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 0.95, 0.8))
+	_text(Vector2(24, 44), "Free-for-all: everyone is your enemy.  %s targets the nearest pilot." % Keybinds.short_text("target_nearest"), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.75, 0.82, 0.95, 0.85))
+	var cx := vp.x * 0.5
+	var head := "FREE-FOR-ALL   round %d   first to %d kills   %s left" % [du.round_no, Duel.KILLS_TO_WIN, du.clock_text()]
+	if du.break_left > 0.0:
+		head = "CEASEFIRE   next round in %d" % int(ceil(du.break_left))
+	_text(Vector2(cx - 360, 22), head, HORIZONTAL_ALIGNMENT_CENTER, 720, 16, Color(1.0, 0.85, 0.45) if du.break_left > 0.0 else Color(0.85, 0.92, 1.0))
+	var board := du.leaderboard()
+	for i in mini(board.size(), 8):
+		var s: Ship = board[i]
+		var col_x := cx - 350.0 + float(i / 4) * 360.0
+		var y := 44.0 + float(i % 4) * 17.0
+		var me := s == p
+		var c: Color = Color(1, 0.95, 0.6) if me else (Color(0.55, 0.55, 0.6) if s.dead else Color(0.9, 0.9, 0.92))
+		draw_circle(Vector2(col_x + 6, y - 5), 4.5, s.race_color())
+		_text(Vector2(col_x + 16, y), "%d. %s" % [i + 1, s.pilot_name], HORIZONTAL_ALIGNMENT_LEFT, 220, 14, c)
+		_text(Vector2(col_x + 220, y), "%d  /  %d" % [s.kills, s.deaths], HORIZONTAL_ALIGNMENT_RIGHT, 110, 14, c)
+	if du.break_left > 0.0:
+		var msg := ("%s wins round %d!" % [du.winner_name, du.round_no]) if du.winner_name != "" else ("Round %d is over." % du.round_no)
+		_text(Vector2(0, vp.y * 0.3), msg, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 40, Color(1.0, 0.9, 0.55))
+		_text(Vector2(0, vp.y * 0.3 + 36), "Next round in %d.  Everyone relaunches with a clean slate." % int(ceil(du.break_left)), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 18, Color(1, 1, 1, 0.9))
+
+
 func _draw_music(vp: Vector2) -> void:
 	if now_playing.is_empty():
 		return
@@ -671,7 +701,7 @@ func _draw_pointers(p: Ship, vp: Vector2) -> void:
 	var xf := world.get_viewport().get_canvas_transform()
 	var marks := []
 	if p.target != null and is_instance_valid(p.target) and p.target is Ship and not p.target.dead:
-		var hostile: bool = p.target.race_id != p.race_id
+		var hostile: bool = p.target.team() != p.team()
 		marks.append([p.target, Color(1.0, 0.35, 0.3) if hostile else Color(1.0, 0.9, 0.4), p.target.pilot_name])
 	var base: Ship = world.starbase_of(p.race_id)
 	if base != null and base != p.target:
@@ -729,7 +759,7 @@ func _draw_aim(p: Ship, vp: Vector2) -> void:
 		return
 	var col := Color(0.6, 1.0, 0.7, 0.85)
 	var hover := world.ship_at(p.aim_point, 40.0 / cam.zoom.x)
-	if hover != null and hover != p and hover.race_id != p.race_id:
+	if hover != null and hover != p and hover.team() != p.team():
 		col = Color(1.0, 0.45, 0.4, 0.95)
 	draw_arc(screen, 11.0, 0.0, TAU, 24, col, 1.5)
 	for d in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:
@@ -739,7 +769,8 @@ func _draw_aim(p: Ship, vp: Vector2) -> void:
 func _draw_dead(vp: Vector2) -> void:
 	var a := clampf(dead_time, 0.0, 1.0)
 	draw_rect(Rect2(Vector2.ZERO, vp), Color(0.3, 0.0, 0.0, 0.25 * a))
-	draw_string(font, Vector2(0, vp.y * 0.4), "Your ship was captured" if world.player.captured else "Your ship was destroyed", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 40, Color(1, 0.8, 0.7, a))
+	var killer: String = world.duel_rules.killed_by if world.duel_rules != null else ""
+	draw_string(font, Vector2(0, vp.y * 0.4), "Your ship was captured" if world.player.captured else ("Destroyed by %s" % killer if killer != "" else "Your ship was destroyed"), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 40, Color(1, 0.8, 0.7, a))
 	var left := maxf(World.RESPAWN_DELAY - dead_time, 0.0)
 	draw_string(font, Vector2(0, vp.y * 0.4 + 40), "Relaunching in %d..." % int(ceil(left)), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, Color(1, 1, 1, a))
 

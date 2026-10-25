@@ -326,11 +326,20 @@ func is_disabled() -> bool:
 	return systems.disabled() or (crew < 0.5 and not is_station)
 
 
-## Is a pilot of `race` boarding us, or on the way to?  Its friends hold
-## their fire so it can take us alive.
+## Whose side the ship is on: its empire's, except in a free-for-all
+## duel, where every pilot fights alone.  Compare sides with this, not
+## race_id, when deciding friend or foe.
+func team() -> int:
+	if world != null and world.get("duel_rules") != null and not is_station:
+		return get_instance_id()
+	return race_id
+
+
+## Is a pilot of side `race` (see team()) boarding us, or on the way to?
+## Its friends hold their fire so it can take us alive.
 func spoken_for(race: int) -> bool:
 	for c in [boarded_by, claimed_by]:
-		if c != null and is_instance_valid(c) and not c.dead and c.race_id == race and (c.boarding == self or c.target == self):
+		if c != null and is_instance_valid(c) and not c.dead and c.team() == race and (c.boarding == self or c.target == self):
 			return true
 	return false
 
@@ -1332,7 +1341,7 @@ func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_
 	if attacker is Ship and attacker != self:
 		last_attacker = attacker
 		last_attacked_at = Time.get_ticks_msec() / 1000.0
-		if is_player and autopilot and attacker.race_id != race_id:
+		if is_player and autopilot and attacker.team() != team():
 			autopilot = false
 			if warping:
 				end_warp()

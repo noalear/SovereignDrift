@@ -146,7 +146,7 @@ func _draw() -> void:
 	for sh in world.ships:
 		if sh.dead:
 			continue
-		var seen: bool = sh.is_station or (player != null and not player.dead and sh.visible_to(player))
+		var seen: bool = sh.is_station or world.duel_rules != null or (player != null and not player.dead and sh.visible_to(player))
 		if not seen:
 			continue
 		var pos := to_map(sh.global_position)

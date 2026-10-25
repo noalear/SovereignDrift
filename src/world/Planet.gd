@@ -316,8 +316,8 @@ func _process(delta: float) -> void:
 
 
 func _defend(delta: float) -> void:
-	if "practice" in world and world.practice:
-		return                          # practice: the colonies hold their fire
+	if "practice" in world and (world.practice or world.duel_rules != null):
+		return                          # practice and duels: the colonies hold their fire
 	if is_defenceless():
 		return                          # knocked out: the guns are silent
 	var enemy: Ship = world.nearest_enemy_ship(global_position, owner_race, defence_range + radius)
