@@ -777,6 +777,7 @@ func _draw_help(vp: Vector2) -> void:
 		["TARGETS AND NAVIGATION", ""],
 		[_keys("target_next"), "next target"], [_keys("target_nearest"), "nearest enemy"], ["Shift+click", "target a ship, world info"],
 		[_keys("tactical_map"), "system map (hold or tap)"], [_keys("nav_next"), "next nav planet"], [_keys("autopilot"), "autopilot to the nav planet"],
+		[_keys("ledger"), "empire ledger: resources"],
 		["", ""],
 		["SHIP", ""],
 		[_keys("board"), "board a disabled target"], [_keys("refit"), "shipyard, at your starbase"], [_keys("trade"), "trade with your target (online)"],

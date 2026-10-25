@@ -26,8 +26,11 @@ func _start() -> void:
 	root.add_child(main)
 	await process_frame
 	await process_frame
-	var b: Array = main.menu.buttons[1]
-	_check(b[1] == "Practice duel", "second menu button is Practice duel (%s)" % b[1])
+	var b: Array = main.menu.buttons[0]
+	for mb in main.menu.buttons:
+		if mb[1] == "Practice duel":
+			b = mb
+	_check(b[1] == "Practice duel", "the menu has a Practice duel button (%s)" % b[1])
 	var ev := InputEventMouseButton.new()
 	ev.button_index = MOUSE_BUTTON_LEFT
 	ev.position = (b[0] as Rect2).get_center()

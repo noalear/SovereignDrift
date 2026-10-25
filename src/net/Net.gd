@@ -11,7 +11,7 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 9
+const PROTOCOL := 10
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -949,6 +949,13 @@ func _rpc_colonies(state: Array) -> void:
 		p.silenced = row[3]
 
 
+## The stockpiles, every couple of seconds (the Resources update).
+@rpc("authority", "reliable")
+func _rpc_economy(rows: Array) -> void:
+	if world != null and world.economy != null:
+		world.economy.unpack(rows)
+
+
 @rpc("authority", "reliable")
 func _rpc_cabin(colonists: float, transfer: int) -> void:
 	if world != null and world.player != null:
@@ -1318,6 +1325,7 @@ func _physics_process(delta: float) -> void:
 		stats_timer = STATS_EVERY
 		_rpc_stats.rpc(_stats(), _round_state())
 		_rpc_colonies.rpc(_colony_state())
+		_rpc_economy.rpc(world.economy.pack())
 		for peer_id in seats:
 			var s: Node = ships_by_id.get(seats[peer_id], null)
 			if s != null and is_instance_valid(s):

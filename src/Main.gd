@@ -12,6 +12,7 @@ var pause_panel: Control = null
 var builder: Builder = null
 var trade: Trade = null
 var tactical: TacticalMap = null
+var ledger: Ledger = null
 var tactical_opened_at := 0
 var scoreboard: Scoreboard = null
 var font: Font
@@ -106,6 +107,7 @@ func _show_menu() -> void:
 		builder.queue_free()
 		builder = null
 	_close_tactical()
+	_close_ledger()
 	if scoreboard != null:
 		scoreboard.queue_free()
 		scoreboard = null
@@ -131,6 +133,8 @@ func _show_menu() -> void:
 	menu.play_pressed.connect(_start_game)
 	menu.practice_pressed.connect(_start_practice)
 	menu.free_flight_pressed.connect(_start_free_flight)
+	menu.campaign_new_pressed.connect(func(): _start_game(false, true, "new"))
+	menu.campaign_continue_pressed.connect(func(): _start_game(false, true, "continue"))
 	menu.host_pressed.connect(_host_game)
 	menu.join_pressed.connect(_join_game)
 	menu.quit_pressed.connect(func(): get_tree().quit())
@@ -149,10 +153,19 @@ func _start_free_flight() -> void:
 	_start_game(true, false)
 
 
-func _start_game(practice := false, opponent := true) -> void:
+## `campaign` is "" for a Conquest round, "new" for a fresh campaign or
+## "continue" for the saved one.
+func _start_game(practice := false, opponent := true, campaign := "") -> void:
 	if not Net.is_active():
 		Settings.use_profile("single")
 	Settings.save_settings()
+	var saved := {}
+	if campaign == "continue":
+		saved = SaveGame.read()
+		if saved.is_empty():
+			campaign = "new"
+	elif campaign == "new":
+		SaveGame.erase()
 	Sfx.play_ui("ui_start", 0.8)
 	if menu != null:
 		menu.queue_free()
@@ -167,18 +180,27 @@ func _start_game(practice := false, opponent := true) -> void:
 	world.name = "World"
 	world.practice = practice
 	world.practice_opponent = opponent
+	world.campaign = campaign != ""
+	world.campaign_data = saved
 	add_child(world)
 	hud = HUD.new()
 	ui_layer.add_child(hud)
 	hud.attach(world)
 	world.shipyard_requested.connect(open_builder)
 	world.round_over.connect(_on_round_over)
-	if world.round_rules != null and world.round_rules.length > 0.0:
+	if campaign == "new":
+		world.notify_all("Campaign: no clock. The war goes on until one empire holds every colony. It saves every 2 minutes, with %s, and when you leave." % Keybinds.short_text("quick_save"), Color(0.8, 0.9, 1.0))
+		world.save_campaign(false)
+	elif campaign == "continue":
+		world.notify_all("Campaign resumed: %s into the war. %s shows your empire's resources." % [Round._fmt(world.elapsed), Keybinds.short_text("ledger")], Color(0.8, 0.9, 1.0))
+	elif world.round_rules != null and world.round_rules.length > 0.0:
 		world.notify_all("Conquest: %d minutes. Hold the most planets when time runs out, or every colony for 45 seconds. Tab shows the system." % int(world.round_rules.length / 60.0), Color(0.8, 0.9, 1.0))
 	if practice and not opponent:
 		world.notify_all("Free flight: no enemies, no round clock, and the colonies hold their fire. Try long autopilot routes with N and G. Esc for the menu.", Color(0.8, 0.9, 1.0))
 	elif practice:
 		world.notify_all("Practice duel: one pirate Scout at a time, no round clock, no fleets, and the colonies hold their fire. Esc for the menu.", Color(0.8, 0.9, 1.0))
+	if campaign == "continue":
+		return
 	world.notify_all("Welcome, %s. You launch from the %s starbase at %s. Press H for the controls." % [Settings.pilot_name, GameData.race(Settings.race_id)["name"], GameData.STARBASES.get(Settings.race_id, "home")], Color(1, 0.95, 0.8))
 
 
@@ -188,6 +210,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("tactical_map") and world != null and builder == null and pause_panel == null and scoreboard == null:
 		if tactical == null:
+			_close_ledger()
 			tactical = TacticalMap.new()
 			tactical.world = world
 			ui_layer.add_child(tactical)
@@ -195,6 +218,22 @@ func _unhandled_input(event: InputEvent) -> void:
 			Sfx.play_ui("click", 0.3)
 		else:
 			_close_tactical()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("ledger") and world != null and builder == null and pause_panel == null and scoreboard == null:
+		if ledger == null:
+			_close_tactical()
+			ledger = Ledger.new()
+			ledger.world = world
+			ui_layer.add_child(ledger)
+			Sfx.play_ui("click", 0.3)
+		else:
+			_close_ledger()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("quick_save") and world != null and world.campaign and scoreboard == null:
+		world.save_campaign()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("pause_menu") and ledger != null:
+		_close_ledger()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_released("tactical_map") and tactical != null and event is InputEventKey:
 		# a long press is "hold to look"; a tap leaves the map open
@@ -256,8 +295,17 @@ func _open_pause() -> void:
 		Settings.toggle_fullscreen()
 		b3.text = "Switch to window" if Settings.fullscreen else "Switch to full screen")
 	box.add_child(b3)
+	if world.campaign:
+		var bs := Button.new()
+		bs.text = "Save the campaign"
+		bs.add_theme_font_size_override("font_size", 20)
+		bs.pressed.connect(func():
+			bs.text = "Saved" if world.save_campaign() else "Could not save")
+		box.add_child(bs)
+		box.offset_top -= 30
+		box.offset_bottom += 30
 	var b4 := Button.new()
-	b4.text = "Leave the game" if Net.is_active() else "Leave to the menu"
+	b4.text = "Leave the game" if Net.is_active() else ("Save and leave to the menu" if world.campaign else "Leave to the menu")
 	b4.add_theme_font_size_override("font_size", 20)
 	b4.pressed.connect(func():
 		_close_pause()
@@ -278,6 +326,12 @@ func _close_tactical() -> void:
 	if tactical != null:
 		tactical.queue_free()
 		tactical = null
+
+
+func _close_ledger() -> void:
+	if ledger != null:
+		ledger.queue_free()
+		ledger = null
 
 
 ## The round is decided: let the slow-motion finish play for a moment,
@@ -354,7 +408,10 @@ func _close_pause() -> void:
 		world.set_paused(false)
 
 
+## Leaving or quitting: the career, and in a campaign the war itself.
 func _save_career() -> void:
+	if world != null and world.campaign and not world.game_over:
+		world.save_campaign(false)
 	if world != null and world.player != null and world.records_career():
 		Settings.career["score"] = world.player.score
 		Settings.career["kills"] = world.player.kills

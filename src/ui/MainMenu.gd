@@ -5,6 +5,8 @@ extends Control
 signal play_pressed()
 signal practice_pressed()
 signal free_flight_pressed()
+signal campaign_new_pressed()
+signal campaign_continue_pressed()
 signal host_pressed()
 signal join_pressed(address: String)
 signal quit_pressed()
@@ -23,10 +25,13 @@ var capture_action := ""     # Controls page: the action waiting for a key
 var capture_slot := ""       # "kb0", "kb1" or "pad"
 var capture_since := 0
 var controls_status := ""
+var campaign_note := ""      # the warning before a new campaign replaces the saved one
+var save_info := {}          # the saved campaign's summary, read once
 
 
 func _ready() -> void:
 	font = ThemeDB.fallback_font
+	save_info = SaveGame.summary()
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	name_edit = LineEdit.new()
@@ -281,14 +286,39 @@ func _draw_main(vp: Vector2) -> void:
 	var y := vp.y * 0.42
 	draw_string(font, Vector2(0, y - 20), _profile_line("single"), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 17, Color(1, 0.95, 0.8))
 	_button(Rect2(x, y, w, 52), "Play: the Sol system", func(): play_pressed.emit())
-	_button(Rect2(x, y + 64, w * 0.5 - 4, 52), "Practice duel", func(): practice_pressed.emit())
-	_button(Rect2(x + w * 0.5 + 4, y + 64, w * 0.5 - 4, 52), "Free flight", func(): free_flight_pressed.emit())
-	_button(Rect2(x, y + 128, w, 52), "Play online", func(): _set_page("online"))
-	_button(Rect2(x, y + 192, w, 52), "Pilot", func(): _set_page("pilot"))
-	_button(Rect2(x, y + 256, w, 52), "Settings", func(): _set_page("settings"))
-	_button(Rect2(x, y + 320, w, 52), "About", func(): _set_page("about"))
-	_button(Rect2(x, y + 384, w, 52), "Quit", func(): quit_pressed.emit())
-	draw_string(font, Vector2(0, y + 468), "Arrow keys, D-pad or stick to move   ·   Enter or A to choose   ·   Esc or B to go back", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14, Color(0.6, 0.7, 0.85))
+	var has_save := not save_info.is_empty()
+	_button(Rect2(x, y + 64, w * 0.5 - 4, 52), "New campaign", _new_campaign)
+	_button(Rect2(x + w * 0.5 + 4, y + 64, w * 0.5 - 4, 52), "Continue", func(): campaign_continue_pressed.emit(), has_save)
+	if not campaign_note.is_empty():
+		draw_string(font, Vector2(x + w + 16, y + 96), campaign_note, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1.0, 0.85, 0.55))
+	elif has_save:
+		draw_string(font, Vector2(x + w + 16, y + 96), _save_line(), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.7, 0.8, 0.95))
+	_button(Rect2(x, y + 128, w * 0.5 - 4, 52), "Practice duel", func(): practice_pressed.emit())
+	_button(Rect2(x + w * 0.5 + 4, y + 128, w * 0.5 - 4, 52), "Free flight", func(): free_flight_pressed.emit())
+	_button(Rect2(x, y + 192, w, 52), "Play online", func(): _set_page("online"))
+	_button(Rect2(x, y + 256, w * 0.5 - 4, 52), "Pilot", func(): _set_page("pilot"))
+	_button(Rect2(x + w * 0.5 + 4, y + 256, w * 0.5 - 4, 52), "Settings", func(): _set_page("settings"))
+	_button(Rect2(x, y + 320, w * 0.5 - 4, 52), "About", func(): _set_page("about"))
+	_button(Rect2(x + w * 0.5 + 4, y + 320, w * 0.5 - 4, 52), "Quit", func(): quit_pressed.emit())
+	draw_string(font, Vector2(0, y + 404), "Arrow keys, D-pad or stick to move   ·   Enter or A to choose   ·   Esc or B to go back", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14, Color(0.6, 0.7, 0.85))
+
+
+## A new campaign over a saved one asks first: the second press starts it.
+func _new_campaign() -> void:
+	if SaveGame.exists() and campaign_note.is_empty():
+		campaign_note = "This replaces your saved campaign. Press New campaign again to start over."
+		return
+	campaign_note = ""
+	campaign_new_pressed.emit()
+
+
+## "Saved campaign: Terran, 1:42:10 in, 6 worlds held"
+func _save_line() -> String:
+	var info := save_info
+	if info.is_empty():
+		return ""
+	var t := int(info["elapsed"])
+	return "Saved campaign: %s, %d:%02d:%02d in, %d world%s held" % [GameData.race(info["race"])["name"], t / 3600, (t / 60) % 60, t % 60, info["held"], "" if info["held"] == 1 else "s"]
 
 
 ## "Rear Admiral Joiner of the Terran Alliance   score 30750   kills 2500"
