@@ -33,6 +33,9 @@ var saw_disabled := false
 var saw_prize := false
 var saw_cargo := false
 var saw_supply := false
+var saw_frame := false
+var saw_station := false
+var depot: Node = null
 
 
 func _init() -> void:
@@ -96,7 +99,25 @@ func _process(_delta: float) -> bool:
 			if s.pilot_name == "Joiner":
 				joiner_seen_at = now
 				joiner_score_at_seat = s.score
-				s.cargo["metals"] = 3.0      # the client should see its hold
+	if is_host and w != null and joiner_seen_at > 0:
+		for s in w.ships:
+			if s.pilot_name == "Joiner" and not s.dead and s.cargo_max >= 3.0:
+				s.cargo["metals"] = 3.0      # the client should see its hold (again after a death or a refit)
+		# a station frame goes up, and is finished a few seconds later
+		if depot == null:
+			# out at Jupiter, well clear of the pilots launching from the starbases
+			var jupiter = w.planet_by_name["Jupiter"]
+			depot = w.build_station(1, "SupplyDepot", jupiter, jupiter.global_position + Vector2(0, jupiter.radius + 900.0))
+			depot.invulnerable = 1e9
+		elif depot.building and now - joiner_seen_at > 7000:
+			w.finish_station(depot)
+	if not is_host and w != null:
+		for s in w.ships:
+			if s.design_name == "SupplyDepot":
+				if s.building and s.cargo_max == 25.0 and s.design["modules"] == ["1001"]:
+					saw_frame = true
+				elif not s.building and s.cargo_max == 1500.0 and s.design["modules"].size() == 3:
+					saw_station = true
 	if not is_host and w != null and p != null and p.cargo.get("metals", 0.0) == 3.0:
 		saw_cargo = true
 	if not is_host and w != null and w.ships.any(func(x): return x.support and x.design_name == "Freighter"):
@@ -121,7 +142,7 @@ func _process(_delta: float) -> bool:
 			if s.pilot_name == "Joiner":
 				var base = w.nearest_base(s)
 				for o in w.ships:
-					if o.is_station and o.race_id == s.race_id and not o.dead:
+					if o.is_starbase() and o.race_id == s.race_id and not o.dead:
 						base = o
 				if base != null:
 					s.global_position = base.global_position + Vector2(base.size + 100.0, 0)
@@ -231,5 +252,7 @@ func _finish(w) -> void:
 		_check(earth_stock > 0.0, "the stockpiles arrived (Earth food %d)" % int(earth_stock))
 		_check(saw_cargo, "the joiner's cargo hold arrived")
 		_check(saw_supply, "the supply ships arrived as supply ships")
+		_check(saw_frame, "a station frame went up on the client")
+		_check(saw_station, "and was finished there")
 		_check(net.client != null and net.client.correction_px < 60.0, "reconciliation error small (%.1f px)" % (net.client.correction_px if net.client else -1.0))
 	print("[%s] %s" % [_tag(), "FAILED" if failed else "passed"])

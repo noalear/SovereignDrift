@@ -48,8 +48,11 @@ static func texture(path: String) -> Texture2D:
 static func hull_texture(hull_name: String, race_id: int) -> Texture2D:
 	var folder: String = ["arcean", "terran", "drengin", "pirate"][clampi(race_id, 0, 3)]
 	var file := hull_name
-	if hull_name == "Starbase":
-		return texture("res://assets/ships/stations/%s.png" % ["arcean", "terran", "drengin", "drengin"][clampi(race_id, 0, 3)])
+	if GameData.is_station_hull(hull_name):
+		var yard: String = ["arcean", "terran", "drengin", "drengin"][clampi(race_id, 0, 3)]
+		# a built station's own painting when there is one, else the starbase's
+		var own := texture("res://assets/ships/stations/%s_%s.png" % [hull_name, yard]) if hull_name != "Starbase" else null
+		return own if own != null else texture("res://assets/ships/stations/%s.png" % yard)
 	if race_id == 3:
 		match hull_name:
 			"Destroyer": file = "Raider"
@@ -299,7 +302,7 @@ static func hardpoint_spots(hull_name: String, race_id: int, size: float) -> Arr
 	if _spots.has(key):
 		return _spots[key]
 	var tex := hull_texture(hull_name, race_id)
-	var rect := _hull_rect(tex, size, hull_name == "Starbase")
+	var rect := _hull_rect(tex, size, GameData.is_station_hull(hull_name))
 	var mask := hull_mask(tex)
 	var raws := []
 	var out := []
@@ -337,7 +340,7 @@ static func weapon_spot(hull_name: String, race_id: int, size: float, w: Array) 
 			return spots[i]
 	var tex := hull_texture(hull_name, race_id)
 	var r := turret_radius(size, GameData.weapon_class(w[0]))
-	return _snap(hull_mask(tex), _hull_rect(tex, size, hull_name == "Starbase"), raw_mount(float(w[1]), float(w[2]), size), r * 0.8)
+	return _snap(hull_mask(tex), _hull_rect(tex, size, GameData.is_station_hull(hull_name)), raw_mount(float(w[1]), float(w[2]), size), r * 0.8)
 
 
 # ----------------------------------------------------------------- model
@@ -353,7 +356,7 @@ static func build_model(design: Variant, race_id: int, size: float) -> Dictionar
 	var fit: Dictionary = {} if design is String else design
 	var m := {"hull": hull_name, "race": race_id, "size": size, "seed": hash(hull_name) + race_id * 31,
 		"tex": hull_texture(hull_name, race_id), "rect": Rect2(), "nozzles": [], "overlays": [], "turrets": [],
-		"glow": glow_color(race_id), "tint": part_tint(race_id), "station": hull_name == "Starbase"}
+		"glow": glow_color(race_id), "tint": part_tint(race_id), "station": GameData.is_station_hull(hull_name)}
 	var tex: Texture2D = m["tex"]
 	m["rect"] = _hull_rect(tex, size, m["station"])
 	m["mask"] = hull_mask(tex)

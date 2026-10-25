@@ -146,7 +146,9 @@ func _draw() -> void:
 	for sh in world.ships:
 		if sh.dead:
 			continue
-		var seen: bool = sh.is_station or (player != null and not player.dead and sh.visible_to(player))
+		# starbases are known to all, built stations to their own side
+		var seen: bool = sh.is_starbase() or (player != null and sh.is_station and sh.race_id == player.race_id) \
+			or (player != null and not player.dead and sh.visible_to(player))
 		if not seen:
 			continue
 		var pos := to_map(sh.global_position)
@@ -163,7 +165,16 @@ func _draw() -> void:
 			continue
 		if not mr.has_point(pos):
 			continue
-		if sh.is_station:
+		if sh.is_station and not sh.is_starbase():
+			# a built station: a small diamond, hollow while it is a frame
+			var dm := PackedVector2Array([pos + Vector2(0, -5), pos + Vector2(5, 0), pos + Vector2(0, 5), pos + Vector2(-5, 0)])
+			if sh.building:
+				dm.append(dm[0])
+				draw_polyline(dm, col, 1.2, true)
+			else:
+				draw_colored_polygon(dm, col)
+			ship_marks.append(Rect2(pos - Vector2(6, 6), Vector2(12, 12)))
+		elif sh.is_station:
 			station_rects.append(Rect2(pos - Vector2(7, 7), Vector2(14, 14)))
 			draw_rect(Rect2(pos - Vector2(4, 4), Vector2(8, 8)), col)
 			draw_rect(Rect2(pos - Vector2(6, 6), Vector2(12, 12)), Color(col.r, col.g, col.b, 0.6), false, 1.0)

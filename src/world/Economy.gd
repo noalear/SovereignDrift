@@ -223,6 +223,9 @@ func tick(delta: float) -> void:
 	for p in world.planets:
 		if p.is_colonised():
 			step(p, dt)
+	for s in world.ships:
+		if s.is_station and not s.dead and not s.building:
+			station_step(s, dt)
 
 
 ## One world's production over `dt` seconds.
@@ -241,6 +244,51 @@ static func step(p: Planet, dt: float) -> void:
 		p.stock["metals"] -= n * 2.0
 		p.stock["fuel"] -= n
 		p.stock["alloys"] = p.stock.get("alloys", 0.0) + n
+
+
+## Mining stations and skimmers work at this share of a full colony's
+## rate for the body's richness: no people, just machines.
+const STATION_RATE := 0.75
+## Alloys a refinery station makes a minute (2 Metals + 1 Fuel each).
+const STATION_REFINE := 6.0
+
+
+## Units a minute a working station makes of each resource.
+static func station_production(s: Ship) -> Dictionary:
+	var out := {}
+	var p := s.station_body
+	match s.design_name:
+		"MiningStation":
+			if p != null:
+				for k in ["metals", "ice", "exotics"]:
+					if p.richness.get(k, 0) > 0:
+						out[k] = p.richness[k] * RATE_PER_POINT * STATION_RATE
+		"GasSkimmer":
+			if p != null and p.richness.get("fuel", 0) > 0:
+				out["fuel"] = p.richness["fuel"] * RATE_PER_POINT * STATION_RATE
+		"Refinery":
+			if minf(s.cargo.get("metals", 0.0) / 2.0, s.cargo.get("fuel", 0.0)) >= 1.0:
+				out["alloys"] = STATION_REFINE
+	return out
+
+
+## One station's work over `dt` seconds: production goes into its hold
+## until the hold is full.
+static func station_step(s: Ship, dt: float) -> void:
+	var rates := station_production(s)
+	if rates.is_empty():
+		return
+	if s.design_name == "Refinery":
+		var n := minf(rates["alloys"] * dt / 60.0, minf(s.cargo.get("metals", 0.0) / 2.0, s.cargo.get("fuel", 0.0)))
+		if n > 0.0:
+			s.cargo["metals"] -= n * 2.0
+			s.cargo["fuel"] -= n
+			s.cargo["alloys"] = s.cargo.get("alloys", 0.0) + n
+		return
+	for k in rates:
+		var n := minf(rates[k] * dt / 60.0, s.cargo_space())
+		if n > 0.0:
+			s.cargo[k] = s.cargo.get(k, 0.0) + n
 
 
 ## An empire's worlds and what they hold: [{planet, stock, rates}], the

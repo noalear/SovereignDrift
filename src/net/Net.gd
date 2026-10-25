@@ -11,7 +11,7 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 11
+const PROTOCOL := 12
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -251,7 +251,8 @@ func _roster() -> Array:
 
 func _roster_row(s: Node) -> Array:
 	return [s.net_id, s.pilot_name, s.race_id, s.design_name, s.ship_name, s.score, s.kills, s.rank, s.dead,
-		s.global_position, s.velocity, s.rotation, s.design, s.hull_race, s.is_prize, s.support]
+		s.global_position, s.velocity, s.rotation, s.design, s.hull_race, s.is_prize, s.support,
+		s.building, world.planets.find(s.station_body) if s.station_body != null else -1]
 
 
 ## The round as the HUD and the map show it.
@@ -397,6 +398,10 @@ func _rpc_command(cmd: String) -> void:
 			world.colonist_command(s, false)
 		_ when cmd.begins_with("cargo:"):
 			world.cargo_command(s, cmd.get_slice(":", 1), float(cmd.get_slice(":", 2)))
+		_ when cmd.begins_with("kit:"):
+			world.kit_command(s, cmd.get_slice(":", 1))
+		"deploy":
+			world.deploy_kit(s)
 
 
 func _apply_remote_inputs() -> void:
@@ -619,6 +624,10 @@ func _rpc_welcome(my_id: int, elapsed: float, roster: Array, owners: PackedInt32
 ## A ship from a roster row, as the host sent it.
 func _add_from_row(row: Array, my_id: int) -> Node:
 	var s: Node = world._make_ship(row[1], row[2], row[3], row[4], row[0] == my_id, row[13] if row.size() > 13 else -1)
+	if row.size() > 17:
+		s.building = row[16]
+		if row[17] >= 0 and row[17] < world.planets.size():
+			s.station_body = world.planets[row[17]]
 	if row.size() > 12 and row[12] is Dictionary:
 		s.refit(row[12])
 	s.net_id = row[0]
@@ -961,10 +970,40 @@ func _rpc_economy(rows: Array) -> void:
 
 ## The seated pilot's cargo hold and what the spaceport is still moving.
 @rpc("authority", "reliable")
-func _rpc_cargo(cargo: Dictionary, orders: Dictionary) -> void:
+func _rpc_cargo(cargo: Dictionary, orders: Dictionary, kit: String) -> void:
 	if world != null and world.player != null:
 		world.player.cargo = cargo
 		world.player.cargo_orders = orders
+		world.player.kit = kit
+
+
+## Built stations and frames: whether each is still going up, the work
+## done and what its hold or stockpile has.
+func _station_state() -> Array:
+	var out := []
+	for id in ships_by_id:
+		var s: Node = ships_by_id[id]
+		if is_instance_valid(s) and s.is_station and not s.is_starbase():
+			out.append([s.net_id, s.building, s.build_t, s.cargo])
+	return out
+
+
+@rpc("authority", "reliable")
+func _rpc_stations(rows: Array) -> void:
+	for row in rows:
+		var s: Node = ships_by_id.get(row[0], null)
+		if s == null or not is_instance_valid(s):
+			continue
+		s.build_t = row[2]
+		s.cargo = row[3]
+		if s.building != row[1]:
+			# finished: the full station, where the frame stood
+			s.building = row[1]
+			var pos: Vector2 = s.global_position
+			var rot: float = s.rotation
+			s.refit(GameData.frame_design(s.design_name) if s.building else GameData.stock_design(s.design_name))
+			s.global_position = pos
+			s.rotation = rot
 
 
 @rpc("authority", "reliable")
@@ -1337,9 +1376,10 @@ func _physics_process(delta: float) -> void:
 		_rpc_stats.rpc(_stats(), _round_state())
 		_rpc_colonies.rpc(_colony_state())
 		_rpc_economy.rpc(world.economy.pack())
+		_rpc_stations.rpc(_station_state())
 		for peer_id in seats:
 			var s: Node = ships_by_id.get(seats[peer_id], null)
 			if s != null and is_instance_valid(s):
 				_rpc_purse.rpc_id(peer_id, s.credits, s.hold, s.blueprints)
 				_rpc_cabin.rpc_id(peer_id, s.colonists, s.transfer)
-				_rpc_cargo.rpc_id(peer_id, s.cargo, s.cargo_orders)
+				_rpc_cargo.rpc_id(peer_id, s.cargo, s.cargo_orders, s.kit)

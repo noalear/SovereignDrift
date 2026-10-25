@@ -105,6 +105,7 @@ const STATION_ONLY := ["0001", "1006", "4011", "4503", "5007", "9301", "2004"]
 const HULL_BAYS := {
 	"Scout": 1300, "Destroyer": 1500, "Raider": 1500, "Cruiser": 1600,
 	"BattleCruiser": 3000, "Battleship": 2200, "Dreadnought": 3000, "Starbase": 20000, "Freighter": 1800,
+	"MiningStation": 20000, "GasSkimmer": 20000, "Refinery": 20000, "SupplyDepot": 20000, "SensorStation": 20000, "DefenseStation": 20000,
 }
 
 ## Crew aboard each hull.  Hits kill crew, damage control works as fast
@@ -112,6 +113,7 @@ const HULL_BAYS := {
 const HULL_CREW := {
 	"Scout": 6, "Destroyer": 12, "Raider": 12, "Freighter": 8, "Cruiser": 24,
 	"BattleCruiser": 36, "Battleship": 44, "Dreadnought": 60, "Starbase": 300,
+	"MiningStation": 12, "GasSkimmer": 12, "Refinery": 20, "SupplyDepot": 30, "SensorStation": 10, "DefenseStation": 40,
 }
 
 ## Credits for a hull at the shipyard.
@@ -184,6 +186,21 @@ const SHIPS := {
 		"modules": ["1001", "5001", "5502", "2003", "3003", "7003", "9201"],
 		"dock": [180, 0],
 		"weapons": [["4001", 0, 0, 0, -50, 50]]},
+	# stations built at construction sites (the Resources update, phase 3):
+	# fixed installations with no engines, never offered at the shipyard
+	"MiningStation": {"rank": 99, "speed": 0.0, "size": 46, "turn": 0.0,
+		"modules": ["1003", "5003", "7001"], "weapons": []},
+	"GasSkimmer": {"rank": 99, "speed": 0.0, "size": 50, "turn": 0.0,
+		"modules": ["1003", "5003", "7001"], "weapons": []},
+	"Refinery": {"rank": 99, "speed": 0.0, "size": 50, "turn": 0.0,
+		"modules": ["1004", "5003", "7001"], "weapons": []},
+	"SupplyDepot": {"rank": 99, "speed": 0.0, "size": 56, "turn": 0.0,
+		"modules": ["1004", "5004", "7002"], "weapons": []},
+	"SensorStation": {"rank": 99, "speed": 0.0, "size": 40, "turn": 0.0,
+		"modules": ["1003", "5002", "7003"], "weapons": []},
+	"DefenseStation": {"rank": 99, "speed": 0.0, "size": 50, "turn": 30.0,
+		"modules": ["1006", "5005", "7002"],
+		"weapons": [["4003", 0, 0, 0, -180, 180], ["4010", 120, 0, 120, 0, 360], ["4010", 240, 0, 240, 0, 360]]},
 	"BattleCruiser": {"rank": 8, "speed": 0.22, "size": 46, "turn": 110.0, "aces": true,
 		"modules": ["1005", "5005", "2003", "3003", "7003", "9203"],
 		"dock": [180, 0],
@@ -328,7 +345,55 @@ const COLONIST_CABIN := {
 const CARGO_HOLD := {
 	"Scout": 10, "Destroyer": 20, "Raider": 30, "Cruiser": 40,
 	"BattleCruiser": 60, "Battleship": 80, "Dreadnought": 120, "Freighter": 300, "Starbase": 0,
+	# a station's hold is its stockpile
+	"MiningStation": 300, "GasSkimmer": 300, "Refinery": 400, "SupplyDepot": 1500, "SensorStation": 0, "DefenseStation": 0,
 }
+
+## Stations built from kits (the Resources update, phase 3).  cost: what
+## haulers must deliver to the frame; build: seconds of work once it is all
+## there; kit: credits for the kit at a starbase; where: "rock" (a world
+## nobody lives on, with Metals, Ice or Exotics), "gas" (a gas giant) or
+## "any" (anywhere but the Sun).
+const STATIONS := {
+	"MiningStation": {"label": "Mining station", "cost": {"metals": 20}, "build": 90.0, "kit": 150, "where": "rock",
+		"does": "mines Metals, Ice and Exotics from a world nobody lives on"},
+	"GasSkimmer": {"label": "Gas skimmer", "cost": {"metals": 20, "alloys": 5}, "build": 120.0, "kit": 250, "where": "gas",
+		"does": "skims Fuel from a gas giant"},
+	"Refinery": {"label": "Refinery", "cost": {"metals": 30, "alloys": 5}, "build": 120.0, "kit": 300, "where": "any",
+		"does": "refines Metals and Fuel delivered to it into Alloys"},
+	"SupplyDepot": {"label": "Supply depot", "cost": {"metals": 25}, "build": 90.0, "kit": 250, "where": "any",
+		"does": "stores 1500 units; refuels and crews ships like a starbase"},
+	"SensorStation": {"label": "Sensor station", "cost": {"metals": 15, "exotics": 3}, "build": 60.0, "kit": 200, "where": "any",
+		"does": "shows your empire every ship within 6000 px"},
+	"DefenseStation": {"label": "Defensive station", "cost": {"metals": 30, "alloys": 8}, "build": 120.0, "kit": 350, "where": "any",
+		"does": "a turret platform guarding a world, a mine or a lane"},
+}
+const STATION_ORDER := ["MiningStation", "GasSkimmer", "Refinery", "SupplyDepot", "SensorStation", "DefenseStation"]
+## The rank that may buy and deploy station kits (Lt. Cmdr.).
+const KIT_RANK := 5
+
+
+static func is_station_hull(hull: String) -> bool:
+	return hull == "Starbase" or STATIONS.has(hull)
+
+
+## Units a station's frame needs delivered before the work starts.
+static func station_cost_total(key: String) -> float:
+	var n := 0.0
+	for k in STATIONS[key]["cost"]:
+		n += STATIONS[key]["cost"][k]
+	return n
+
+
+## A station under construction: the bare frame, a small power plant and
+## no guns, until the materials are in and the work is done.
+static func frame_design(key: String) -> Dictionary:
+	var d := stock_design(key)
+	d["modules"] = ["1001"]
+	d["weapons"] = []
+	return d
+
+
 ## Each empire's computer supply ships: [pilot, ship name].
 const SUPPLY_SHIPS := {
 	0: [["Gatherer", "Plenty"], ["Forager", "Harvest Moon"]],
@@ -461,7 +526,7 @@ static func hull_hardpoints(hull: String) -> Array:
 	var i := 0
 	for w in d["weapons"]:
 		var c := weapon_class(w[0])
-		if hull != "Starbase":
+		if not is_station_hull(hull):
 			if d["rank"] >= 6 and i > 0 and c == 0 and w[2] > 0:
 				c = 1          # cruisers and up carry medium turrets
 			if d["rank"] >= 10 and c == 0:
@@ -534,7 +599,7 @@ static func stats_for(design: Dictionary) -> Dictionary:
 		"power_gen": 0.0, "power_draw": 0.0, "overload": 1.0, "module_levels": {}, "bay_used": 0,
 		"bay_cap": int(HULL_BAYS.get(design["name"], 2000)), "engines": 0, "eng": 0.0,
 	}
-	var is_station: bool = design["name"] == "Starbase"
+	var is_station: bool = is_station_hull(design["name"])
 	for id in design["modules"]:
 		var m: Dictionary = MODULES[id]
 		st["mass"] += m["mass"]
@@ -587,7 +652,7 @@ static func stats_for(design: Dictionary) -> Dictionary:
 	if is_station:
 		st["hull_max"] *= 4.0
 		st["shield_max"] *= 2.5
-		st["sensor_range"] = 2600.0
+		st["sensor_range"] = 6000.0 if design["name"] == "SensorStation" and design["modules"].size() > 1 else 2600.0
 	# the reactor budget: drawing more than it makes slows everything down
 	if st["power_gen"] > 0.0 and st["power_draw"] > st["power_gen"]:
 		st["overload"] = st["power_draw"] / st["power_gen"]
