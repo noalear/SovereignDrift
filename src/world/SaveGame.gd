@@ -2,8 +2,8 @@
 ## round clock that runs until one empire holds the whole system, saved
 ## every couple of minutes, from the pause menu, with F5, and on leaving.
 ## What is saved is the war: the worlds (owners, people, defences,
-## stockpiles, where they are in their orbits), every pilot and prize with
-## their ships, purses, holds and cargo, who is waiting to relaunch, and
+## stockpiles, where they are in their orbits), every pilot, supply ship
+## and prize with their ships, purses, holds and cargo, who is waiting to relaunch, and
 ## the campaign's clock and record.  A fight in progress is not: shots in
 ## flight, subsystem damage and pickups start fresh.  The player's score
 ## and kills are the pilot's career, so they come from the profile.
@@ -114,6 +114,7 @@ static func _ship(world: Node, s: Ship, waiting: Dictionary) -> Dictionary:
 		"credits": s.credits, "credits_earned": s.credits_earned, "captures": s.captures, "ships_captured": s.ships_captured,
 		"hold": s.hold.duplicate(), "blueprints": s.blueprints.duplicate(),
 		"colonists": s.colonists, "colonist_origin": s.colonist_origin.body_name if s.colonist_origin != null else "",
+		"cargo": s.cargo.duplicate(), "cargo_origin": s.cargo_origin.body_name if s.cargo_origin != null else "", "support": s.support,
 		"crew": s.crew, "fuel": s.fuel, "hull": s.hull, "shield": s.shield,
 		"pos": pos, "vel": vel, "rot": s.rotation,
 		"dead": s.dead, "respawn_in": waiting.get(s, -1.0),
@@ -169,6 +170,7 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 			s.rank = int(row["rank"])
 			s.score = int(row["score"])
 			s.kills = int(row["kills"])
+			s.support = row.get("support", false)
 			var ai := AIPilot.new()
 			ai.name = "AI"
 			s.add_child(ai)
@@ -176,6 +178,8 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 			if home == null:
 				home = world._home_planet(s.race_id)
 			ai.setup(s, world, home, 14 if row["is_station"] else (3 if row["is_prize"] else s.rank))
+			if s.support:
+				ai.make_hauler()
 			if row["is_station"]:
 				s.set_meta("station_angle", row["station_angle"])
 		by_pilot[row["pilot"]] = s
@@ -188,6 +192,11 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 		s.blueprints = row["blueprints"].duplicate()
 		s.colonists = minf(float(row["colonists"]), s.cabin)
 		s.colonist_origin = world.planet_by_name.get(row["colonist_origin"], null)
+		s.cargo = {}
+		for k in row.get("cargo", {}):
+			s.cargo[k] = float(row["cargo"][k])
+		s._trim_cargo()
+		s.cargo_origin = world.planet_by_name.get(row.get("cargo_origin", ""), null)
 		s.crew = minf(float(row["crew"]), float(s.crew_max))
 		s.fuel = minf(float(row["fuel"]), s.fuel_max)
 		s.hull = clampf(float(row["hull"]), 1.0, s.hull_max)
@@ -212,6 +221,11 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 		# a save from before the player had a ship: start one at home
 		world._spawn_player()
 		world._place_at_home(world.player)
+	# a campaign saved before the supply ships: they join it now
+	for race_id in GameData.SUPPLY_SHIPS:
+		if not world.ships.any(func(x): return x.support and x.race_id == race_id):
+			for r in GameData.SUPPLY_SHIPS[race_id]:
+				world._spawn_hauler(race_id, r[0], r[1])
 	world._keep_station()
 
 

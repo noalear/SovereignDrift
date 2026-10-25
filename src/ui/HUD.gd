@@ -469,8 +469,9 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 		var nr: Dictionary = GameData.RANKS[p.rank + 1]
 		next = "   next: %d pts, %d kills" % [nr["score"], nr["kills"]]
 	_text(Vector2(x, y), "%s %s   score %d   kills %d%s" % [rank, p.pilot_name, p.score, p.kills, next], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 0.95, 0.8))
-	_text(Vector2(x, y + 20), "credits %d   hold %d/%d%s%s" % [p.credits, p.hold.size(), Ship.HOLD_SIZE, ("   blueprints %d" % p.blueprints.size()) if not p.blueprints.is_empty() else "",
-		("   colonists %s / %s" % [GameData.fmt_pop(p.colonists), GameData.fmt_pop(p.cabin)]) if p.cabin > 0.0 else ""], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 0.85, 0.4))
+	_text(Vector2(x, y + 20), "credits %d   hold %d/%d%s%s%s" % [p.credits, p.hold.size(), Ship.HOLD_SIZE, ("   blueprints %d" % p.blueprints.size()) if not p.blueprints.is_empty() else "",
+		("   colonists %s / %s" % [GameData.fmt_pop(p.colonists), GameData.fmt_pop(p.cabin)]) if p.cabin > 0.0 else "",
+		("   cargo %d / %d" % [int(p.cargo_total()), int(p.cargo_max)]) if p.cargo_max > 0.0 else ""], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 0.85, 0.4))
 	if not p.dead:
 		_draw_landing(p, vp)
 	# docking prompt
@@ -539,7 +540,7 @@ func _draw_landing(p: Ship, vp: Vector2) -> void:
 
 func _draw_ground_panel(p: Ship, vp: Vector2) -> void:
 	var b: Planet = p.land_body
-	var w := 560.0
+	var w := 660.0
 	var h := 128.0
 	var x := (vp.x - w) * 0.5
 	var y := vp.y - h - 70.0
@@ -569,6 +570,8 @@ func _draw_ground_panel(p: Ship, vp: Vector2) -> void:
 	if friendly:
 		keys.append("1  take colonists on")
 		keys.append("2  put colonists down")
+		if p.cargo_max > 0.0:
+			keys.append("%s  cargo (%d / %d)" % [Keybinds.short_text("cargo"), int(p.cargo_total()), int(p.cargo_max)])
 	elif p.colonists > 0.0:
 		keys.append("2  %s" % ("invade" if b.is_colonised() else "settle"))
 	keys.append("B  lift off")
@@ -781,6 +784,7 @@ func _draw_help(vp: Vector2) -> void:
 		["", ""],
 		["SHIP", ""],
 		[_keys("board"), "board a disabled target"], [_keys("refit"), "shipyard, at your starbase"], [_keys("trade"), "trade with your target (online)"],
+		[_keys("cargo"), "cargo hold: load and unload goods (landed)"],
 	]
 	if InputMap.has_action("land"):
 		right.append_array([["", ""], ["COLONISTS", ""]])
@@ -788,7 +792,7 @@ func _draw_help(vp: Vector2) -> void:
 		if InputMap.has_action(extra[0]):
 			right.append([_keys(extra[0]), extra[1]])
 	var rows := maxi(left.size(), right.size())
-	var w := 1000.0
+	var w := 1060.0
 	var h := 70.0 + rows * 22.0 + 94.0
 	var x := (vp.x - w) * 0.5
 	var y := (vp.y - h) * 0.5

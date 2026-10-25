@@ -38,6 +38,7 @@ const ACTIONS := [
 	["colonists_unload", "Put colonists down", "Ship"],
 	["board", "Board a disabled target", "Ship"],
 	["refit", "Shipyard (at a starbase)", "Ship"],
+	["cargo", "Cargo hold (landed)", "Ship"],
 	["trade", "Trade (online)", "Ship"],
 	["tactical_map", "System map", "Interface"],
 	["ledger", "Empire ledger (resources)", "Interface"],

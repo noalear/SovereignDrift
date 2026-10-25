@@ -31,6 +31,8 @@ var captured_one := false
 var capture_victim: Node = null
 var saw_disabled := false
 var saw_prize := false
+var saw_cargo := false
+var saw_supply := false
 
 
 func _init() -> void:
@@ -94,6 +96,11 @@ func _process(_delta: float) -> bool:
 			if s.pilot_name == "Joiner":
 				joiner_seen_at = now
 				joiner_score_at_seat = s.score
+				s.cargo["metals"] = 3.0      # the client should see its hold
+	if not is_host and w != null and p != null and p.cargo.get("metals", 0.0) == 3.0:
+		saw_cargo = true
+	if not is_host and w != null and w.ships.any(func(x): return x.support and x.design_name == "Freighter"):
+		saw_supply = true
 	if is_host and w != null and joiner_seen_at > 0 and now - joiner_seen_at > 3000 and not trade_requested:
 		trade_requested = true
 		# bring the joiner alongside and open a trade with them
@@ -222,5 +229,7 @@ func _finish(w) -> void:
 		_check(saw_prize, "the host's prize ship appeared on the client")
 		var earth_stock: float = w.planet_by_name["Earth"].stock.get("food", 0.0)
 		_check(earth_stock > 0.0, "the stockpiles arrived (Earth food %d)" % int(earth_stock))
+		_check(saw_cargo, "the joiner's cargo hold arrived")
+		_check(saw_supply, "the supply ships arrived as supply ships")
 		_check(net.client != null and net.client.correction_px < 60.0, "reconciliation error small (%.1f px)" % (net.client.correction_px if net.client else -1.0))
 	print("[%s] %s" % [_tag(), "FAILED" if failed else "passed"])

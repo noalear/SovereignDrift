@@ -283,7 +283,24 @@ func _spawn_pilots() -> void:
 		# spread the pilots out so the fight does not start on top of the player
 		_place_at_home(s, 1400.0)
 		per_race[race_id] += 1
+	for race_id in GameData.SUPPLY_SHIPS:
+		for row in GameData.SUPPLY_SHIPS[race_id]:
+			_spawn_hauler(race_id, row[0], row[1])
 	_spawn_pirate_scouts()
+
+
+## A computer supply ship (the Freighter): it hauls the empire's goods and
+## stays off the scoreboard.
+func _spawn_hauler(race_id: int, pilot: String, ship_name: String) -> Ship:
+	var s := _make_ship(pilot, race_id, "Freighter", ship_name, false)
+	s.support = true
+	var ai := AIPilot.new()
+	ai.name = "AI"
+	s.add_child(ai)
+	ai.setup(s, self, _home_planet(race_id), 0)
+	ai.make_hauler()
+	_place_at_home(s, 900.0)
+	return s
 
 
 ## Practice duel: no round clock and no fleets, the colonies hold their
@@ -1100,6 +1117,19 @@ func _collect_powerups() -> void:
 							s.earn(p.amount)
 							notify(s, "Salvaged %d credits." % p.amount)
 							taken = true
+					"cargo":
+						var n := minf(float(p.amount), floorf(s.cargo_space()))
+						if n >= 1.0:
+							s.cargo[p.module_id] = s.cargo.get(p.module_id, 0.0) + n
+							p.amount -= int(n)
+							notify(s, "Salvaged %d %s (hold %d / %d)." % [int(n), Economy.NAMES[p.module_id], int(s.cargo_total()), int(s.cargo_max)])
+							if p.amount <= 0:
+								taken = true
+							else:
+								p.relabel()
+								notify(s, "Hold full: %d %s left floating." % [p.amount, Economy.NAMES[p.module_id]])
+						elif s.cargo_max > 0.0:
+							notify(s, "Cargo hold full: %s left behind." % p.label)
 					"blueprint":
 						if s.is_player:
 							if not s.blueprints.has(p.module_id):
@@ -1172,6 +1202,12 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 	# empire part the wreck carried
 	var purse := 20 + s.rank * 6 + (200 if s.is_station else 0)
 	spawn_powerup("cr:%d" % purse, s.global_position + Vector2(randf_range(-20, 20), randf_range(-20, 20)), s.velocity * 0.5 + Vector2(randf_range(-15, 15), randf_range(-15, 15)))
+	# half the cargo survives the blast as salvage anyone can scoop up
+	for k in s.cargo:
+		var n := int(s.cargo[k] * 0.5)
+		if n >= 1:
+			var a := randf() * TAU
+			spawn_powerup("rs:%s:%d" % [k, n], s.global_position + Vector2(cos(a), sin(a)) * s.size * 0.4, s.velocity * 0.5 + Vector2(cos(a), sin(a)) * randf_range(8.0, 24.0))
 	var flavour := []
 	for id in s.design["modules"]:
 		if GameData.part_race(id) == s.race_id:
@@ -1441,6 +1477,7 @@ func try_land(s: Ship, onto: Planet = null) -> void:
 		Net.client_command("land")
 		return
 	if s.is_landed():
+		_settle_cargo(s)
 		s.start_takeoff()
 		notify(s, "Lifting off from %s." % s.land_body.body_name)
 		return
@@ -1502,13 +1539,15 @@ func _on_touched_down(s: Ship, p: Planet) -> void:
 	Sfx.play("dock", s.global_position, 0.5, 0.7)
 	var friendly := p.is_colonised() and p.owner_race == s.race_id
 	if friendly:
-		if s.colonists <= 0.0 and s.cabin > 0.0 and spare_colonists(p) > 0.0:
+		if s.colonists <= 0.0 and s.cabin > 0.0 and spare_colonists(p) > 0.0 and not s.support:
 			s.transfer = 1
 			notify(s, "Landed on %s. Colonists are boarding (2 puts them back, B lifts off)." % p.body_name)
 		elif s.colonists > 0.0:
 			notify(s, "Landed on %s with %s colonists aboard: 2 puts them down here, 1 takes more on." % [p.body_name, GameData.fmt_pop(s.colonists)])
 		else:
 			notify(s, "Landed on %s: refuelling and repairing." % p.body_name)
+		if s.cargo_max > 0.0:
+			notify(s, "%s opens the cargo hold (%d / %d)." % [Keybinds.short_text("cargo"), int(s.cargo_total()), int(s.cargo_max)])
 	elif s.colonists > 0.0:
 		deliver_colonists(s, p)
 	elif p.is_colonised():
@@ -1531,6 +1570,8 @@ func _landed_ships(delta: float) -> void:
 		var friendly := p.is_colonised() and p.owner_race == s.race_id
 		if friendly and s.hull < s.hull_max:
 			s.hull = minf(s.hull + s.hull_max * 0.03 * delta, s.hull_max)
+		if not s.cargo_orders.is_empty():
+			_move_cargo(s, p, friendly, delta)
 		if s.transfer == 0:
 			continue
 		if not friendly:
@@ -1571,6 +1612,101 @@ func _landed_ships(delta: float) -> void:
 				else:
 					notify(s, "%s colonists went back ashore on %s (now %s)." % [GameData.fmt_pop(total), p.body_name, GameData.fmt_pop(p.population)])
 				Net.host_colony_changed(p)
+
+
+## L on the ground: load a resource (amount > 0) or unload it (< 0) at
+## one of your own colonies; "all" fills the hold from everything the world
+## has, or empties it.  Goods move at the spaceport's pace.
+func cargo_command(s: Ship, res: String, amount: float) -> void:
+	if Net.is_client():
+		Net.client_command("cargo:%s:%d" % [res, int(amount)])
+		return
+	if s.dead or not s.is_landed():
+		notify(s, "Land on one of your colonies first (B).")
+		return
+	var p := s.land_body
+	if not (p.is_colonised() and p.owner_race == s.race_id):
+		notify(s, "Cargo only moves through your own colonies' spaceports.")
+		return
+	if s.cargo_max <= 0.0:
+		notify(s, "This hull has no cargo hold.")
+		return
+	if res == "all":
+		s.cargo_orders.clear()
+		if amount > 0.0:
+			# the hold fills in proportion to what the world has
+			var have := 0.0
+			for k in Economy.RESOURCES:
+				have += p.stock.get(k, 0.0)
+			if have < 1.0:
+				notify(s, "%s has nothing in its stockpile." % p.body_name)
+				return
+			var room := s.cargo_space()
+			for k in Economy.RESOURCES:
+				var n := floorf(room * p.stock.get(k, 0.0) / have)
+				if n >= 1.0:
+					s.cargo_orders[k] = n
+		else:
+			for k in s.cargo:
+				s.cargo_orders[k] = -s.cargo[k]
+	elif Economy.RESOURCES.has(res):
+		s.cargo_orders[res] = amount
+	if s.cargo_orders.is_empty():
+		notify(s, "The hold is full." if amount > 0.0 else "The hold is empty.")
+
+
+## A spaceport moves CARGO_RATE units a second, shared between the orders.
+func _move_cargo(s: Ship, p: Planet, friendly: bool, delta: float) -> void:
+	if not friendly:
+		s.cargo_orders.clear()
+		return
+	var step := Ship.CARGO_RATE * delta / s.cargo_orders.size()
+	for k in s.cargo_orders.keys():
+		var want: float = s.cargo_orders[k]
+		var n := 0.0
+		if want > 0.0:
+			n = minf(minf(step, want), minf(s.cargo_space(), p.stock.get(k, 0.0)))
+			if n > 0.0:
+				s.cargo[k] = s.cargo.get(k, 0.0) + n
+				p.stock[k] -= n
+				s.cargo_origin = p
+				s.cargo_orders[k] = want - n
+		else:
+			n = minf(minf(step, -want), minf(s.cargo.get(k, 0.0), maxf(Economy.cap(p) - p.stock.get(k, 0.0), 0.0)))
+			if n > 0.0:
+				s.set_meta("cargo_pay", float(s.get_meta("cargo_pay", 0.0)) + Economy.delivery_pay(p, s.cargo_origin, k, n))
+				s.set_meta("cargo_moved", float(s.get_meta("cargo_moved", 0.0)) + n)
+				s.cargo[k] -= n
+				p.stock[k] = p.stock.get(k, 0.0) + n
+				s.cargo_orders[k] = want + n
+				if s.cargo[k] < 0.01:
+					s.cargo.erase(k)
+		if n <= 0.0 or absf(s.cargo_orders[k]) < 0.01:
+			s.cargo_orders.erase(k)
+	if s.cargo.is_empty():
+		s.cargo_origin = null
+	if s.cargo_orders.is_empty():
+		_settle_cargo(s)
+
+
+## Unloading is paid when it ends (or the ship lifts off part-way).
+func _settle_cargo(s: Ship) -> void:
+	s.cargo_orders.clear()
+	var moved: float = s.get_meta("cargo_moved", 0.0)
+	var pay := int(s.get_meta("cargo_pay", 0.0))
+	s.remove_meta("cargo_moved")
+	s.remove_meta("cargo_pay")
+	if moved <= 0.0 or s.land_body == null:
+		notify(s, "Hold %d / %d." % [int(s.cargo_total()), int(s.cargo_max)])
+		return
+	var p := s.land_body
+	if pay > 0:
+		s.earn(pay)
+		if not s.support:
+			s.add_score(maxi(pay / 60, 1), false)
+		notify(s, "Delivered %d units to %s, where they were short: %d credits." % [int(moved), p.body_name, pay])
+	else:
+		notify(s, "Unloaded %d units on %s (no pay: it was not short of them, or makes them as well as where they came from)." % [int(moved), p.body_name])
 
 
 ## The colonists aboard land all at once on a world that is not ours: they

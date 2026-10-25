@@ -231,6 +231,7 @@ func take(captor: Ship, victim: Ship) -> void:
 		world.notify(victim, "Your ship was boarded and captured.")
 	Sfx.play_ui("captured", 0.7)
 	var prize: Ship = _make_prize(captor, victim) if keep else null
+	_take_cargo(captor, victim, prize)
 	for s in world.ships:
 		if s.target == victim:
 			s.target = prize if s.race_id != captor.race_id else null
@@ -239,6 +240,28 @@ func take(captor: Ship, victim: Ship) -> void:
 	victim._die(captor)
 	if prize != null:
 		Net.host_ship_added(prize)
+
+
+## The boarders take what the hold carried, as much as their own hold has
+## room for; the rest stays aboard the prize (or is lost with a stripped
+## hull).
+func _take_cargo(captor: Ship, victim: Ship, prize: Ship) -> void:
+	if victim.cargo.is_empty():
+		return
+	var taken := 0.0
+	for k in victim.cargo.keys():
+		var n := minf(victim.cargo[k], captor.cargo_space())
+		if n >= 1.0:
+			captor.cargo[k] = captor.cargo.get(k, 0.0) + n
+			victim.cargo[k] -= n
+			taken += n
+		if prize != null and victim.cargo[k] >= 1.0:
+			prize.cargo[k] = prize.cargo.get(k, 0.0) + minf(victim.cargo[k], prize.cargo_space())
+	if taken >= 1.0:
+		# plunder pays like salvage when it is brought home
+		if captor.cargo_total() - taken < 1.0:
+			captor.cargo_origin = null
+		world.notify(captor, "Took %d units of cargo from %s (hold %d / %d)." % [int(taken), victim.ship_name, int(captor.cargo_total()), int(captor.cargo_max)])
 
 
 func prizes_of(captor: Ship) -> Array:

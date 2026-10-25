@@ -176,7 +176,7 @@ func _finish(winner: int, how: String) -> void:
 	phase = "over"
 	var pilots := []
 	for s in world.ships:
-		if s.is_station or s.is_prize:
+		if s.is_station or s.is_prize or s.support:
 			continue
 		pilots.append({"name": s.pilot_name, "race": s.race_id, "rank": s.rank, "kills": round_kills(s), "deaths": s.deaths,
 			"captures": s.captures, "boarded": s.ships_captured, "score": round_score(s), "is_player": s.is_player, "hull": s.design_name, "credits_earned": s.credits_earned})

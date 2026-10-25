@@ -13,6 +13,7 @@ var builder: Builder = null
 var trade: Trade = null
 var tactical: TacticalMap = null
 var ledger: Ledger = null
+var cargo_panel: CargoPanel = null
 var tactical_opened_at := 0
 var scoreboard: Scoreboard = null
 var font: Font
@@ -108,6 +109,7 @@ func _show_menu() -> void:
 		builder = null
 	_close_tactical()
 	_close_ledger()
+	_close_cargo()
 	if scoreboard != null:
 		scoreboard.queue_free()
 		scoreboard = null
@@ -229,6 +231,22 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			_close_ledger()
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("cargo") and world != null and world.player != null and builder == null and pause_panel == null and scoreboard == null:
+		if cargo_panel != null:
+			_close_cargo()
+		elif world.player.is_landed():
+			cargo_panel = CargoPanel.new()
+			cargo_panel.world = world
+			cargo_panel.close_requested.connect(_close_cargo)
+			ui_layer.add_child(cargo_panel)
+			Sfx.play_ui("click", 0.3)
+		else:
+			var s := world.player
+			world.notify(s, "Cargo hold %d / %d. Land on one of your colonies (B) to load or unload it." % [int(s.cargo_total()), int(s.cargo_max)])
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("pause_menu") and cargo_panel != null:
+		_close_cargo()
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("quick_save") and world != null and world.campaign and scoreboard == null:
 		world.save_campaign()
 		get_viewport().set_input_as_handled()
@@ -326,6 +344,12 @@ func _close_tactical() -> void:
 	if tactical != null:
 		tactical.queue_free()
 		tactical = null
+
+
+func _close_cargo() -> void:
+	if cargo_panel != null:
+		cargo_panel.queue_free()
+		cargo_panel = null
 
 
 func _close_ledger() -> void:

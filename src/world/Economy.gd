@@ -130,6 +130,59 @@ static func cap(p: Planet) -> float:
 	return STOCK_CAP.get(p.colony_design, 0.0)
 
 
+## How well a world makes a resource, 0..5: its richness, or for Alloys
+## its refinery (Minor 2, Major 4).  Hauling pays only toward a world that
+## makes the goods worse than where they came from.
+static func makes(p: Planet, k: String) -> float:
+	if k == "alloys":
+		return REFINE_PER_MIN.get(p.colony_design, 0.0) * 0.5 if p.is_colonised() else 0.0
+	return float(p.richness.get(k, 0))
+
+
+## Credits for unloading `n` units of `k` on `p` from `origin` (null:
+## salvage).  Units that fill the world up to a quarter of its cap earn the
+## full price, up to half of it half the price, beyond that nothing.
+static func delivery_pay(p: Planet, origin: Planet, k: String, n: float) -> float:
+	if not p.is_colonised() or origin == p:
+		return 0.0
+	if origin != null and makes(p, k) >= makes(origin, k):
+		return 0.0
+	var c := cap(p)
+	var before: float = p.stock.get(k, 0.0)
+	var low := clampf(c * 0.25 - before, 0.0, n)
+	var mid := clampf(c * 0.5 - maxf(before, c * 0.25), 0.0, n - low)
+	return GameData.RESOURCE_PRICE.get(k, 1.0) * (low + mid * 0.5)
+
+
+## How badly a colony wants more of a resource, 0..1: short of half its cap
+## and not making much itself.  Refineries want Metals and Fuel more.
+static func need(p: Planet, k: String) -> float:
+	if not p.is_colonised() or p.silenced > 0.0:
+		return 0.0
+	var c := cap(p)
+	var short := clampf(1.0 - p.stock.get(k, 0.0) / maxf(c * 0.5, 1.0), 0.0, 1.0)
+	if makes(p, k) >= 3.0:
+		short *= 0.2
+	if k in ["metals", "fuel"] and REFINE_PER_MIN.has(p.colony_design):
+		short = minf(short * 1.5, 1.0)
+	return short
+
+
+## Units that would bring a colony up to half its cap.
+static func wanted(p: Planet, k: String) -> float:
+	if not p.is_colonised():
+		return 0.0
+	return maxf(cap(p) * 0.5 - p.stock.get(k, 0.0), 0.0)
+
+
+## What a colony can spare of a resource for a computer hauler: anything
+## over a third of its cap.
+static func surplus(p: Planet, k: String) -> float:
+	if not p.is_colonised():
+		return 0.0
+	return maxf(p.stock.get(k, 0.0) - cap(p) / 3.0, 0.0)
+
+
 ## Units a minute this world makes of each resource right now (alloys are
 ## what it can refine with the stock it has).
 static func production(p: Planet) -> Dictionary:

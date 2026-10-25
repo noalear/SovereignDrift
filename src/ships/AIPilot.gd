@@ -38,6 +38,9 @@ var ground_time := 0.0
 var ground_order := false        # already told the colonists what to do on this landing
 var last_drop: Planet = null     # where we last put colonists down
 var plan_timer := 0.0
+var hauler := false              # a supply ship: carries the empire's goods, keeps out of fights
+var haul_res := ""               # what the run is for
+var haul_to: Planet = null       # where the load goes
 
 
 func setup(p_ship: Ship, p_world: Node, p_home: Planet, level: int) -> void:
@@ -85,6 +88,9 @@ func _think() -> void:
 	i["fire_missile"] = false
 	i["fire_mine"] = false
 	i["fire_beam"] = false
+	if hauler:
+		_think_hauler()
+		return
 	var shield_frac := ship.shield / maxf(ship.shield_max, 1.0)
 	var hull_frac := ship.hull / maxf(ship.hull_max, 1.0)
 	if escort != null and (not is_instance_valid(escort) or escort.dead or escort.race_id != ship.race_id):
@@ -437,6 +443,11 @@ func _job_still_good() -> bool:
 			return job_planet.is_colonised() and job_planet.owner_race != ship.race_id and ship.colonists > 0.0
 		"reinforce":
 			return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and ship.colonists > 0.0
+		"load":
+			return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and Economy.surplus(job_planet, haul_res) >= 5.0 \
+				and haul_to != null and haul_to.is_colonised() and haul_to.owner_race == ship.race_id
+		"deliver":
+			return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and ship.cargo_total() >= 1.0
 	return false
 
 
@@ -482,6 +493,9 @@ func _think_on_ground() -> void:
 	if not ship.is_landed():
 		return
 	ground_time += 0.35
+	if hauler:
+		_haul_on_ground()
+		return
 	if ship.transfer != 0:
 		return
 	var here := ship.land_body
@@ -504,6 +518,161 @@ func _think_on_ground() -> void:
 	job_planet = null
 	plan_timer = 0.0
 	state = State.FERRY if ferry and _plan_ferry() else State.PATROL
+
+
+# ------------------------------------------------------------ supply runs
+
+## A supply ship's mind: run when shot at, patch up at home when hurt,
+## otherwise carry goods from where they pile up to where they are short.
+func make_hauler() -> void:
+	hauler = true
+	ferry = false
+	bombard = false
+	aggression = 0.0
+
+
+func _think_hauler() -> void:
+	var now := Time.get_ticks_msec() / 1000.0
+	var foe: Ship = ship.last_attacker as Ship if is_instance_valid(ship.last_attacker) else null
+	if foe != null and not foe.dead and foe.race_id != ship.race_id and now - ship.last_attacked_at < 5.0 \
+			and foe.global_position.distance_to(ship.global_position) < 1600.0:
+		ship.target = foe
+		if state != State.EVADE:
+			evade_dir = 1.0 if randf() < 0.5 else -1.0
+		state = State.EVADE
+		evade_timer = 2.0
+		return
+	if state == State.EVADE:
+		evade_timer -= 0.35
+		if evade_timer > 0.0:
+			return
+		state = State.FERRY if _job_still_good() else State.PATROL
+	ship.target = null
+	var hurt := ship.hull < ship.hull_max * 0.4 or ship.fuel_fraction() < 0.15
+	match state:
+		State.RETREAT:
+			if ship.hull > ship.hull_max * 0.85 and ship.fuel_fraction() > 0.6:
+				state = State.PATROL
+		State.FERRY:
+			if not _job_still_good():
+				state = State.FERRY if _plan_haul() else State.PATROL
+		_:
+			if hurt and home != null and ship.cargo_total() < 1.0:
+				state = State.RETREAT
+			elif _plan_haul():
+				state = State.FERRY
+			else:
+				state = State.PATROL
+				if ship.global_position.distance_to(patrol_point) < 300.0 or patrol_point.distance_to(home.global_position if home != null else Vector2.ZERO) > 2500.0:
+					var c := home.global_position if home != null else Vector2.ZERO
+					patrol_point = c + Vector2(randf_range(-1200, 1200), randf_range(-1200, 1200))
+
+
+## The next supply run.  With goods aboard: the friendly world that wants
+## them most.  Empty: the best pairing of a colony with a surplus and one
+## that is short of it and makes it worse.
+func _plan_haul() -> bool:
+	plan_timer -= 0.35
+	if plan_timer > 0.0:
+		return false
+	plan_timer = 3.0
+	job_planet = null
+	job = ""
+	var pos := ship.global_position
+	var ours := []
+	for p in world.planets:
+		if p.is_colonised() and p.owner_race == ship.race_id and p.has_surface() and p.under_attack <= 0.0:
+			ours.append(p)
+	var best := 0.0
+	if ship.cargo_total() >= 1.0:
+		for p in ours:
+			if p == ship.cargo_origin or p == last_drop:
+				continue
+			var v := 0.0
+			var room := 0.0
+			for k in ship.cargo:
+				v += Economy.need(p, k) * ship.cargo[k] * GameData.RESOURCE_PRICE.get(k, 1.0)
+				room += maxf(Economy.cap(p) - p.stock.get(k, 0.0), 0.0)
+			if room < 5.0:
+				continue
+			# nobody short: any other colony with room takes it
+			v = maxf(v, 0.01) / (1500.0 + pos.distance_to(p.global_position))
+			if v > best:
+				best = v
+				job_planet = p
+				job = "deliver"
+		return job_planet != null
+	# runs another supply ship of ours is already on
+	var taken := {}
+	for o in world.ships:
+		if o != ship and o.support and not o.dead and o.race_id == ship.race_id:
+			var oa: AIPilot = o.get_node_or_null("AI")
+			if oa != null and oa.job in ["load", "deliver"] and oa.haul_to != null:
+				taken[[oa.haul_to, oa.haul_res]] = true
+	for src in ours:
+		for k in Economy.RESOURCES:
+			var spare := minf(Economy.surplus(src, k), ship.cargo_max)
+			if spare < 20.0:
+				continue
+			for dst in ours:
+				if dst == src or Economy.makes(dst, k) >= Economy.makes(src, k) or taken.has([dst, k]):
+					continue
+				var want := Economy.need(dst, k)
+				if want < 0.3:
+					continue
+				var amount := minf(spare, maxf(Economy.wanted(dst, k), 20.0))
+				var trip: float = 1500.0 + pos.distance_to(src.global_position) + src.global_position.distance_to(dst.global_position)
+				var v: float = amount * want * GameData.RESOURCE_PRICE.get(k, 1.0) / trip
+				if v > best:
+					best = v
+					job_planet = src
+					job = "load"
+					haul_res = k
+					haul_to = dst
+	return job_planet != null
+
+
+## On the ground: order the loading or unloading once, wait for the
+## spaceport, then lift off for the delivery or the next run.
+func _haul_on_ground() -> void:
+	var here := ship.land_body
+	if not ground_order:
+		ground_order = true
+		if job == "load" and here == job_planet and haul_to != null:
+			# the run's resource first, then anything else the destination wants
+			var room := ship.cargo_space()
+			var order: Array = [haul_res]
+			for k in Economy.RESOURCES:
+				if k != haul_res:
+					order.append(k)
+			for k in order:
+				if room < 5.0:
+					break
+				if k != haul_res and (Economy.need(haul_to, k) < 0.3 or Economy.makes(haul_to, k) >= Economy.makes(here, k)):
+					continue
+				var n := floorf(minf(minf(Economy.surplus(here, k), room), Economy.wanted(haul_to, k) + 20.0))
+				if n >= 5.0:
+					world.cargo_command(ship, k, n)
+					room -= n
+			return
+		if job == "deliver" and here == job_planet:
+			world.cargo_command(ship, "all", -1.0)
+			last_drop = here
+			return
+	if not ship.cargo_orders.is_empty() or ground_time < 1.2:
+		return
+	ground_order = false
+	world.try_land(ship)              # lift off
+	if job == "load" and ship.cargo_total() >= 1.0 and haul_to != null:
+		job = "deliver"
+		job_planet = haul_to
+		last_drop = null
+		state = State.FERRY
+	else:
+		job_planet = null
+		job = ""
+		plan_timer = 0.0
+		state = State.FERRY if _plan_haul() else State.PATROL
 
 
 ## An enemy colony nearby whose defences still stand.
