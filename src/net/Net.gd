@@ -11,7 +11,7 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 11
+const PROTOCOL := 13
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -42,6 +42,7 @@ var snapshots_received := 0
 var inputs_received := 0
 var host_elapsed := 0.0
 var callsign := "Pilot"
+var mode := ""                   # "duel" for a free-for-all, "" for co-op (set before host())
 var client: NetClient = null
 var lan: LanDiscovery = null
 var powerups_by_id := {}         # net_id -> Powerup
@@ -90,8 +91,8 @@ func host(port: int = PORT) -> Error:
 
 
 func _announcement(port: int) -> Dictionary:
-	return {"name": callsign + "'s game", "players": player_count(), "max": MAX_PLAYERS, "port": port,
-		"protocol": PROTOCOL, "system": "Sol"}
+	return {"name": callsign + ("'s duel" if mode == "duel" else "'s game"), "players": player_count(), "max": MAX_PLAYERS, "port": port,
+		"protocol": PROTOCOL, "system": "Sol", "mode": mode}
 
 
 func join(ip: String, port: int = PORT) -> Error:
@@ -125,6 +126,7 @@ func leave() -> void:
 	if lan.announcing:
 		lan.stop()
 	role = Role.OFFLINE
+	mode = ""
 	world = null
 	client = null
 	ships_by_id.clear()
@@ -186,7 +188,9 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	var name: String = pilot_names.get(peer_id, "A player")
 	pilot_names.erase(peer_id)
 	var s: Node = ships_by_id.get(net_id, null)
-	if s != null and is_instance_valid(s):
+	if s != null and is_instance_valid(s) and world != null and world.duel_rules != null:
+		world.duel_rules.pilot_left(s)      # their ship goes; a computer pilot refills the arena
+	elif s != null and is_instance_valid(s):
 		_seat_ai(s, true)
 		for k in s.inputs.keys():
 			s.inputs[k] = false if typeof(s.inputs[k]) == TYPE_BOOL else 0.0
@@ -292,17 +296,19 @@ func _powerup_list() -> Array:
 
 
 @rpc("any_peer", "reliable")
-func _rpc_hello(name: String, protocol: int, career_score: int = 0, career_kills: int = 0) -> void:
+func _rpc_hello(name: String, protocol: int, career_score: int = 0, career_kills: int = 0, race: int = 0) -> void:
 	if not is_host() or world == null:
 		return
 	var peer_id := multiplayer.get_remote_sender_id()
 	if protocol != PROTOCOL:
 		_rpc_refused.rpc_id(peer_id, "Different game version (yours %d, host %d)." % [protocol, PROTOCOL])
 		return
-	var s := _seat_player(peer_id, name, career_score, career_kills)
+	var s := _seat_duelist(peer_id, name, race) if world.duel_rules != null else _seat_player(peer_id, name, career_score, career_kills)
 	if s == null:
 		_rpc_refused.rpc_id(peer_id, "No free seat in this round.")
 		return
+	if world.duel_rules != null:
+		_rpc_duel.rpc_id(peer_id, world.duel_rules.pack())   # before the welcome: the client is in a duel from its first frame
 	_rpc_welcome.rpc_id(peer_id, s.net_id, world.elapsed, _roster(), _planet_owners(), _powerup_list())
 	_rpc_stats.rpc_id(peer_id, _stats(), _round_state())
 	_rpc_seat_changed.rpc(s.net_id, name, true)
@@ -535,7 +541,7 @@ func relay_notify_all(text: String, color: Color) -> void:
 ## Called by World on a client: the system exists, the ships come from the host.
 func client_attach(p_world: Node) -> void:
 	world = p_world
-	_rpc_hello.rpc_id(1, callsign, PROTOCOL, int(Settings.career.get("score", 0)), int(Settings.career.get("kills", 0)))
+	_rpc_hello.rpc_id(1, callsign, PROTOCOL, int(Settings.career.get("score", 0)), int(Settings.career.get("kills", 0)), Settings.race_id)
 
 
 ## PlayerController calls this for actions the host must validate.
@@ -1021,6 +1027,8 @@ func client_tick(delta: float) -> void:
 		client.record_input(input_seq, p.inputs, p.aim_point)
 		_rpc_input.rpc_id(1, NetCodec.pack_input(input_seq, p.inputs, p.aim_point, p.global_position))
 	client.tick(delta, ships_by_id)
+	if world.duel_rules != null:
+		world.duel_rules.client_tick(delta)
 	var rd = world.round_rules
 	if rd != null and not rd.over:
 		rd.elapsed += delta           # between stats the clock runs locally
@@ -1030,6 +1038,51 @@ func client_tick(delta: float) -> void:
 	if ping_timer <= 0.0:
 		ping_timer = PING_EVERY
 		_rpc_ping.rpc_id(1, Time.get_ticks_msec())
+
+
+# --------------------------------------------------------------- duels
+# A free-for-all (Duel): each joiner flies their own ship in their own
+# empire's colours, against everyone.  The host's rules decide; clients
+# get the clock and the kill count.
+
+## A joiner's seat in a duel: a fresh ship, which only the peers already
+## seated hear about now (the joiner gets it in the welcome's roster).
+func _seat_duelist(peer_id: int, name: String, race: int) -> Node:
+	if seats.size() + 1 >= MAX_PLAYERS:
+		return null
+	var s: Node = world.duel_rules.pilot_joined(name, race)
+	_register(s)
+	for other in seats:
+		_rpc_ship_added.rpc_id(other, _roster_row(s))
+	seats[peer_id] = s.net_id
+	pilot_names[peer_id] = name
+	_seat_ai(s, false)
+	return s
+
+
+## A kill, a round won or a new round: everyone's tally at once, not at
+## the next stats tick.
+func host_duel_changed() -> void:
+	if not is_host() or seats.is_empty() or world == null or world.duel_rules == null:
+		return
+	_rpc_stats.rpc(_stats(), _round_state())
+	_rpc_duel.rpc(world.duel_rules.pack())
+
+
+@rpc("authority", "reliable")
+func _rpc_duel(state: Array) -> void:
+	if world == null:
+		return
+	if world.duel_rules == null:
+		# the host is running a duel: no Conquest round here
+		mode = "duel"
+		world.duel = true
+		world.duel_rules = Duel.new()
+		world.duel_rules.setup(world)
+		world.round_rules = null
+		world.notify_all("Free-for-all duel: everyone is your enemy, and everyone flies a %s." % Duel.HULL, Color(0.8, 0.9, 1.0))
+		world.notify_all("First to %d kills wins the round. %s targets the nearest pilot." % [Duel.KILLS_TO_WIN, Keybinds.short_text("target_nearest")], Color(0.8, 0.9, 1.0))
+	world.duel_rules.unpack(state)
 
 
 # ------------------------------------------------------------- trading
@@ -1154,6 +1207,10 @@ func _handle_trade_cmd(peer_id: int, kind: String, data: Dictionary) -> void:
 		return
 	var me: Node = ships_by_id.get(seats.get(peer_id, 0), null) if peer_id != 1 else world.player
 	if me == null or not is_instance_valid(me) or me.dead:
+		return
+	if world.duel_rules != null:
+		if kind == "invite":
+			world.notify(me, "No trading in a duel: everyone here is out to get you.")
 		return
 	match kind:
 		"invite":
@@ -1337,6 +1394,8 @@ func _physics_process(delta: float) -> void:
 		_rpc_stats.rpc(_stats(), _round_state())
 		_rpc_colonies.rpc(_colony_state())
 		_rpc_economy.rpc(world.economy.pack())
+		if world.duel_rules != null:
+			_rpc_duel.rpc(world.duel_rules.pack())
 		for peer_id in seats:
 			var s: Node = ships_by_id.get(seats[peer_id], null)
 			if s != null and is_instance_valid(s):

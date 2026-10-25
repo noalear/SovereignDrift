@@ -33,16 +33,18 @@ func _ready() -> void:
 	_start_from_command_line()
 
 
-## `--host` hosts a game on port 7777; `--join=1.2.3.4` joins one (after `--`
-## when run from the editor binary).  The Play online screen replaces this.
+## `--host` hosts a game on port 7777, `--host-duel` a free-for-all duel;
+## `--join=1.2.3.4` joins either (after `--` when run from the editor
+## binary).  The Play online screen replaces this.
 func _start_from_command_line() -> void:
 	var args := OS.get_cmdline_user_args() + OS.get_cmdline_args()
 	for a in args:
-		if a == "--host":
+		if a == "--host" or a == "--host-duel":
 			Settings.use_profile("online")
 			Net.callsign = Settings.pilot_name
+			Net.mode = "duel" if a == "--host-duel" else ""
 			if Net.host() == OK:
-				_start_game()
+				_start_game(false, true, "", a == "--host-duel")
 			return
 		if a.begins_with("--join="):
 			Settings.use_profile("online")
@@ -75,11 +77,13 @@ func _on_session_ended(reason: String) -> void:
 		menu.online_status = reason
 
 
-func _host_game() -> void:
+## `duel`: a free-for-all instead of co-op Conquest.
+func _host_game(duel := false) -> void:
 	Settings.use_profile("online")
 	Net.callsign = Settings.pilot_name
+	Net.mode = "duel" if duel else ""
 	if Net.host() == OK:
-		_start_game()
+		_start_game(false, true, "", duel)
 	elif menu != null:
 		menu.online_status = "Could not open port %d. Is another game hosting?" % Net.PORT
 
@@ -138,6 +142,7 @@ func _show_menu() -> void:
 	menu.campaign_new_pressed.connect(func(): _start_game(false, true, "new"))
 	menu.campaign_continue_pressed.connect(func(): _start_game(false, true, "continue"))
 	menu.host_pressed.connect(_host_game)
+	menu.duel_pressed.connect(_host_game.bind(true))
 	menu.join_pressed.connect(_join_game)
 	menu.quit_pressed.connect(func(): get_tree().quit())
 
@@ -156,8 +161,8 @@ func _start_free_flight() -> void:
 
 
 ## `campaign` is "" for a Conquest round, "new" for a fresh campaign or
-## "continue" for the saved one.
-func _start_game(practice := false, opponent := true, campaign := "") -> void:
+## "continue" for the saved one; `duel` hosts a free-for-all.
+func _start_game(practice := false, opponent := true, campaign := "", duel := false) -> void:
 	if not Net.is_active():
 		Settings.use_profile("single")
 	Settings.save_settings()
@@ -182,6 +187,7 @@ func _start_game(practice := false, opponent := true, campaign := "") -> void:
 	world.name = "World"
 	world.practice = practice
 	world.practice_opponent = opponent
+	world.duel = duel
 	world.campaign = campaign != ""
 	world.campaign_data = saved
 	add_child(world)
@@ -201,7 +207,11 @@ func _start_game(practice := false, opponent := true, campaign := "") -> void:
 		world.notify_all("Free flight: no enemies, no round clock, and the colonies hold their fire. Try long autopilot routes with N and G. Esc for the menu.", Color(0.8, 0.9, 1.0))
 	elif practice:
 		world.notify_all("Practice duel: one pirate Scout at a time, no round clock, no fleets, and the colonies hold their fire. Esc for the menu.", Color(0.8, 0.9, 1.0))
-	if campaign == "continue":
+	if duel:
+		# two short lines: a long one would run under the leaderboard
+		world.notify_all("Free-for-all duel: everyone is your enemy, and everyone flies a %s." % Duel.HULL, Color(0.8, 0.9, 1.0))
+		world.notify_all("First to %d kills wins the round. Computer pilots fill in until friends join." % Duel.KILLS_TO_WIN, Color(0.8, 0.9, 1.0))
+	if campaign == "continue" or duel:
 		return
 	world.notify_all("Welcome, %s. You launch from the %s starbase at %s. Press H for the controls." % [Settings.pilot_name, GameData.race(Settings.race_id)["name"], GameData.STARBASES.get(Settings.race_id, "home")], Color(1, 0.95, 0.8))
 

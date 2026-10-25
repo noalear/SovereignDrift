@@ -36,7 +36,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("target_next"):
 		world.cycle_target(ship)
 	elif event.is_action_pressed("target_nearest"):
-		ship.target = world.nearest_enemy_ship(ship.global_position, ship.race_id, ship.sensor_range * 1.5, ship)
+		ship.target = world.nearest_enemy_ship(ship.global_position, ship.team(), ship.sensor_range * 1.5, ship)
 		if ship.target == null:
 			# fall back on what the rest of the fleet can see
 			var known: Ship = world.nearest_known_enemy(ship)
