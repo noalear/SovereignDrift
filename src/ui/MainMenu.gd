@@ -8,6 +8,7 @@ signal free_flight_pressed()
 signal campaign_new_pressed()
 signal campaign_continue_pressed()
 signal host_pressed()
+signal duel_pressed()
 signal join_pressed(address: String)
 signal quit_pressed()
 
@@ -334,11 +335,13 @@ func _draw_online(vp: Vector2) -> void:
 	var y := vp.y * 0.36
 	draw_string(font, Vector2(0, y - 50), "Online profile: " + _profile_line("online"), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 17, Color(1, 0.95, 0.8))
 	draw_string(font, Vector2(0, y - 28), "Change it on the Pilot page.", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 13, Color(0.65, 0.72, 0.85))
-	draw_string(font, Vector2(x, y), "Co-op over a LAN or the internet: the host runs the round, friends drop in as %s pilots." % GameData.race(int(Settings.profile_info("online")["race"]))["name"],
+	draw_string(font, Vector2(x, y), "Co-op: friends drop in as %s pilots.  Duel: a free-for-all, everyone against everyone." % GameData.race(int(Settings.profile_info("online")["race"]))["name"],
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.8, 0.85, 0.95))
-	_button(Rect2(x, y + 20, 280, 48), "Host a game (port %d)" % Net.PORT, func(): host_pressed.emit())
-	draw_multiline_string(font, Vector2(x + 300, y + 40), "Friends join with your address. Over the internet, open UDP %d on your router or use Tailscale." % Net.PORT,
-		HORIZONTAL_ALIGNMENT_LEFT, 320, 13, -1, Color(0.7, 0.75, 0.85))
+	_button(Rect2(x, y + 20, 296, 48), "Host co-op (port %d)" % Net.PORT, func(): host_pressed.emit())
+	_button(Rect2(x + 304, y + 20, 296, 48), "Host a duel (free-for-all)", func(): duel_pressed.emit())
+	draw_string(font, Vector2(x, y + 90), "Friends join with your address. Online, open UDP %d on your router or use Tailscale." % Net.PORT,
+		HORIZONTAL_ALIGNMENT_LEFT, 600, 13, Color(0.7, 0.75, 0.85))
+	y += 30
 	draw_string(font, Vector2(x, y + 110), "Join by address", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(0.85, 0.9, 1.0))
 	ip_edit.position = Vector2(x + 180, y + 84)
 	ip_edit.size = Vector2(300, 40)
@@ -350,7 +353,7 @@ func _draw_online(vp: Vector2) -> void:
 		draw_string(font, Vector2(x, gy + 22), "Listening... a host on your LAN shows up here within a few seconds.", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.6, 0.65, 0.75))
 		gy += 40
 	for g in games.slice(0, 5):
-		var label := "%s  (%s, %d/%d players)  %s" % [g["name"], g.get("system", "Sol"), int(g["players"]), int(g["max"]), g["ip"]]
+		var label := "%s  (%s, %s, %d/%d players)  %s" % [g["name"], "duel" if g.get("mode", "") == "duel" else "co-op", g.get("system", "Sol"), int(g["players"]), int(g["max"]), g["ip"]]
 		var ok: bool = int(g.get("protocol", -1)) == Net.PROTOCOL
 		_button(Rect2(x, gy, 600, 40), label if ok else label + "  (different version)", func(): join_pressed.emit("%s:%d" % [g["ip"], int(g["port"])]), ok)
 		gy += 48

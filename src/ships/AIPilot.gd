@@ -43,6 +43,7 @@ var haul_res := ""               # what the run is for
 var haul_to: Planet = null       # where the load goes
 var haul_frame: Ship = null      # or the station frame it is for
 var dock_at: Ship = null         # the station this run docks at (to fill a frame, or empty a mine)
+var duel := false                # a free-for-all: hunt around the arena, never go home to mend
 
 
 func setup(p_ship: Ship, p_world: Node, p_home: Planet, level: int) -> void:
@@ -61,6 +62,8 @@ func setup(p_ship: Ship, p_world: Node, p_home: Planet, level: int) -> void:
 func _random_patrol_point() -> Vector2:
 	var centre := home.global_position if home != null else Vector2.ZERO
 	# patrol near home, or roam toward an enemy planet when aggressive
+	if duel:
+		return centre + Vector2(randf_range(-1200, 1200), randf_range(-1200, 1200))
 	if randf() < aggression * 0.5:
 		var targets: Array = world.enemy_planets(ship.race_id)
 		if not targets.is_empty():
@@ -101,20 +104,22 @@ func _think() -> void:
 			state = State.PATROL
 	# acquire
 	var tgt := ship.target
-	if tgt == null or not is_instance_valid(tgt) or (tgt is Ship and (tgt.dead or not tgt.visible_to(ship) or tgt.race_id == ship.race_id)):
+	if tgt == null or not is_instance_valid(tgt) or (tgt is Ship and (tgt.dead or not tgt.visible_to(ship) or tgt.team() == ship.team())):
 		tgt = null
 	elif tgt is Planet and (not tgt.is_colonised() or tgt.owner_race == ship.race_id or tgt.is_defenceless()):
 		tgt = null                      # knocked out: leave it for the colonists
 	# a friend is taking that one alive: leave it be
-	if tgt is Ship and tgt.boarded_by != ship and tgt.claimed_by != ship and tgt.spoken_for(ship.race_id):
+	if tgt is Ship and tgt.boarded_by != ship and tgt.claimed_by != ship and tgt.spoken_for(ship.team()):
 		tgt = null
 	if escort != null:
 		tgt = _escort_target(tgt)
 	elif tgt == null or (randf() < 0.1 and state != State.BOARD):
-		var best: Ship = world.nearest_enemy_ship(ship.global_position, ship.race_id, ship.sensor_range, ship)
+		var best: Ship = world.nearest_enemy_ship(ship.global_position, ship.team(), ship.sensor_range, ship)
+		if best == null and duel:
+			best = world.nearest_known_enemy(ship)   # the arena is small: everyone in it is fair game
 		# answer a recent attacker first
 		if ship.last_attacker != null and is_instance_valid(ship.last_attacker) and ship.last_attacker is Ship and not ship.last_attacker.dead \
-				and Time.get_ticks_msec() / 1000.0 - ship.last_attacked_at < 6.0 and ship.last_attacker.race_id != ship.race_id:
+				and Time.get_ticks_msec() / 1000.0 - ship.last_attacked_at < 6.0 and ship.last_attacker.team() != ship.team():
 			best = ship.last_attacker
 		if best != null:
 			tgt = best
@@ -143,13 +148,13 @@ func _think() -> void:
 				state = State.FERRY
 			elif ship.global_position.distance_to(patrol_point) < 300.0:
 				patrol_point = _random_patrol_point()
-			elif (hull_frac < 0.6 or ship.energy < ship.energy_max * 0.2 or ship.fuel_fraction() < 0.15 or ship.crew_fraction() < 0.4) and home != null:
+			elif (hull_frac < 0.6 or ship.energy < ship.energy_max * 0.2 or ship.fuel_fraction() < 0.15 or ship.crew_fraction() < 0.4) and home != null and not duel:
 				state = State.RETREAT
 		State.ATTACK:
 			if tgt == null:
 				state = State.PATROL
 			elif (weak or ship.fuel_fraction() < 0.1) and randf() < 0.8:
-				state = State.RETREAT if home != null and escort == null else State.EVADE
+				state = State.RETREAT if home != null and escort == null and not duel else State.EVADE
 				evade_timer = 3.0
 			elif randf() < 0.08 * (1.0 - aggression):
 				state = State.EVADE
@@ -190,12 +195,12 @@ func _think() -> void:
 ## else whatever comes within the leash.
 func _escort_target(current: Node2D) -> Node2D:
 	var lead: Node2D = escort.target
-	if lead is Ship and is_instance_valid(lead) and not lead.dead and lead.race_id != ship.race_id and lead.visible_to(ship) \
+	if lead is Ship and is_instance_valid(lead) and not lead.dead and lead.team() != ship.team() and lead.visible_to(ship) \
 			and lead.global_position.distance_to(escort.global_position) < ESCORT_LEASH:
 		return lead
 	if current != null and current.global_position.distance_to(escort.global_position) < ESCORT_LEASH:
 		return current
-	var near: Ship = world.nearest_enemy_ship(escort.global_position, ship.race_id, ESCORT_LEASH * 0.8, ship)
+	var near: Ship = world.nearest_enemy_ship(escort.global_position, ship.team(), ESCORT_LEASH * 0.8, ship)
 	return near
 
 
@@ -216,7 +221,7 @@ func _wants_to_board(tgt: Node2D) -> bool:
 
 
 func _think_board(tgt: Node2D) -> void:
-	if not tgt is Ship or tgt.dead or tgt.race_id == ship.race_id:
+	if not tgt is Ship or tgt.dead or tgt.team() == ship.team():
 		state = State.PATROL if escort == null else State.ESCORT
 		return
 	if ship.boarding == tgt:

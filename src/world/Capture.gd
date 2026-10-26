@@ -73,6 +73,8 @@ static func board_range(captor: Node, victim: Node) -> float:
 static func why_not(captor: Node, victim: Node) -> String:
 	if victim == null or not is_instance_valid(victim) or not victim is Ship or victim.dead:
 		return "no target"
+	if captor.world != null and captor.world.get("duel_rules") != null:
+		return "duel"
 	if victim == captor or victim.race_id == captor.race_id:
 		return "friendly"
 	if captor.is_station or victim.is_station:
@@ -98,6 +100,8 @@ static func reason_text(why: String, captor: Node, victim: Node) -> String:
 			return "No target to board."
 		"friendly":
 			return "That ship is on your side."
+		"duel":
+			return "No boarding in a duel."
 		"station":
 			return "Stations can't be boarded."
 		"landed":

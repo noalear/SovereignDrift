@@ -147,7 +147,7 @@ func _draw() -> void:
 		if sh.dead:
 			continue
 		# starbases are known to all, built stations to their own side
-		var seen: bool = sh.is_starbase() or (player != null and sh.is_station and sh.race_id == player.race_id) \
+		var seen: bool = sh.is_starbase() or world.duel_rules != null or (player != null and sh.is_station and sh.team() == player.team()) \
 			or (player != null and not player.dead and sh.visible_to(player))
 		if not seen:
 			continue

@@ -64,13 +64,22 @@ func _alongside(w: World, st: Ship) -> void:
 	_put(w.player, st.global_position + out * (st.size + w.player.size + 60.0), st.velocity)
 
 
-## An uncolonised world with a surface and something to mine.
+## An uncolonised world with a surface and something to mine, the
+## nearest to Earth that no other empire's colony guns can reach.
 func _rock(w: World) -> Planet:
+	var best: Planet = null
+	var earth: Planet = w.planet_by_name["Earth"]
 	for p in w.planets:
-		if p.has_surface() and not p.is_colonised() and p.look != "Sun" and Economy.surface_of(p.look, p.habitable) != "gas" \
-				and p.richness.get("metals", 0) > 0:
-			return p
-	return null
+		if not p.has_surface() or p.is_colonised() or p.look == "Sun" or Economy.surface_of(p.look, p.habitable) == "gas" \
+				or p.richness.get("metals", 0) <= 0:
+			continue
+		var hostile := false
+		for q in w.planets:
+			if q.is_colonised() and q.owner_race != w.player.race_id and q.global_position.distance_to(p.global_position) < 4000.0:
+				hostile = true
+		if not hostile and (best == null or p.global_position.distance_to(earth.global_position) < best.global_position.distance_to(earth.global_position)):
+			best = p
+	return best
 
 
 ## Stations here sit within reach of enemy colonies' guns: keep the ones
@@ -263,6 +272,9 @@ func _process(_delta: float) -> bool:
 			_watch(mine)
 			_put(p, w.starbase_of(p.race_id).global_position + Vector2(300, 0), w.starbase_of(p.race_id).velocity)
 			_haulers(w, true)
+			for s in w.ships:
+				if s.support and s.race_id == p.race_id:
+					s.invulnerable = 1e9      # this checks their runs, not how they fare under fire
 			t0 = now
 			step = 7
 			print("watching the supply ships for up to 240 s of game time...")

@@ -10,6 +10,7 @@ var hit_point := Vector2.INF     # where the last sweep touched, set by the worl
 var hit_normal := Vector2.ZERO
 var owner_ship: Node = null
 var owner_race := -1
+var owner_team := -1              # the shooter's side (Ship.team()); friend or foe goes by this
 var missile_id := "001"
 var data: Dictionary
 var velocity := Vector2.ZERO
@@ -27,6 +28,7 @@ func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vecto
 	world = p_world
 	owner_ship = p_owner
 	owner_race = p_race
+	owner_team = p_owner.team() if p_owner is Ship else p_race
 	missile_id = p_id
 	data = GameData.MISSILES[p_id]
 	global_position = p_pos
@@ -114,7 +116,7 @@ func _free() -> void:
 
 func _seek(delta: float) -> void:
 	if target == null or not is_instance_valid(target) or (target is Ship and (target.dead or target.cloaked)):
-		target = world.nearest_enemy_ship(global_position, owner_race, data["seek_range"] * 2.0)
+		target = world.nearest_enemy_ship(global_position, owner_team, data["seek_range"] * 2.0)
 	var accel: float = data.get("accel", 200.0)
 	var dir := Vector2.RIGHT.rotated(rotation)
 	if target != null:
