@@ -6,7 +6,10 @@
 ## colony duty ferry colonists (land, board, fly, land again); pilots on
 ## attack duty knock out enemy colonies' defences for them.  Supply,
 ## trade and drop ships work for the empire: drop ships take troops from
-## the garrisons to enemy worlds whose planetary shields are down.
+## the garrisons to enemy worlds whose planetary shields are down.  Pilots
+## on escort duty guard the empire's convoys when its governor asks;
+## pilots on raid duty (and the pirate) hunt enemy supply ships, lone ones
+## first, and board them for their cargo.
 class_name AIPilot
 extends Node
 
@@ -49,6 +52,14 @@ var trader := false              # a trade ship: sells the empire's surplus at t
 var haul_market: Ship = null     # the market a trade run sells at
 var dropper := false             # a drop ship: carries the empire's troops to enemy worlds
 var duel := false                # a free-for-all: hunt around the arena, never go home to mend
+var escort_duty := false         # guards convoys when the governor asks (phase 6)
+var convoy_guard := false        # `escort` is a convoy, not the captor of a prize
+var raid := false                # hunts enemy supply ships
+var kit_body: Planet = null      # a supply ship's kit run: where the station goes up
+var kit_turn := 0.0              # how far round the world to try, when the first spot is taken
+
+## Raiders look for supply ships this far out (still only what they can see).
+const RAID_RANGE := 9000.0
 
 
 func setup(p_ship: Ship, p_world: Node, p_home: Planet, level: int) -> void:
@@ -62,6 +73,29 @@ func setup(p_ship: Ship, p_world: Node, p_home: Planet, level: int) -> void:
 	var duty: String = GameData.RANKS[clampi(level, 0, GameData.RANKS.size() - 1)]["duty"]
 	ferry = duty == "colonize" and not ship.is_station and ship.race_id <= 2 and ship.cabin > 0.0
 	bombard = duty in ["attack", "harass"] and not ship.is_station and ship.race_id <= 2
+	escort_duty = duty == "escort" and not ship.is_station and ship.race_id <= 2
+	# the pirate has always lived off other people's cargo
+	raid = (duty == "raid" and ship.race_id <= 2 or ship.race_id == 3) and not ship.is_station
+
+
+## The governor's orders for a pilot on escort duty: fly with this convoy.
+func guard(h: Ship) -> void:
+	escort = h
+	convoy_guard = true
+	state = State.ESCORT
+
+
+## The convoy got there (or was lost): back to patrol.
+func release() -> void:
+	escort = null
+	convoy_guard = false
+	if state == State.ESCORT:
+		state = State.PATROL
+	patrol_point = _random_patrol_point()
+
+
+func _governor() -> Governor:
+	return world.governors.get(ship.race_id, null) if "governors" in world else null
 
 
 func _random_patrol_point() -> Vector2:
@@ -69,6 +103,22 @@ func _random_patrol_point() -> Vector2:
 	# patrol near home, or roam toward an enemy planet when aggressive
 	if duel:
 		return centre + Vector2(randf_range(-1200, 1200), randf_range(-1200, 1200))
+	# raiders lie in wait where enemy supply ships call: their worlds and stations
+	if raid and randf() < 0.75:
+		var calls := []
+		for p in world.planets:
+			if p.is_colonised() and p.owner_race != ship.race_id and p.owner_race <= 2:
+				calls.append(p)
+		for o in world.ships:
+			if o.is_station and not o.dead and not o.is_starbase() and o.race_id != ship.race_id and o.race_id <= 2:
+				calls.append(o)
+		if not calls.is_empty():
+			var c: Node2D = calls[randi() % calls.size()]
+			return c.global_position + Vector2(randf_range(-1400, 1400), randf_range(-1400, 1400))
+	# attack duty: where the empire is going after
+	var gov := _governor()
+	if bombard and gov != null and gov.target != null and is_instance_valid(gov.target) and randf() < 0.6:
+		return gov.target.global_position + Vector2(randf_range(-900, 900), randf_range(-900, 900))
 	if randf() < aggression * 0.5:
 		var targets: Array = world.enemy_planets(ship.race_id)
 		if not targets.is_empty():
@@ -128,6 +178,9 @@ func _think() -> void:
 			best = ship.last_attacker
 		if best != null:
 			tgt = best
+	# raid duty: an enemy supply ship in sight, a lone one first
+	if tgt == null and raid and escort == null and state == State.PATROL:
+		tgt = _raid_target()
 	# attack duty: with no ship about, go after an enemy colony's defences
 	if tgt == null and bombard and state == State.PATROL:
 		tgt = _colony_to_bombard()
@@ -209,6 +262,26 @@ func _escort_target(current: Node2D) -> Node2D:
 	return near
 
 
+## The enemy supply ship to go after: in sight (our own or the empire's
+## sensors), the nearest, a guarded convoy only when nothing else is about.
+func _raid_target() -> Ship:
+	var best: Ship = null
+	var best_v := INF
+	for o in world.ships:
+		if o.dead or not o.support or o.is_station or o.race_id == GameData.NEUTRAL or o.team() == ship.team():
+			continue
+		if o.is_landing() or not o.visible_to(ship):
+			continue
+		var d: float = o.global_position.distance_to(ship.global_position)
+		if d > RAID_RANGE:
+			continue
+		var v := d + (3000.0 if o.convoy else 0.0)
+		if v < best_v:
+			best_v = v
+			best = o
+	return best
+
+
 ## Board this one instead of finishing it?  Decided once per target, and
 ## only when our crew would win quickly.
 func _wants_to_board(tgt: Node2D) -> bool:
@@ -219,7 +292,8 @@ func _wants_to_board(tgt: Node2D) -> bool:
 		return false
 	var key := tgt.get_instance_id()
 	if not board_rolls.has(key):
-		board_rolls[key] = randf() < 0.55 + 0.4 * aggression
+		# raiders want the cargo, so they nearly always try
+		board_rolls[key] = randf() < (0.9 if raid and tgt.support else 0.55 + 0.4 * aggression)
 	if not board_rolls[key]:
 		return false
 	return Capture.board_estimate(ship, tgt) < BOARD_PATIENCE
@@ -380,6 +454,8 @@ func _act(delta: float) -> void:
 		State.FERRY:
 			if dock_at != null and is_instance_valid(dock_at):
 				_fly_to_dock(delta)
+			elif job == "deploy":
+				_fly_to_site(delta)
 			else:
 				_fly_to_job(delta)
 		State.RETREAT:
@@ -476,6 +552,10 @@ func _job_still_good() -> bool:
 		"assault":
 			return job_planet.is_colonised() and job_planet.owner_race != ship.race_id and ship.troop_count() > 0 \
 				and (_assault_open(job_planet) or ship.is_landing())
+		"kit":
+			return dock_at != null and is_instance_valid(dock_at) and not dock_at.dead and kit_body != null
+		"deploy":
+			return kit_body != null and is_instance_valid(kit_body) and ship.kit != ""
 	return false
 
 
@@ -613,8 +693,84 @@ func make_dropper() -> void:
 	dropper = true
 
 
+## The governor's order for a supply ship: fetch a station kit from the
+## starbase and put the frame up over `body`.
+func start_kit(key: String, body: Planet) -> void:
+	var base: Ship = world.starbase_of(ship.race_id)
+	if base == null or body == null:
+		return
+	job = "kit"
+	haul_res = key
+	kit_body = body
+	kit_turn = 0.0
+	job_planet = null
+	haul_to = null
+	haul_frame = null
+	haul_market = null
+	dock_at = base
+	ground_order = false
+	state = State.FERRY
+
+
+## Alongside the starbase: the kit comes aboard (the empire pays for it).
+func _take_kit() -> void:
+	if ship.global_position.distance_to(dock_at.global_position) > dock_at.size + ship.size + 260.0:
+		return
+	ship.kit = haul_res
+	dock_at = null
+	job = "deploy"
+
+
+## Over the site: put the frame up, or give the run up when the site is
+## no good after all.
+func _deploy_kit() -> void:
+	if kit_body == null or not is_instance_valid(kit_body) or ship.kit == "":
+		_end_kit()
+		return
+	if ship.warping or ship.global_position.distance_to(kit_body.global_position) - kit_body.radius > World.SITE_RANGE * 0.8:
+		return
+	var site: Dictionary = world.station_site(ship, ship.kit)
+	if site["why"] == "":
+		world.deploy_kit(ship)
+		_end_kit()
+	elif "Too close" in site["why"] and kit_turn < TAU:
+		kit_turn += 0.6             # move round the world a little
+	elif not "Fly within" in site["why"]:
+		ship.kit = ""               # taken meanwhile, or the world changed hands
+		_end_kit()
+
+
+func _end_kit() -> void:
+	kit_body = null
+	job = ""
+	plan_timer = 0.0
+	state = State.FERRY if _plan_run() else State.PATROL
+
+
+func _fly_to_site(delta: float) -> void:
+	var p := kit_body
+	if p == null or not is_instance_valid(p):
+		return
+	var out := (ship.global_position - p.global_position)
+	if out.length() < 1.0:
+		out = Vector2.RIGHT
+	var point := p.global_position + out.normalized().rotated(kit_turn) * (p.radius + 450.0)
+	var far := ship.global_position.distance_to(point)
+	if far > 2500.0:
+		_avoid_planets(delta)
+		_steer_to(point, delta, true)
+		if ship.qdrv > 0.0 and far > 5000.0 and not ship.warping and absf(ship.inputs["turn"]) < 0.1 and ship.energy > 400.0:
+			ship.start_warp()
+		return
+	if ship.warping:
+		ship.end_warp()
+	_close_on(point, p.velocity)
+
+
 ## The next run: a drop ship's, a trade ship's or a supply ship's.
 func _plan_run() -> bool:
+	if ship.kit != "" and kit_body == null:
+		ship.kit = ""               # a kit with no run (after a reload): back to the empire
 	if dropper:
 		return _plan_drop()
 	return _plan_trade() if trader else _plan_haul()
@@ -658,6 +814,9 @@ func _plan_drop() -> bool:
 			var score := 10000.0 / (1500.0 + pos.distance_to(p.global_position))
 			if p.is_defenceless():
 				score *= 2.0
+			var gov := _governor()
+			if gov != null and gov.target == p:
+				score *= 3.0
 			if score > best:
 				best = score
 				job_planet = p
@@ -724,7 +883,11 @@ func _think_hauler() -> void:
 			if ship.hull > ship.hull_max * 0.85 and ship.fuel_fraction() > 0.6:
 				state = State.PATROL
 		State.FERRY:
-			if dock_at != null:
+			if job == "kit" and dock_at != null and is_instance_valid(dock_at) and not dock_at.dead:
+				_take_kit()
+			elif job == "deploy":
+				_deploy_kit()
+			elif dock_at != null:
 				_haul_docked()
 			elif not _job_still_good():
 				state = State.FERRY if _plan_run() else State.PATROL
@@ -799,8 +962,11 @@ func _plan_haul() -> bool:
 				job_planet = p
 				job = "deliver"
 		return job_planet != null
-	# runs another supply ship of ours is already on
+	# runs another supply ship of ours is already on, and pilots' jobs
 	var taken := {}
+	var gov := _governor()
+	if gov != null:
+		taken.merge(gov.taken_runs())
 	for o in world.ships:
 		if o != ship and o.support and not o.dead and o.race_id == ship.race_id:
 			var oa: AIPilot = o.get_node_or_null("AI")
@@ -1131,6 +1297,10 @@ func _haul_docked() -> void:
 
 ## An enemy colony nearby whose defences still stand.
 func _colony_to_bombard() -> Planet:
+	var gov := _governor()
+	if gov != null and gov.target != null and is_instance_valid(gov.target) and gov.target.is_colonised() and gov.target.owner_race != ship.race_id \
+			and not gov.target.is_defenceless() and ship.global_position.distance_to(gov.target.global_position) < 6000.0:
+		return gov.target
 	var best: Planet = null
 	var best_d := 3200.0
 	for p in world.planets:

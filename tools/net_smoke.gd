@@ -40,6 +40,9 @@ var saw_free_port := false
 var saw_order := false
 var saw_ground := false
 var saw_troops := false
+var board_posted := false
+var job_sent := false
+var saw_job := false
 var order_put := false
 
 
@@ -85,7 +88,9 @@ func _process(_delta: float) -> bool:
 			trade_seen = true
 			print("[%s] trade opened with %s, my credits %d" % [_tag(), d["partner_name"], d["credits"]])
 			# offer: the host gives 150 credits, the joiner gives a part if it has one
-			var offer := {"credits": 150 if is_host else 0, "parts": ([] if is_host or d["hold"].is_empty() else [0]), "blueprints": []}
+			# and the joiner 3 Metals from its cargo hold
+			var offer := {"credits": 150 if is_host else 0, "parts": ([] if is_host or d["hold"].is_empty() else [0]), "blueprints": [],
+				"cargo": ({} if is_host else {"metals": 3})}
 			net.trade_cmd("offer", {"id": d["id"], "offer": offer})
 			offer_sent = true
 			net.trade_cmd("accept", {"id": d["id"]}))
@@ -108,6 +113,25 @@ func _process(_delta: float) -> bool:
 		for s in w.ships:
 			if s.pilot_name == "Joiner" and not s.dead and s.cargo_max >= 3.0:
 				s.cargo["metals"] = 3.0      # the client should see its hold (again after a death or a refit)
+			if s.pilot_name == "Joiner" and not s.dead:
+				s.cargo_max = maxf(s.cargo_max, 300.0)   # room enough for a haul job
+		# the job board: Luna short of Food, Earth with plenty
+		if not board_posted and now - joiner_seen_at > 4000:
+			board_posted = true
+			w.planet_by_name["Luna"].stock["food"] = 0.0
+			w.planet_by_name["Earth"].stock["food"] = 900.0
+			for s in w.ships:
+				if s.pilot_name == "Joiner":
+					# a run of its own, whatever the computer supply ships are on
+					var gov: Governor = w.governors[s.race_id]
+					var j := gov._job("haul")
+					j["from"] = w.planet_by_name["Earth"]
+					j["to"] = w.planet_by_name["Luna"]
+					j["res"] = "food"
+					j["amount"] = 100.0
+					j["pay"] = 100
+					gov.jobs.append(j)
+					print("[host] posted a job for the joiner's empire (%d)" % s.race_id)
 		# a station frame goes up, and is finished a few seconds later
 		if depot == null:
 			# out at Jupiter, well clear of the pilots launching from the starbases
@@ -138,6 +162,15 @@ func _process(_delta: float) -> bool:
 					saw_station = true
 	if not is_host and w != null and p != null and p.cargo.get("metals", 0.0) == 3.0:
 		saw_cargo = true
+	# the board reaches the joiner, who takes a haul job; the host's word comes back
+	if not is_host and w != null and p != null:
+		for row in w.job_board:
+			if row[1] == "haul" and row[4] == "" and not job_sent:
+				job_sent = true
+				w.job_command(p, row[0])
+				print("[client] took job: %s" % row[2])
+			if row[4] == p.pilot_name:
+				saw_job = true
 	if not is_host and w != null:
 		for s in w.ships:
 			if s.race_id == 4 and s.design_name == "TradeStation" and s.cargo_total() > 500.0:
@@ -162,6 +195,7 @@ func _process(_delta: float) -> bool:
 				s.velocity = p.velocity
 				s.hold.append("5002")
 				p.credits = 500
+				p.cargo.clear()
 				credits_before = s.credits
 				p.target = s
 				net.request_trade(p, s)
@@ -261,6 +295,7 @@ func _finish(w) -> void:
 			if s.pilot_name == "Joiner":
 				_check(s.credits == credits_before + 150 and s.hold.is_empty(), "joiner got 150 credits and gave the part (credits %d, hold %d)" % [s.credits, s.hold.size()])
 		_check(w.player.credits == 350 and w.player.hold.has("5002"), "host paid 150 and got the part (credits %d)" % w.player.credits)
+		_check(w.player.cargo.get("metals", 0.0) >= 3.0, "and the joiner's 3 Metals (hold %s)" % [w.player.cargo])
 	else:
 		_check(net.snapshots_received > 100, "received snapshots (%d)" % net.snapshots_received)
 		_check(peak_ships >= 10, "roster arrived (%d ships)" % peak_ships)
@@ -289,5 +324,6 @@ func _finish(w) -> void:
 		_check(saw_order, "a starbase's order book arrived")
 		_check(saw_ground, "garrisons, a ground battle and the planetary shields arrived")
 		_check(saw_troops, "the marines aboard the joiner's ship arrived")
+		_check(saw_job, "the job board arrived, and the joiner took a haul job (%d jobs)" % w.job_board.size())
 		_check(net.client != null and net.client.correction_px < 60.0, "reconciliation error small (%.1f px)" % (net.client.correction_px if net.client else -1.0))
 	print("[%s] %s" % [_tag(), "FAILED" if failed else "passed"])

@@ -184,6 +184,12 @@ func _draw() -> void:
 			var sz := 4.0 + sh.size * 0.05
 			draw_colored_polygon(PackedVector2Array([pos + fwd * sz * 1.6, pos - fwd * sz + side * sz, pos - fwd * sz - side * sz]), col)
 			ship_marks.append(Rect2(pos - Vector2(9, 9), Vector2(18, 18)))
+		# a convoy: a ring round the supply ship, a line to each escort in sight
+		if sh.convoy:
+			draw_arc(pos, 12.0, 0, TAU, 24, Color(col.r, col.g, col.b, 0.8), 1.2, true)
+			draw_string(font, pos + Vector2(14, 4), "convoy", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(col.r, col.g, col.b, 0.85))
+		if sh.guarding != null and is_instance_valid(sh.guarding) and not sh.guarding.dead:
+			draw_line(pos, to_map(sh.guarding.global_position), Color(col.r, col.g, col.b, 0.35), 1.0, true)
 		if sh == player:
 			draw_arc(pos, 9.0, 0, TAU, 24, Color.WHITE, 1.5, true)
 		elif sh == (player.target if player != null else null):

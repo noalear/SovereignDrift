@@ -115,8 +115,8 @@ func _process(_delta: float) -> bool:
 func _exercise_shipyard(w: World, p: Ship) -> void:
 	var base: Ship = null
 	for s in w.ships:
-		if s.is_station and s.race_id == p.race_id and not s.dead:
-			base = s
+		if s.is_starbase() and s.race_id == p.race_id and not s.dead:
+			base = s                    # the starbase: the governors put up other stations too
 	assert(base != null, "no friendly starbase")
 	if main.builder != null:
 		main.builder._cancel()          # opened earlier by the frame-1500 refit try
