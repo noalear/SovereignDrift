@@ -3,9 +3,12 @@
 ## Every hull is a top-down painting in its empire's design language
 ## (assets/ships/<empire>/<Hull>.png): Terran plated grey-blue hulls,
 ## Arcean organic teal shells with green bioluminescence, Drengin crimson
-## blades, Pirate patched-up scrap.  The fitted parts are drawn on top from
-## the parts sheet (assets/parts/*.png): a turret model per weapon that
-## turns with the pilot's aim, one nozzle per engine, armour plates, shield
+## blades, Pirate patched-up scrap.  Each hull class has its own outline
+## and the paintings carry no guns: every hardpoint is an empty socket in
+## the empire's style (assets/parts/socket_<empire>.png), and the fitted
+## parts are drawn on top from the parts sheet (assets/parts/*.png): a
+## turret model per weapon, seated in its socket, that turns with the
+## pilot's aim, one nozzle per engine, armour plates, shield
 ## domes, the sensor dish, the reactor core, cloak spine, booster pods,
 ## warp fins and so on, so a loadout can be read from the ship itself.
 ## Engine flames, cloaking, hit flashes and battle damage are live effects
@@ -16,6 +19,44 @@ extends RefCounted
 ## Hull sprite length in multiples of the design's size (a radius-like
 ## number used by the rules).
 const LENGTH := 3.0
+
+## Where each hardpoint's socket sits on a painting, in hardpoint order,
+## as fractions of the painting (x from the stern edge, y from the top).
+## Keyed "<empire folder>/<file>", or "<folder>/<file>@<hull>" for a
+## painting another hull borrows.  Paintings not listed here get their
+## sockets snapped onto the hull from the original game's mount radii.
+## Hardpoint order per hull (GameData.SHIPS weapons): Scout bow, bow, aft
+## rack; Destroyer bow, starboard (+y), port, aft; Raider bow, starboard,
+## port; Cruiser and BattleCruiser bow, bow, starboard, port, aft;
+## Battleship bow, heavy bow, starboard, port, aft; Dreadnought bow,
+## starboard, port, dorsal, aft.
+const MOUNTS := {
+	"terran/Scout": [[0.66, 0.5], [0.48, 0.5], [0.3, 0.5]],
+	"terran/Destroyer": [[0.8, 0.5], [0.52, 0.62], [0.52, 0.38], [0.28, 0.5]],
+	"terran/Cruiser": [[0.86, 0.5], [0.62, 0.5], [0.86, 0.84], [0.86, 0.16], [0.27, 0.5]],
+	"terran/BattleCruiser": [[0.53, 0.5], [0.42, 0.5], [0.68, 0.78], [0.68, 0.22], [0.27, 0.5]],
+	"terran/Battleship": [[0.86, 0.5], [0.7, 0.5], [0.55, 0.75], [0.55, 0.25], [0.22, 0.5]],
+	"terran/Dreadnought": [[0.86, 0.5], [0.75, 0.84], [0.75, 0.16], [0.45, 0.5], [0.16, 0.5]],
+	"arcean/Scout": [[0.84, 0.5], [0.7, 0.5], [0.57, 0.5]],
+	"arcean/Destroyer": [[0.8, 0.5], [0.52, 0.66], [0.52, 0.34], [0.33, 0.5]],
+	"arcean/Cruiser": [[0.86, 0.5], [0.7, 0.5], [0.56, 0.8], [0.56, 0.2], [0.3, 0.5]],
+	"arcean/BattleCruiser": [[0.88, 0.5], [0.76, 0.5], [0.62, 0.64], [0.62, 0.36], [0.48, 0.5]],
+	"arcean/Battleship": [[0.86, 0.5], [0.7, 0.5], [0.55, 0.68], [0.55, 0.32], [0.36, 0.5]],
+	"arcean/Dreadnought": [[0.88, 0.5], [0.76, 0.8], [0.76, 0.2], [0.5, 0.5], [0.22, 0.5]],
+	"drengin/Scout": [[0.66, 0.5], [0.52, 0.5], [0.28, 0.5]],
+	"drengin/Destroyer": [[0.62, 0.5], [0.58, 0.82], [0.58, 0.18], [0.3, 0.5]],
+	"drengin/Cruiser": [[0.86, 0.5], [0.62, 0.5], [0.68, 0.85], [0.68, 0.15], [0.33, 0.5]],
+	"drengin/BattleCruiser": [[0.88, 0.5], [0.74, 0.5], [0.6, 0.5], [0.46, 0.5], [0.3, 0.5]],
+	"drengin/Battleship": [[0.8, 0.5], [0.62, 0.5], [0.38, 0.7], [0.38, 0.3], [0.22, 0.5]],
+	"drengin/Dreadnought": [[0.7, 0.5], [0.72, 0.8], [0.72, 0.2], [0.45, 0.5], [0.22, 0.5]],
+	"pirate/Scout": [[0.82, 0.46], [0.66, 0.42], [0.4, 0.48]],
+	"pirate/Raider": [[0.7, 0.5], [0.45, 0.74], [0.45, 0.26]],
+	"pirate/Raider@Destroyer": [[0.7, 0.5], [0.45, 0.74], [0.45, 0.26], [0.3, 0.5]],
+	"pirate/Cruiser": [[0.88, 0.5], [0.72, 0.5], [0.78, 0.8], [0.78, 0.2], [0.3, 0.5]],
+	"pirate/BattleCruiser": [[0.82, 0.36], [0.66, 0.76], [0.45, 0.76], [0.55, 0.3], [0.32, 0.76]],
+	"pirate/Battleship": [[0.62, 0.5], [0.47, 0.5], [0.38, 0.78], [0.38, 0.22], [0.22, 0.5]],
+	"pirate/Battleship@Dreadnought": [[0.62, 0.5], [0.38, 0.78], [0.38, 0.22], [0.47, 0.5], [0.22, 0.5]],
+}
 
 static var _textures := {}
 static var _masks := {}
@@ -63,6 +104,19 @@ static func hull_texture(hull_name: String, race_id: int) -> Texture2D:
 
 static func part_texture(name: String) -> Texture2D:
 	return texture("res://assets/parts/%s.png" % name)
+
+
+static func _painting_key(tex: Texture2D) -> String:
+	if tex == null:
+		return ""
+	var path := tex.resource_path
+	return path.get_base_dir().get_file() + "/" + path.get_file().get_basename()
+
+
+## The empty weapon socket in an empire's style.  Its feed conduits point
+## left; the ring itself is the square at the right end of the picture.
+static func socket_texture(race_id: int) -> Texture2D:
+	return part_texture("socket_" + ["arcean", "terran", "drengin", "pirate"][clampi(race_id, 0, 3)])
 
 
 ## The parts-sheet icon for a weapon module.
@@ -290,6 +344,12 @@ static func turret_radius(size: float, cls: int) -> float:
 	return maxf(size * (0.09 + 0.045 * cls), 2.5)
 
 
+## The drawn turret and socket radius: no wider than a slim hull can seat.
+static func seat_radius(m: Dictionary, cls: int) -> float:
+	var rect: Rect2 = m["rect"]
+	return minf(turret_radius(m["size"], cls), maxf(rect.size.y * 0.3, 2.5))
+
+
 ## Where each of a hull's hardpoints sits on its painting.  The original
 ## game's mount radii were made for its own hull shapes, so each mount is
 ## moved to the nearest spot on the painted hull deep enough for its
@@ -303,7 +363,15 @@ static func hardpoint_spots(hull_name: String, race_id: int, size: float) -> Arr
 	var mask := hull_mask(tex)
 	var raws := []
 	var out := []
-	for hp in GameData.hull_hardpoints(hull_name):
+	# hand-placed sockets on the decks each painting leaves free
+	var placed: Array = MOUNTS.get(_painting_key(tex) + "@" + hull_name, MOUNTS.get(_painting_key(tex), []))
+	var hps := GameData.hull_hardpoints(hull_name)
+	if placed.size() == hps.size():
+		for p in placed:
+			out.append(rect.position + Vector2(p[0] * rect.size.x, p[1] * rect.size.y))
+		_spots[key] = out
+		return out
+	for hp in hps:
 		var raw := raw_mount(float(hp[0]), float(hp[1]), size)
 		var r := turret_radius(size, hp[5])
 		var spot := Vector2.INF
@@ -328,16 +396,27 @@ static func raw_mount(angle_deg: float, dist: float, size: float) -> Vector2:
 	return Vector2.RIGHT.rotated(deg_to_rad(angle_deg)) * (dist + size * 0.5) * (0.75 if dist == 0.0 else 1.0)
 
 
-## Where a design's weapon `w` ([id, angle, radius, ...]) sits on the hull.
-static func weapon_spot(hull_name: String, race_id: int, size: float, w: Array) -> Vector2:
+## Where each of a design's weapons ([id, angle, radius, ...]) sits on the
+## hull: on the first free hardpoint with the same mount, so two guns
+## sharing a mount angle (a Cruiser's two bow guns) get a socket each.
+static func weapon_spots(hull_name: String, race_id: int, size: float, weapons: Array) -> Array:
 	var hps := GameData.hull_hardpoints(hull_name)
 	var spots := hardpoint_spots(hull_name, race_id, size)
-	for i in hps.size():
-		if float(hps[i][0]) == float(w[1]) and float(hps[i][1]) == float(w[2]):
-			return spots[i]
-	var tex := hull_texture(hull_name, race_id)
-	var r := turret_radius(size, GameData.weapon_class(w[0]))
-	return _snap(hull_mask(tex), _hull_rect(tex, size, hull_name == "Starbase"), raw_mount(float(w[1]), float(w[2]), size), r * 0.8)
+	var used := {}
+	var out := []
+	for w in weapons:
+		var spot := Vector2.INF
+		for i in hps.size():
+			if not used.has(i) and float(hps[i][0]) == float(w[1]) and float(hps[i][1]) == float(w[2]):
+				used[i] = true
+				spot = spots[i]
+				break
+		if spot == Vector2.INF:
+			var tex := hull_texture(hull_name, race_id)
+			var r := turret_radius(size, GameData.weapon_class(w[0]))
+			spot = _snap(hull_mask(tex), _hull_rect(tex, size, hull_name == "Starbase"), raw_mount(float(w[1]), float(w[2]), size), r * 0.8)
+		out.append(spot)
+	return out
 
 
 # ----------------------------------------------------------------- model
@@ -352,7 +431,7 @@ static func build_model(design: Variant, race_id: int, size: float) -> Dictionar
 	var hull_name: String = design if design is String else design["name"]
 	var fit: Dictionary = {} if design is String else design
 	var m := {"hull": hull_name, "race": race_id, "size": size, "seed": hash(hull_name) + race_id * 31,
-		"tex": hull_texture(hull_name, race_id), "rect": Rect2(), "nozzles": [], "overlays": [], "turrets": [],
+		"tex": hull_texture(hull_name, race_id), "rect": Rect2(), "nozzles": [], "overlays": [], "turrets": [], "sockets": [],
 		"glow": glow_color(race_id), "tint": part_tint(race_id), "station": hull_name == "Starbase"}
 	var tex: Texture2D = m["tex"]
 	m["rect"] = _hull_rect(tex, size, m["station"])
@@ -365,11 +444,12 @@ static func build_model(design: Variant, race_id: int, size: float) -> Dictionar
 		var eng_tier: int = counts.get("eng_tier", 2)
 		m["nozzles"] = _nozzle_points(m, hull_name, size, n_eng, eng_tier)
 		_system_overlays(m, size, counts)
+	if not m["station"]:
+		_sockets(m, size)
 	var weapons: Array = fit["weapons"] if not fit.is_empty() else GameData.SHIPS[hull_name]["weapons"]
-	var i := 0
-	for w in weapons:
-		_turret_overlay(m, w, i, size)
-		i += 1
+	var spots := weapon_spots(hull_name, race_id, size, weapons)
+	for i in weapons.size():
+		_turret_overlay(m, weapons[i], i, spots[i])
 	_models[key] = m
 	return m
 
@@ -496,11 +576,31 @@ static func _system_overlays(m: Dictionary, size: float, counts: Dictionary) -> 
 		_overlay(m, "ram", Vector2(rect.end.x + s * 0.05, 0), s * 0.5, 0.0, 1.0, 0.25, true)
 
 
-static func _turret_overlay(m: Dictionary, w: Array, index: int, size: float) -> void:
+## An empty socket on every hardpoint, fitted or not, with its feed
+## conduits running aft and in toward the keel.
+static func _sockets(m: Dictionary, size: float) -> void:
+	var t := socket_texture(m["race"])
+	if t == null:
+		return
+	var rect: Rect2 = m["rect"]
+	var hps := GameData.hull_hardpoints(m["hull"])
+	var spots := hardpoint_spots(m["hull"], m["race"], size)
+	var ring := float(t.get_height())
+	for i in hps.size():
+		var p: Vector2 = spots[i]
+		var d := seat_radius(m, hps[i][5]) * 2.2
+		var side := clampf(p.y / maxf(rect.size.y * 0.25, 0.001), -1.5, 1.5)
+		var feed := Vector2(-1.0, -side)
+		if float(hps[i][0]) == 180.0:
+			feed = Vector2(1.0, 0.0)        # the rear rack feeds from forward
+		var w := d * t.get_width() / ring
+		m["sockets"].append({"tex": t, "pos": p, "w": w, "h": d, "rot": (-feed).angle(), "anchor": (w - d * 0.5) / w})
+
+
+static func _turret_overlay(m: Dictionary, w: Array, index: int, mount: Vector2) -> void:
 	var id: String = w[0]
-	var mount := weapon_spot(m["hull"], m["race"], size, w)
 	var cls := GameData.weapon_class(id)
-	var r := turret_radius(size, cls)
+	var r := seat_radius(m, cls)
 	var icon := weapon_icon(id)
 	var t := part_texture(icon)
 	if t == null:
@@ -539,6 +639,9 @@ static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: flo
 		c.draw_texture_rect(tex, rect, false, mod)
 	else:
 		c.draw_rect(rect, Color(base.r, base.g, base.b, a))
+	# the weapon sockets, part of the hull
+	for so in m["sockets"]:
+		_draw_icon(c, xform, so["tex"], so["pos"], so["w"], so["h"], so["rot"], mod, so["anchor"])
 	# fitted systems, washed in the empire's palette
 	var tint: Color = m["tint"]
 	var pm := Color(tint.r * bright * dark, tint.g * bright * dark, tint.b * bright * dark, a)
