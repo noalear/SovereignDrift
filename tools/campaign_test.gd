@@ -70,6 +70,7 @@ func _start() -> void:
 	earth.stock["exotics"] = 12.0
 	luna.set_colony(2, "Outpost", 55000000.0)
 	var p := w.player
+	p.refit("Freighter")
 	p.credits = 777
 	p.hold = ["4001", "5002"]
 	p.colonists = 12000000.0
@@ -92,6 +93,16 @@ func _start() -> void:
 		if s.race_id == 3:
 			pirate = s
 	var pirate_dead: bool = pirate.dead
+	# stations: a skimmer frame at Jupiter part-supplied, a finished
+	# defensive station at Mars, and a kit in the player's hold
+	var jupiter: Planet = w.planet_by_name["Jupiter"]
+	var frame := w.build_station(1, "GasSkimmer", jupiter, jupiter.global_position + Vector2(jupiter.radius + 300.0, 0))
+	frame.cargo = {"metals": 12.0}
+	frame.build_t = 0.0
+	var mars: Planet = w.planet_by_name["Mars"]
+	var guns := w.build_station(2, "DefenseStation", mars, mars.global_position + Vector2(0, mars.radius + 500.0), false)
+	var guns_at: Vector2 = guns.global_position - mars.global_position
+	p.kit = "SensorStation"
 	w.round_rules.note("Test event", 1)
 	var ships_before := w.ships.size()
 	var names_before := []
@@ -128,6 +139,19 @@ func _start() -> void:
 	p = w.player
 	_check(p.credits == 777 and p.hold == ["4001", "5002"] and absf(p.colonists - 12000000.0) < 1.0, "the player's purse, hold and colonists come back")
 	_check(absf(p.cargo.get("ice", 0.0) - 7.0) < 0.01 and p.cargo_origin == earth, "the player's cargo comes back, loaded at Earth")
+	_check(p.kit == "SensorStation", "and the station kit in the hold")
+	var frame2: Ship = null
+	var guns2: Ship = null
+	for s in w.ships:
+		if s.design_name == "GasSkimmer":
+			frame2 = s
+		elif s.design_name == "DefenseStation":
+			guns2 = s
+	_check(frame2 != null and frame2.building and frame2.station_body == w.planet_by_name["Jupiter"] and absf(frame2.cargo.get("metals", 0.0) - 12.0) < 0.01 and frame2.cargo_max == 25.0,
+		"the skimmer frame comes back at Jupiter with its 12 Metals")
+	_check(guns2 != null and not guns2.building and guns2.race_id == 2 and guns2.get_node_or_null("AI") != null and guns2.weapons.size() == 3, "the defensive station comes back armed and crewed")
+	mars = w.planet_by_name["Mars"]
+	_check(guns2 != null and (guns2.global_position - mars.global_position).distance_to(guns_at) < 5.0, "and keeps its spot over Mars")
 	var haulers := w.ships.filter(func(x): return x.support)
 	_check(haulers.size() == 6 and haulers.all(func(x): return (x.get_node("AI") as AIPilot).hauler), "the supply ships come back as supply ships (%d)" % haulers.size())
 	_check(p.global_position.distance_to(at) < 50.0, "the player is where they were (%.0f px off)" % p.global_position.distance_to(at))
@@ -143,7 +167,7 @@ func _start() -> void:
 	_check(pirate2 != null and pirate2.dead == pirate_dead, "the pirate is still %s" % ("benched" if pirate_dead else "flying"))
 	var bases := 0
 	for s in w.ships:
-		if s.is_station and not s.dead:
+		if s.is_starbase() and not s.dead:
 			bases += 1
 	_check(bases == 3, "three starbases stand")
 	var has_event := false

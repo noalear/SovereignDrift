@@ -103,7 +103,7 @@ static func reason_text(why: String, captor: Node, victim: Node) -> String:
 		"duel":
 			return "No boarding in a duel."
 		"station":
-			return "Starbases can't be boarded."
+			return "Stations can't be boarded."
 		"landed":
 			return "It's down on the surface. Wait for it to lift off."
 		"not disabled":

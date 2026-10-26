@@ -158,11 +158,17 @@ var transfer := 0                  # while landed: +1 boarding colonists, -1 put
 var colonist_origin: Planet = null # where the colonists aboard came from (no pay for taking them home)
 var cargo := {}                    # resource -> units aboard (the Resources update)
 var cargo_max := 0.0               # units the hold carries
-var cargo_origin: Planet = null    # where the cargo was last loaded (no pay for taking it back)
+var cargo_origin: Node2D = null    # the world or station the cargo was last loaded at (no pay for taking it back)
 var cargo_orders := {}             # on the ground: resource -> units still to move (+ load, - unload)
 var support := false               # a computer hauler: works for the empire, not on the scoreboard
 const CARGO_MASS := 0.4            # mass of a unit of cargo
 const CARGO_RATE := 30.0           # units a second through a spaceport
+const KIT_MASS := 100.0            # a station kit, crated
+var kit := ""                      # a station kit aboard (GameData.STATIONS key): it fills the hold
+# stations built from kits (the Resources update, phase 3)
+var building := false              # a frame: waiting for its materials, then the work
+var build_t := 0.0                 # seconds of work done on the frame
+var station_body: Planet = null    # the world a built station keeps station over
 var art_model: Dictionary = {}     # the sprite model, rebuilt on refit
 var hull_race := -1                # whose shipyard built the hull (the painting); -1: race_id
 
@@ -237,7 +243,7 @@ func refit(p_design: Variant) -> void:
 	else:
 		design = p_design
 	design_name = design["name"]
-	is_station = design_name == "Starbase"
+	is_station = GameData.is_station_hull(design_name)
 	size = design["size"]
 	has_dock = design.has("dock")
 	stats = GameData.stats_for(design)
@@ -274,7 +280,10 @@ func refit(p_design: Variant) -> void:
 		burn_rate = engine_power * BURN_PER_ENGINE * 0.1
 	cabin = float(GameData.COLONIST_CABIN.get(design_name, 60)) * 1e6
 	colonists = minf(colonists, cabin)
-	cargo_max = float(GameData.CARGO_HOLD.get(design_name, 20))
+	# a frame's hold is the materials it is waiting for
+	cargo_max = GameData.station_cost_total(design_name) if building else float(GameData.CARGO_HOLD.get(design_name, 20))
+	if kit != "" and cargo_max < GameData.CARGO_HOLD["Freighter"]:
+		kit = ""                       # too small a hold for a station kit: it stays at the yard
 	_trim_cargo()
 	fuel = fuel_max
 	crew_max = GameData.HULL_CREW.get(design_name, 10)
@@ -321,6 +330,11 @@ func apply_systems() -> void:
 		end_warp()
 
 
+## The empire's home starbase (the stations built from kits are not).
+func is_starbase() -> bool:
+	return design_name == "Starbase"
+
+
 ## Dead in space: engines or reactor shot out, or nobody left aboard.
 func is_disabled() -> bool:
 	return systems.disabled() or (crew < 0.5 and not is_station)
@@ -359,7 +373,7 @@ func set_cloak_forced_off() -> void:
 
 ## Dry mass plus the fuel on board.
 func wet_mass() -> float:
-	return mass + fuel * FUEL_MASS + cargo_total() * CARGO_MASS
+	return mass + fuel * FUEL_MASS + cargo_total() * CARGO_MASS + (KIT_MASS if kit != "" else 0.0)
 
 
 func cargo_total() -> float:
@@ -370,6 +384,8 @@ func cargo_total() -> float:
 
 
 func cargo_space() -> float:
+	if kit != "":
+		return 0.0
 	return maxf(cargo_max - cargo_total(), 0.0)
 
 
@@ -491,7 +507,8 @@ func visible_to(viewer: Ship) -> bool:
 		return false                   # down on the surface, under the clouds
 	var d := global_position.distance_to(viewer.global_position)
 	if d > viewer.sensor_range * (0.25 if cloaked else 1.0):
-		return false
+		# the empire's sensor stations see further than any ship
+		return world != null and world.sensor_sees(self, viewer.race_id)
 	return true
 
 
@@ -745,7 +762,7 @@ func landing_refusal(p: Planet) -> String:
 	if p == null:
 		return "No world below to land on."
 	if is_station:
-		return "Starbases never land."
+		return "Stations never land."
 	if not p.has_surface():
 		return ("You cannot land in the Sun." if p.look == "Sun" else "%s is a gas giant: there is no surface to land on." % p.body_name)
 	if warping:
@@ -1424,6 +1441,7 @@ func _die(killer: Node) -> void:
 	cargo.clear()                      # what the wreck spilled is salvage now
 	cargo_orders.clear()
 	cargo_origin = null
+	kit = ""
 	if body != null:
 		body.enabled = false
 	hide()
@@ -1531,6 +1549,25 @@ func try_pickup(module_id: String) -> bool:
 
 ## Smoke, fire and sparks where the systems are hurt: a thin wisp on a
 ## damaged one, flames and arcing on one that is out.
+## A station going up: scaffold rings round the ghost of the finished
+## station, and an arc for the work done once the materials are in.
+func _draw_frame() -> void:
+	var c := race_color()
+	c.a = 0.55
+	var r := size * 1.15
+	for i in 12:
+		var a0 := i * TAU / 12.0 + rotation * -1.0
+		draw_arc(Vector2.ZERO, r, a0, a0 + TAU / 24.0, 6, c, 2.0, true)
+	draw_line(Vector2(-r, 0).rotated(-rotation), Vector2(r, 0).rotated(-rotation), Color(c, 0.25), 1.5)
+	draw_line(Vector2(0, -r).rotated(-rotation), Vector2(0, r).rotated(-rotation), Color(c, 0.25), 1.5)
+	var key := design_name
+	var done := cargo_total() / maxf(cargo_max, 1.0)
+	draw_arc(Vector2.ZERO, r + 7.0, -PI * 0.5 - rotation, -PI * 0.5 - rotation + TAU * done, 40, Color(0.95, 0.8, 0.35, 0.8), 3.0, true)
+	if GameData.STATIONS.has(key) and build_t > 0.0:
+		var f := build_t / float(GameData.STATIONS[key]["build"])
+		draw_arc(Vector2.ZERO, r + 13.0, -PI * 0.5 - rotation, -PI * 0.5 - rotation + TAU * f, 40, Color(0.5, 1.0, 0.6, 0.85), 3.0, true)
+
+
 func _draw_system_damage() -> void:
 	var a := cloak_alpha
 	if a < 0.1:
@@ -1572,7 +1609,9 @@ func _draw() -> void:
 	if art_model.is_empty():
 		art_model = ShipArt.build_model(design, hull_race, size)
 	var broken := systems.broken_map()
-	ShipArt.draw_model(self, art_model, base, thrust_level, cloak_alpha, dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0), broken)
+	ShipArt.draw_model(self, art_model, base, thrust_level, cloak_alpha * (0.4 if building else 1.0), dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0), broken)
+	if building:
+		_draw_frame()
 	if not broken.is_empty():
 		_draw_system_damage()
 	if is_disabled() and cloak_alpha > 0.3:

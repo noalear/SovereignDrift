@@ -134,7 +134,7 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 			reach = maxf(reach, maxf(sh.shield_bubble.half.x, sh.shield_bubble.half.y) + sh.shield_bubble.position.length())
 		var friend: bool = sh.team() == p.team()
 		var col := Color(0.45, 1.0, 0.5) if friend else Color(1.0, 0.38, 0.32)
-		var text: String = sh.ship_name if sh.is_station else sh.pilot_name
+		var text: String = station_label(sh) if sh.is_station else sh.pilot_name
 		var pos := at - Vector2(0, reach * cam.zoom.x + 8.0)
 		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
 		var box := Rect2(pos + Vector2(-w * 0.5, -13), Vector2(w, 17))
@@ -142,6 +142,15 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 			continue
 		placed.append(box)
 		_text(pos - Vector2(w * 0.5, 0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
+
+
+## A station's name; a frame says how far along it is.
+static func station_label(sh: Ship) -> String:
+	if not sh.building or not GameData.STATIONS.has(sh.design_name):
+		return sh.ship_name
+	if sh.cargo_total() < sh.cargo_max - 0.01:
+		return "%s frame: materials %d / %d" % [sh.ship_name, int(sh.cargo_total()), int(sh.cargo_max)]
+	return "%s frame: building, %d s" % [sh.ship_name, int(ceil(float(GameData.STATIONS[sh.design_name]["build"]) - sh.build_t))]
 
 
 func _crowded(box: Rect2, placed: Array[Rect2]) -> bool:
@@ -474,14 +483,22 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 	_text(Vector2(x, y), "%s %s   score %d   kills %d%s" % [rank, p.pilot_name, p.score, p.kills, next], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 0.95, 0.8))
 	_text(Vector2(x, y + 20), "credits %d   hold %d/%d%s%s%s" % [p.credits, p.hold.size(), Ship.HOLD_SIZE, ("   blueprints %d" % p.blueprints.size()) if not p.blueprints.is_empty() else "",
 		("   colonists %s / %s" % [GameData.fmt_pop(p.colonists), GameData.fmt_pop(p.cabin)]) if p.cabin > 0.0 else "",
-		("   cargo %d / %d" % [int(p.cargo_total()), int(p.cargo_max)]) if p.cargo_max > 0.0 else ""], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 0.85, 0.4))
+		(("   %s kit aboard" % GameData.STATIONS[p.kit]["label"].to_lower()) if p.kit != "" else ("   cargo %d / %d" % [int(p.cargo_total()), int(p.cargo_max)])) if p.cargo_max > 0.0 else ""], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 0.85, 0.4))
 	if not p.dead:
 		_draw_landing(p, vp)
 	# docking prompt
+	var dock_text := ""
 	if not p.dead and not p.is_landing() and world.nearest_base(p) != null:
+		dock_text = "In docking range:  U  opens the shipyard   %s  cargo and station kits" % Keybinds.short_text("cargo") + ("" if p.speed() <= 220.0 else "  (brake first)")
+	elif not p.dead and not p.is_landing():
+		var port = world.cargo_port(p)
+		if port != null and p.cargo_max > 0.0:
+			dock_text = "Alongside %s:  %s  moves cargo" % [world.port_name(port), Keybinds.short_text("cargo")]
+		elif p.kit != "":
+			dock_text = "%s kit aboard:  %s  deploys it here" % [GameData.STATIONS[p.kit]["label"], Keybinds.short_text("cargo")]
+	if dock_text != "":
 		# on its own dark plate low on the screen, so the starbase art never hides it
-		var dock_text := "In docking range:  U  opens the shipyard" + ("" if p.speed() <= 220.0 else "  (brake first)")
-		var plate := Rect2(vp.x * 0.5 - 250, vp.y - 98, 500, 32)
+		var plate := Rect2(vp.x * 0.5 - 330, vp.y - 98, 660, 32)
 		draw_rect(plate, Color(0.02, 0.06, 0.05, 0.78))
 		draw_rect(plate, Color(0.4, 1.0, 0.7, 0.55), false, 1.5)
 		draw_string_outline(font, Vector2(plate.position.x, plate.position.y + 22), dock_text, HORIZONTAL_ALIGNMENT_CENTER, plate.size.x, 16, 4, Color(0, 0, 0, 0.85))
@@ -815,7 +832,7 @@ func _draw_help(vp: Vector2) -> void:
 		["", ""],
 		["SHIP", ""],
 		[_keys("board"), "board a disabled target"], [_keys("refit"), "shipyard, at your starbase"], [_keys("trade"), "trade with your target (online)"],
-		[_keys("cargo"), "cargo hold: load and unload goods (landed)"],
+		[_keys("cargo"), "cargo: colonies, stations, station kits"],
 	]
 	if InputMap.has_action("land"):
 		right.append_array([["", ""], ["COLONISTS", ""]])

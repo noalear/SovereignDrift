@@ -41,6 +41,8 @@ var plan_timer := 0.0
 var hauler := false              # a supply ship: carries the empire's goods, keeps out of fights
 var haul_res := ""               # what the run is for
 var haul_to: Planet = null       # where the load goes
+var haul_frame: Ship = null      # or the station frame it is for
+var dock_at: Ship = null         # the station this run docks at (to fill a frame, or empty a mine)
 var duel := false                # a free-for-all: hunt around the arena, never go home to mend
 
 
@@ -371,7 +373,10 @@ func _act(delta: float) -> void:
 				i["fire_beam"] = false
 			_avoid_planets(delta)
 		State.FERRY:
-			_fly_to_job(delta)
+			if dock_at != null and is_instance_valid(dock_at):
+				_fly_to_dock(delta)
+			else:
+				_fly_to_job(delta)
 		State.RETREAT:
 			if home != null:
 				var p := home.global_position + (ship.global_position - home.global_position).normalized() * (home.radius + 220.0)
@@ -449,11 +454,45 @@ func _job_still_good() -> bool:
 		"reinforce":
 			return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and ship.colonists > 0.0
 		"load":
+			if haul_frame != null:
+				return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and _spare_for_frame(job_planet, haul_res) >= 1.0 \
+					and is_instance_valid(haul_frame) and not haul_frame.dead and haul_frame.building and world.port_room(haul_frame, haul_res) >= 0.5
 			return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and Economy.surplus(job_planet, haul_res) >= 5.0 \
 				and haul_to != null and haul_to.is_colonised() and haul_to.owner_race == ship.race_id
 		"deliver":
 			return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and ship.cargo_total() >= 1.0
 	return false
+
+
+## A docking run still worth flying: the frame still wants what we carry,
+## the mine still has a load for us.
+func _dock_job_good() -> bool:
+	if dock_at == null or not is_instance_valid(dock_at) or dock_at.dead or dock_at.race_id != ship.race_id:
+		return false
+	match job:
+		"supply":
+			if not dock_at.building:
+				return false
+			for k in ship.cargo:
+				if world.port_room(dock_at, k) >= 0.5:
+					return true
+			return false
+		"collect":
+			return _collectable(dock_at) >= 10.0 and ship.cargo_space() >= 10.0
+	return false
+
+
+## What a supply ship would take away from a station: a mine's or
+## skimmer's output, a refinery's Alloys.
+static func _collectable(st: Ship) -> float:
+	if st.building:
+		return 0.0
+	match st.design_name:
+		"MiningStation", "GasSkimmer":
+			return st.cargo_total()
+		"Refinery":
+			return st.cargo.get("alloys", 0.0)
+	return 0.0
 
 
 ## Fly down to the job's world, slow to a landing speed above it, land.
@@ -559,7 +598,9 @@ func _think_hauler() -> void:
 			if ship.hull > ship.hull_max * 0.85 and ship.fuel_fraction() > 0.6:
 				state = State.PATROL
 		State.FERRY:
-			if not _job_still_good():
+			if dock_at != null:
+				_haul_docked()
+			elif not _job_still_good():
 				state = State.FERRY if _plan_haul() else State.PATROL
 		_:
 			if hurt and home != null and ship.cargo_total() < 1.0:
@@ -583,13 +624,36 @@ func _plan_haul() -> bool:
 	plan_timer = 3.0
 	job_planet = null
 	job = ""
+	dock_at = null
+	haul_frame = null
+	ground_order = false
 	var pos := ship.global_position
 	var ours := []
 	for p in world.planets:
 		if p.is_colonised() and p.owner_race == ship.race_id and p.has_surface() and p.under_attack <= 0.0:
 			ours.append(p)
+	var frames := []
+	var producers := []
+	for o in world.ships:
+		if o.is_station and not o.dead and o.race_id == ship.race_id:
+			if o.building and o.cargo_total() < o.cargo_max - 0.5:
+				frames.append(o)
+			elif _collectable(o) > 0.0:
+				producers.append(o)
 	var best := 0.0
 	if ship.cargo_total() >= 1.0:
+		# a frame that needs what we carry comes first: it pays full price
+		for f in frames:
+			var n := 0.0
+			for k in ship.cargo:
+				n += minf(ship.cargo[k], world.port_room(f, k)) * GameData.RESOURCE_PRICE.get(k, 1.0)
+			var v := n * FRAME_PRIORITY / (1500.0 + pos.distance_to(f.global_position))
+			if n >= 1.0 and v > best:
+				best = v
+				dock_at = f
+				job = "supply"
+		if dock_at != null:
+			return true
 		for p in ours:
 			if p == ship.cargo_origin or p == last_drop:
 				continue
@@ -614,6 +678,54 @@ func _plan_haul() -> bool:
 			var oa: AIPilot = o.get_node_or_null("AI")
 			if oa != null and oa.job in ["load", "deliver"] and oa.haul_to != null:
 				taken[[oa.haul_to, oa.haul_res]] = true
+	for o in world.ships:
+		if o != ship and o.support and not o.dead and o.race_id == ship.race_id:
+			var oa: AIPilot = o.get_node_or_null("AI")
+			if oa == null:
+				continue
+			if oa.haul_frame != null:
+				taken[[oa.haul_frame, oa.haul_res]] = true
+			if oa.dock_at != null:
+				taken[[oa.dock_at, oa.job]] = true
+	# materials for a frame, from the nearest colony that can spare them
+	for f in frames:
+		for k in GameData.STATIONS[f.design_name]["cost"]:
+			var need: float = world.port_room(f, k)
+			if need < 1.0 or taken.has([f, k]) or taken.has([f, "supply"]):
+				continue
+			for src in ours:
+				var amount := minf(need, _spare_for_frame(src, k))
+				if amount < minf(need, 5.0):
+					continue
+				var trip: float = 1500.0 + pos.distance_to(src.global_position) + src.global_position.distance_to(f.global_position)
+				var v: float = amount * GameData.RESOURCE_PRICE.get(k, 1.0) * FRAME_PRIORITY / trip
+				if v > best:
+					best = v
+					job_planet = src
+					job = "load"
+					haul_res = k
+					haul_frame = f
+					haul_to = null
+	# a mine or skimmer's output, a refinery's Alloys
+	for st in producers:
+		var amount := minf(_collectable(st), ship.cargo_max)
+		if amount < COLLECT_AT or taken.has([st, "collect"]):
+			continue
+		var worth := 0.0
+		for k in st.cargo:
+			if st.design_name != "Refinery" or k == "alloys":
+				worth += st.cargo[k] * GameData.RESOURCE_PRICE.get(k, 1.0)
+		worth *= minf(amount / maxf(_collectable(st), 1.0), 1.0)
+		# a full station stops working: fetch it first
+		var v: float = worth * (3.0 if st.cargo_space() < st.cargo_max * 0.2 else 2.0) / (1500.0 + pos.distance_to(st.global_position))
+		if v > best:
+			best = v
+			job_planet = null
+			job = "collect"
+			dock_at = st
+			haul_frame = null
+	if dock_at != null:
+		return true
 	for src in ours:
 		for k in Economy.RESOURCES:
 			var spare := minf(Economy.surplus(src, k), ship.cargo_max)
@@ -643,6 +755,15 @@ func _haul_on_ground() -> void:
 	var here := ship.land_body
 	if not ground_order:
 		ground_order = true
+		if job == "load" and here == job_planet and haul_frame != null and is_instance_valid(haul_frame):
+			# everything the frame still needs that this colony can spare
+			var room := ship.cargo_space()
+			for k in GameData.STATIONS[haul_frame.design_name]["cost"]:
+				var n := floorf(minf(minf(world.port_room(haul_frame, k), _spare_for_frame(here, k)), room))
+				if n >= 1.0:
+					world.cargo_command(ship, k, n)
+					room -= n
+			return
 		if job == "load" and here == job_planet and haul_to != null:
 			# the run's resource first, then anything else the destination wants
 			var room := ship.cargo_space()
@@ -668,7 +789,12 @@ func _haul_on_ground() -> void:
 		return
 	ground_order = false
 	world.try_land(ship)              # lift off
-	if job == "load" and ship.cargo_total() >= 1.0 and haul_to != null:
+	if job == "load" and ship.cargo_total() >= 1.0 and haul_frame != null and is_instance_valid(haul_frame) and not haul_frame.dead:
+		job = "supply"
+		dock_at = haul_frame
+		job_planet = null
+		state = State.FERRY
+	elif job == "load" and ship.cargo_total() >= 1.0 and haul_to != null:
 		job = "deliver"
 		job_planet = haul_to
 		last_drop = null
@@ -678,6 +804,68 @@ func _haul_on_ground() -> void:
 		job = ""
 		plan_timer = 0.0
 		state = State.FERRY if _plan_haul() else State.PATROL
+
+
+## Frame runs are worth this many times a colony run of the same goods.
+const FRAME_PRIORITY := 4.0
+## A station's output is worth fetching once this much has piled up.
+const COLLECT_AT := 60.0
+
+
+## What a colony can give a frame: anything over a sixth of its cap.
+static func _spare_for_frame(p: Planet, k: String) -> float:
+	return maxf(p.stock.get(k, 0.0) - Economy.cap(p) / 6.0, 0.0)
+
+
+## Fly to a station and hold alongside it, on its far side from its world.
+func _fly_to_dock(delta: float) -> void:
+	var st := dock_at
+	var i := ship.inputs
+	var out := st.global_position - (st.station_body.global_position if st.station_body != null else ship.global_position)
+	if out.length() < 1.0:
+		out = Vector2.RIGHT
+	var point := st.global_position + out.normalized() * (st.size + ship.size + 70.0)
+	var far := ship.global_position.distance_to(point)
+	if far > 2500.0:
+		_avoid_planets(delta)
+		_steer_to(point, delta, true)
+		if ship.qdrv > 0.0 and far > 5000.0 and not ship.warping and absf(i["turn"]) < 0.1 and ship.energy > 400.0:
+			ship.start_warp()
+		return
+	if ship.warping:
+		ship.end_warp()
+	_close_on(point, st.velocity)
+
+
+## Alongside the station: order the transfer once, wait for it, then on
+## to the next run.
+func _haul_docked() -> void:
+	if not _dock_job_good() and ship.cargo_orders.is_empty():
+		dock_at = null
+		state = State.FERRY if _plan_haul() else State.PATROL
+		return
+	if world.cargo_port(ship) != dock_at:
+		ground_order = false
+		return
+	if not ground_order:
+		ground_order = true
+		ground_time = 0.0
+		if job == "collect":
+			if dock_at.design_name == "Refinery":
+				world.cargo_command(ship, "alloys", 1e6)
+			else:
+				world.cargo_command(ship, "all", 1.0)
+		else:
+			world.cargo_command(ship, "all", -1.0)
+		return
+	ground_time += 0.35
+	if not ship.cargo_orders.is_empty() or ground_time < 1.0:
+		return
+	dock_at = null
+	haul_frame = null
+	job = ""
+	plan_timer = 0.0
+	state = State.FERRY if _plan_haul() else State.PATROL
 
 
 ## An enemy colony nearby whose defences still stand.

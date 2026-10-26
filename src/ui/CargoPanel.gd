@@ -1,7 +1,10 @@
-## CargoPanel -- the cargo hold, on the ground at one of your colonies (L):
-## what is aboard, what the world has, and buttons to load or unload each
-## resource.  Goods unloaded where the world is short of them pay; the
-## spaceport moves them a few dozen units a second.
+## CargoPanel -- the cargo hold (L): what is aboard, what the port has,
+## and buttons to load or unload each resource, at one of your colonies
+## (landed) or alongside one of your stations.  Goods unloaded where the
+## world is short of them pay, and so does every unit a station frame
+## needs; the port moves them a few dozen units a second.  At your
+## starbase it also sells station kits, and with a kit aboard it deploys
+## one where you are.
 class_name CargoPanel
 extends Control
 
@@ -12,12 +15,22 @@ var font: Font
 var time := 0.0
 var buttons: Array = []        # [rect, label, callable, enabled]
 var hover := -1
+var want_h := 300.0            # the height the last draw needed
 
 const W := 560.0
 const ROW_H := 30.0
 const PANEL := Color(0.01, 0.03, 0.07, 0.93)
 const TEXT := Color(0.9, 0.95, 1.0)
 const DIM := Color(0.55, 0.65, 0.8)
+const WARN := Color(1.0, 0.7, 0.5)
+
+
+## Anything for the panel to show: a port, the starbase's kits, or a kit
+## to deploy.
+static func can_open(w: World, s: Ship) -> bool:
+	if s == null or s.dead:
+		return false
+	return s.is_landed() or w.cargo_port(s) != null or s.kit != "" or w.nearest_base(s) != null
 
 
 func _ready() -> void:
@@ -32,14 +45,13 @@ func _ship() -> Ship:
 func _process(delta: float) -> void:
 	time += delta
 	var s := _ship()
-	if s == null or s.dead or not s.is_landed():
+	if not can_open(world, s):
 		close_requested.emit()
 		return
 	var vp := get_viewport_rect().size
-	var h := 196.0 + Economy.RESOURCES.size() * ROW_H
 	# beside the ground panel, clear of the radar
-	position = Vector2(vp.x - W - 30.0, maxf(vp.y * 0.5 - h * 0.5 - 60.0, 90.0))
-	size = Vector2(W, h)
+	position = Vector2(vp.x - W - 30.0, maxf(vp.y * 0.5 - want_h * 0.5 - 60.0, 90.0))
+	size = Vector2(W, want_h)
 	queue_redraw()
 
 
@@ -67,56 +79,167 @@ func _order(res: String, amount: float) -> void:
 
 func _draw() -> void:
 	var s := _ship()
-	if s == null or not s.is_landed():
+	if not can_open(world, s):
 		return
 	buttons.clear()
-	var p := s.land_body
-	var friendly := p.is_colonised() and p.owner_race == s.race_id
 	draw_rect(Rect2(Vector2.ZERO, size), PANEL)
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.95, 0.85, 0.45, 0.6), false, 1.5)
-	draw_string(font, Vector2(16, 28), "CARGO HOLD  at %s" % p.body_name.to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 18, TEXT)
-	# the hold
-	var frac := s.cargo_total() / maxf(s.cargo_max, 1.0)
-	var bar := Rect2(16, 40, W - 32, 18)
+	var port = world.cargo_port(s)
+	var base: Ship = world.nearest_base(s) if not s.is_landing() else null
+	var where := ""
+	if port is Ship:
+		where = "  at %s%s" % [port.ship_name.to_upper(), " (FRAME)" if port.building else ""]
+	elif port != null:
+		where = "  at %s" % world.port_name(port).to_upper()
+	elif s.is_landed():
+		where = "  at %s" % s.land_body.body_name.to_upper()
+	elif base != null:
+		where = "  at %s" % base.ship_name.to_upper()
+	draw_string(font, Vector2(16, 28), "CARGO HOLD" + where, HORIZONTAL_ALIGNMENT_LEFT, W - 32, 18, TEXT)
+	var y := _hold_bar(s, 40.0)
+	if s.is_landed() and port == null:
+		draw_string(font, Vector2(16, y + 22), "Cargo only moves through your own colonies' spaceports.", HORIZONTAL_ALIGNMENT_LEFT, W - 32, 15, WARN)
+		y += 34.0
+	elif port != null and s.cargo_max > 0.0:
+		y = _port_rows(s, port, y)
+	if base != null:
+		y = _kits(s, y)
+	elif s.kit != "" and port == null:
+		y = _deploy(s, y)
+	y += 28.0
+	draw_string(font, Vector2(0, y - 10), "%s or Esc closes%s" % [Keybinds.short_text("cargo"), "   B lifts off" if s.is_landed() else ""], HORIZONTAL_ALIGNMENT_CENTER, W, 13, Color(1, 1, 1, 0.45))
+	want_h = y
+
+
+## The hold's fill bar (or the kit that fills it); returns the next y.
+func _hold_bar(s: Ship, y: float) -> float:
+	var bar := Rect2(16, y, W - 32, 18)
 	draw_rect(bar, Color(0.1, 0.12, 0.16, 0.9))
+	if s.cargo_max <= 0.0:
+		draw_string(font, bar.position + Vector2(6, 14), "This hull has no cargo hold.", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DIM)
+		return y + 28.0
+	if s.kit != "":
+		draw_rect(bar, Color(0.55, 0.85, 1.0, 0.75))
+		draw_string(font, bar.position + Vector2(6, 14), "%s kit aboard: it fills the hold" % GameData.STATIONS[s.kit]["label"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.05, 0.05, 0.08))
+		return y + 28.0
+	var frac := s.cargo_total() / maxf(s.cargo_max, 1.0)
 	draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(frac, 0.0, 1.0), bar.size.y)), Color(0.95, 0.8, 0.35, 0.85))
 	var moving := "   loading..." if s.cargo_orders.values().any(func(v): return v > 0.0) else ("   unloading..." if not s.cargo_orders.is_empty() else "")
 	draw_string(font, bar.position + Vector2(6, 14), "%d / %d units%s" % [int(s.cargo_total()), int(s.cargo_max), moving], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.05, 0.05, 0.08) if frac > 0.35 else TEXT)
-	if not friendly:
-		draw_string(font, Vector2(16, 90), "Cargo only moves through your own colonies' spaceports.", HORIZONTAL_ALIGNMENT_LEFT, W - 32, 15, Color(1.0, 0.7, 0.5))
-		_footer()
-		return
-	# all at once
-	var y := 68.0
-	_button(Rect2(16, y, 160, 26), "Load all", func(): _order("all", 1.0), s.cargo_space() >= 1.0)
+	return y + 28.0
+
+
+## Load and unload at a colony or a station.
+func _port_rows(s: Ship, port, y: float) -> float:
+	var stock: Dictionary = world.port_stock(port)
+	var frame: bool = port is Ship and port.building
+	var planet := port is Planet
+	_button(Rect2(16, y, 160, 26), "Load all", func(): _order("all", 1.0), s.cargo_space() >= 1.0 and not stock.is_empty())
 	_button(Rect2(186, y, 160, 26), "Unload all", func(): _order("all", -1.0), s.cargo_total() >= 1.0)
 	y += 40.0
-	# headings
 	draw_string(font, Vector2(16, y + 4), "Resource", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DIM)
 	draw_string(font, Vector2(130, y + 4), "Aboard", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DIM)
-	draw_string(font, Vector2(206, y + 4), "Here", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DIM)
+	draw_string(font, Vector2(206, y + 4), "Needs" if frame else "Here", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DIM)
 	y += 10.0
-	var c := Economy.cap(p)
-	for k in Economy.RESOURCES:
+	var keys: Array = Economy.RESOURCES
+	if frame:
+		keys = GameData.STATIONS[port.design_name]["cost"].keys()
+	for k in keys:
 		var aboard: float = s.cargo.get(k, 0.0)
-		var here: float = p.stock.get(k, 0.0)
+		var here: float = stock.get(k, 0.0)
+		var room: float = world.port_room(port, k)
 		draw_string(font, Vector2(16, y + 20), Economy.NAMES[k], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Economy.COLORS[k])
 		draw_string(font, Vector2(130, y + 20), str(int(aboard)), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, TEXT if aboard >= 1.0 else DIM)
-		draw_string(font, Vector2(206, y + 20), "%d / %d" % [int(here), int(c)], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, TEXT if here >= 1.0 else DIM)
-		if Economy.need(p, k) > 0.5:
-			draw_string(font, Vector2(290, y + 20), "short", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1.0, 0.75, 0.4))
+		if frame:
+			var need: float = GameData.STATIONS[port.design_name]["cost"][k]
+			draw_string(font, Vector2(206, y + 20), "%d / %d" % [int(need - room), int(need)], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, TEXT if room < 0.5 else Color(1.0, 0.75, 0.4))
+		elif planet:
+			draw_string(font, Vector2(206, y + 20), "%d / %d" % [int(here), int(Economy.cap(port))], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, TEXT if here >= 1.0 else DIM)
+			if Economy.need(port, k) > 0.5:
+				draw_string(font, Vector2(290, y + 20), "short", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1.0, 0.75, 0.4))
+		else:
+			draw_string(font, Vector2(206, y + 20), str(int(here)), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, TEXT if here >= 1.0 else DIM)
 		var bx := W - 16.0 - 3 * 64.0
-		_button(Rect2(bx, y + 3, 58, 24), "+10", func(): _order(k, 10.0), here >= 1.0 and s.cargo_space() >= 1.0)
-		_button(Rect2(bx + 64, y + 3, 58, 24), "+all", func(): _order(k, 1e6), here >= 1.0 and s.cargo_space() >= 1.0)
-		_button(Rect2(bx + 128, y + 3, 58, 24), "-all", func(): _order(k, -1e6), aboard >= 1.0 and here < c - 0.5)
+		if not frame:
+			_button(Rect2(bx, y + 3, 58, 24), "+10", func(): _order(k, 10.0), here >= 1.0 and s.cargo_space() >= 1.0)
+			_button(Rect2(bx + 64, y + 3, 58, 24), "+all", func(): _order(k, 1e6), here >= 1.0 and s.cargo_space() >= 1.0)
+		_button(Rect2(bx + 128, y + 3, 58, 24), "-all", func(): _order(k, -1e6), aboard >= 1.0 and room >= 0.5)
 		y += ROW_H
-	draw_string(font, Vector2(16, y + 20), "Unloading pays where the world is short of the goods", HORIZONTAL_ALIGNMENT_LEFT, W - 32, 13, DIM)
-	draw_string(font, Vector2(16, y + 37), "and makes them worse than the world you loaded them at.", HORIZONTAL_ALIGNMENT_LEFT, W - 32, 13, DIM)
-	_footer()
+	var notes: Array
+	if planet:
+		notes = ["Unloading pays where the world is short of the goods", "and makes them worse than the world you loaded them at."]
+	elif frame:
+		notes = ["Every unit the frame needs pays its full price.", "Once it has everything, the station takes %d s to build." % int(GameData.STATIONS[port.design_name]["build"])]
+	else:
+		notes = [port_note(port.design_name), "Total %d / %d units." % [int(port.cargo_total()), int(port.cargo_max)]]
+	draw_string(font, Vector2(16, y + 20), notes[0], HORIZONTAL_ALIGNMENT_LEFT, W - 32, 13, DIM)
+	draw_string(font, Vector2(16, y + 37), notes[1], HORIZONTAL_ALIGNMENT_LEFT, W - 32, 13, DIM)
+	return y + 48.0
 
 
-func _footer() -> void:
-	draw_string(font, Vector2(0, size.y - 10), "%s or Esc closes   B lifts off" % Keybinds.short_text("cargo"), HORIZONTAL_ALIGNMENT_CENTER, W, 13, Color(1, 1, 1, 0.45))
+static func port_note(hull: String) -> String:
+	match hull:
+		"SupplyDepot":
+			return "The depot stores anything, and refuels and crews ships alongside."
+		"Refinery":
+			return "Bring Metals and Fuel: it makes an Alloy from 2 Metals and 1 Fuel."
+		"MiningStation", "GasSkimmer":
+			return "Its output piles up here until a supply ship takes it."
+	return ""
+
+
+## The starbase's kit counter.
+func _kits(s: Ship, y: float) -> float:
+	y += 8.0
+	draw_line(Vector2(16, y), Vector2(W - 16, y), Color(1, 1, 1, 0.15), 1.0)
+	y += 22.0
+	draw_string(font, Vector2(16, y), "STATION KITS", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, TEXT)
+	draw_string(font, Vector2(150, y), "credits %d" % s.credits, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 0.85, 0.4))
+	y += 8.0
+	if s.kit != "":
+		draw_string(font, Vector2(16, y + 20), "You carry a %s kit." % GameData.STATIONS[s.kit]["label"].to_lower(), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, TEXT)
+		_button(Rect2(W - 196, y + 3, 180, 24), "Hand it back (%d)" % GameData.STATIONS[s.kit]["kit"], func(): world.kit_command(_ship(), ""), true)
+		return y + 40.0
+	# what stops every kit at once, said once
+	var general := ""
+	if s.rank < GameData.KIT_RANK:
+		general = "Kits need the rank of %s." % GameData.RANKS[GameData.KIT_RANK]["name"]
+	elif s.cargo_max < GameData.CARGO_HOLD["Freighter"]:
+		general = "Kits need a %d-unit hold: refit to a Freighter (U)." % GameData.CARGO_HOLD["Freighter"]
+	elif s.cargo_total() >= 1.0:
+		general = "Empty the hold first: a kit fills it."
+	for key in GameData.STATION_ORDER:
+		var st: Dictionary = GameData.STATIONS[key]
+		var cost := []
+		for k in st["cost"]:
+			cost.append("%d %s" % [st["cost"][k], Economy.NAMES[k]])
+		draw_string(font, Vector2(16, y + 18), st["label"], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, TEXT)
+		draw_string(font, Vector2(170, y + 18), ", ".join(cost), HORIZONTAL_ALIGNMENT_LEFT, 200, 13, DIM)
+		draw_string(font, Vector2(16, y + 33), st["does"], HORIZONTAL_ALIGNMENT_LEFT, W - 140, 12, Color(0.6, 0.7, 0.85, 0.8))
+		_button(Rect2(W - 116, y + 6, 100, 26), "%d cr" % st["kit"], func(): world.kit_command(_ship(), key), World.kit_refusal(s, key) == "")
+		y += 40.0
+	if general != "":
+		draw_string(font, Vector2(16, y + 18), general, HORIZONTAL_ALIGNMENT_LEFT, W - 32, 14, WARN)
+		y += 26.0
+	return y
+
+
+## With a kit aboard: where it would go up, and the button.
+func _deploy(s: Ship, y: float) -> float:
+	var st: Dictionary = GameData.STATIONS[s.kit]
+	var site: Dictionary = world.station_site(s, s.kit)
+	y += 8.0
+	draw_string(font, Vector2(16, y + 18), "%s: %s." % [st["label"], st["does"]], HORIZONTAL_ALIGNMENT_LEFT, W - 32, 14, TEXT)
+	var cost := []
+	for k in st["cost"]:
+		cost.append("%d %s" % [st["cost"][k], Economy.NAMES[k]])
+	draw_string(font, Vector2(16, y + 38), "The frame then needs %s, and %d s of work." % [", ".join(cost), int(st["build"])], HORIZONTAL_ALIGNMENT_LEFT, W - 32, 13, DIM)
+	y += 50.0
+	var ok: bool = site["why"] == ""
+	var line: String = ("Deploy over %s here." % site["body"].body_name) if ok else site["why"]
+	draw_string(font, Vector2(16, y + 18), line, HORIZONTAL_ALIGNMENT_LEFT, W - 200, 14, Color(0.6, 1.0, 0.7) if ok else WARN)
+	_button(Rect2(W - 176, y, 160, 28), "Deploy", func(): world.deploy_kit(_ship()), ok)
+	return y + 40.0
 
 
 func _button(rect: Rect2, label: String, cb: Callable, enabled: bool) -> void:

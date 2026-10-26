@@ -114,7 +114,9 @@ static func _ship(world: Node, s: Ship, waiting: Dictionary) -> Dictionary:
 		"credits": s.credits, "credits_earned": s.credits_earned, "captures": s.captures, "ships_captured": s.ships_captured,
 		"hold": s.hold.duplicate(), "blueprints": s.blueprints.duplicate(),
 		"colonists": s.colonists, "colonist_origin": s.colonist_origin.body_name if s.colonist_origin != null else "",
-		"cargo": s.cargo.duplicate(), "cargo_origin": s.cargo_origin.body_name if s.cargo_origin != null else "", "support": s.support,
+		"cargo": s.cargo.duplicate(), "cargo_origin": s.cargo_origin.body_name if s.cargo_origin is Planet else "", "support": s.support,
+		"kit": s.kit, "building": s.building, "build_t": s.build_t,
+		"station_body": s.station_body.body_name if s.station_body != null else "", "station_r": s.get_meta("station_r", 0.0),
 		"crew": s.crew, "fuel": s.fuel, "hull": s.hull, "shield": s.shield,
 		"pos": pos, "vel": vel, "rot": s.rotation,
 		"dead": s.dead, "respawn_in": waiting.get(s, -1.0),
@@ -164,6 +166,18 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 			s.hull_race = int(row["hull_race"])
 			s.refit(row["design"])
 			s.ship_name = row["ship_name"]
+		elif row["is_station"] and row["design"]["name"] != "Starbase":
+			# a station built from a kit, or its frame
+			s = world._make_ship(row["pilot"], int(row["race"]), row["design"]["name"], row["ship_name"], false, int(row["hull_race"]))
+			s.station_body = world.planet_by_name.get(row.get("station_body", ""), null)
+			s.building = row.get("building", false)
+			s.build_t = float(row.get("build_t", 0.0))
+			s.refit(row["design"])
+			s.set_meta("station_angle", row["station_angle"])
+			if float(row.get("station_r", 0.0)) > 0.0:
+				s.set_meta("station_r", float(row["station_r"]))
+			if not s.building:
+				world._arm_station(s)
 		else:
 			s = world._make_ship(row["pilot"], int(row["race"]), row["design"]["name"], row["ship_name"], false, int(row["hull_race"]))
 			s.refit(row["design"])
@@ -197,6 +211,8 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 			s.cargo[k] = float(row["cargo"][k])
 		s._trim_cargo()
 		s.cargo_origin = world.planet_by_name.get(row.get("cargo_origin", ""), null)
+		if s.cargo_max >= GameData.CARGO_HOLD["Freighter"] and GameData.STATIONS.has(row.get("kit", "")):
+			s.kit = row["kit"]
 		s.crew = minf(float(row["crew"]), float(s.crew_max))
 		s.fuel = minf(float(row["fuel"]), s.fuel_max)
 		s.hull = clampf(float(row["hull"]), 1.0, s.hull_max)

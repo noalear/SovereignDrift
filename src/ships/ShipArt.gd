@@ -89,8 +89,11 @@ static func texture(path: String) -> Texture2D:
 static func hull_texture(hull_name: String, race_id: int) -> Texture2D:
 	var folder: String = ["arcean", "terran", "drengin", "pirate"][clampi(race_id, 0, 3)]
 	var file := hull_name
-	if hull_name == "Starbase":
-		return texture("res://assets/ships/stations/%s.png" % ["arcean", "terran", "drengin", "drengin"][clampi(race_id, 0, 3)])
+	if GameData.is_station_hull(hull_name):
+		var yard: String = ["arcean", "terran", "drengin", "drengin"][clampi(race_id, 0, 3)]
+		# a built station's own painting when there is one, else the starbase's
+		var own := texture("res://assets/ships/stations/%s_%s.png" % [hull_name, yard]) if hull_name != "Starbase" else null
+		return own if own != null else texture("res://assets/ships/stations/%s.png" % yard)
 	if race_id == 3:
 		match hull_name:
 			"Destroyer": file = "Raider"
@@ -359,7 +362,7 @@ static func hardpoint_spots(hull_name: String, race_id: int, size: float) -> Arr
 	if _spots.has(key):
 		return _spots[key]
 	var tex := hull_texture(hull_name, race_id)
-	var rect := _hull_rect(tex, size, hull_name == "Starbase")
+	var rect := _hull_rect(tex, size, GameData.is_station_hull(hull_name))
 	var mask := hull_mask(tex)
 	var raws := []
 	var out := []
