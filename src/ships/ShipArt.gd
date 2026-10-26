@@ -417,7 +417,7 @@ static func weapon_spots(hull_name: String, race_id: int, size: float, weapons: 
 		if spot == Vector2.INF:
 			var tex := hull_texture(hull_name, race_id)
 			var r := turret_radius(size, GameData.weapon_class(w[0]))
-			spot = _snap(hull_mask(tex), _hull_rect(tex, size, hull_name == "Starbase"), raw_mount(float(w[1]), float(w[2]), size), r * 0.8)
+			spot = _snap(hull_mask(tex), _hull_rect(tex, size, GameData.is_station_hull(hull_name)), raw_mount(float(w[1]), float(w[2]), size), r * 0.8)
 		out.append(spot)
 	return out
 
@@ -435,7 +435,7 @@ static func build_model(design: Variant, race_id: int, size: float) -> Dictionar
 	var fit: Dictionary = {} if design is String else design
 	var m := {"hull": hull_name, "race": race_id, "size": size, "seed": hash(hull_name) + race_id * 31,
 		"tex": hull_texture(hull_name, race_id), "rect": Rect2(), "nozzles": [], "overlays": [], "turrets": [], "sockets": [],
-		"glow": glow_color(race_id), "tint": part_tint(race_id), "station": hull_name == "Starbase"}
+		"glow": glow_color(race_id), "tint": part_tint(race_id), "station": GameData.is_station_hull(hull_name)}
 	var tex: Texture2D = m["tex"]
 	m["rect"] = _hull_rect(tex, size, m["station"])
 	m["mask"] = hull_mask(tex)
