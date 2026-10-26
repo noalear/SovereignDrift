@@ -11,7 +11,7 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 14
+const PROTOCOL := 15
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -345,6 +345,11 @@ func _rpc_build(design: Dictionary, credits: int, hold: Array, blueprints: Array
 	if credits < 0 or not design.has("name") or not design.has("weapons") or not design.has("modules"):
 		world.notify(s, "The shipyard refused that build.")
 		return
+	var why: String = world.build_refusal(s, design)
+	if why != "":
+		world.notify(s, why)
+		_rpc_purse.rpc_id(multiplayer.get_remote_sender_id(), s.credits, s.hold, s.blueprints)
+		return
 	s.credits = credits
 	s.hold = hold
 	s.blueprints = blueprints
@@ -408,6 +413,8 @@ func _rpc_command(cmd: String) -> void:
 			world.kit_command(s, cmd.get_slice(":", 1))
 		"deploy":
 			world.deploy_kit(s)
+		_ when cmd.begins_with("order:"):
+			world.order_command(s, cmd.get_slice(":", 1))
 
 
 func _apply_remote_inputs() -> void:
@@ -989,8 +996,8 @@ func _station_state() -> Array:
 	var out := []
 	for id in ships_by_id:
 		var s: Node = ships_by_id[id]
-		if is_instance_valid(s) and s.is_station and not s.is_starbase():
-			out.append([s.net_id, s.building, s.build_t, s.cargo])
+		if is_instance_valid(s) and s.is_station:
+			out.append([s.net_id, s.building, s.build_t, s.cargo, s.orders])
 	return out
 
 
@@ -1002,6 +1009,7 @@ func _rpc_stations(rows: Array) -> void:
 			continue
 		s.build_t = row[2]
 		s.cargo = row[3]
+		s.orders = row[4] if row.size() > 4 else []
 		if s.building != row[1]:
 			# finished: the full station, where the frame stood
 			s.building = row[1]

@@ -122,6 +122,7 @@ static func _ship(world: Node, s: Ship, waiting: Dictionary) -> Dictionary:
 		"dead": s.dead, "respawn_in": waiting.get(s, -1.0),
 		"home": ai.home.body_name if ai != null and ai.home != null else "",
 		"station_angle": s.get_meta("station_angle", 0.0),
+		"founder": s.founder, "orders": s.orders.duplicate(true), "ordered": s.has_meta("ordered"), "trojan": s.has_meta("trojan"),
 	}
 
 
@@ -176,6 +177,8 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 			s.set_meta("station_angle", row["station_angle"])
 			if float(row.get("station_r", 0.0)) > 0.0:
 				s.set_meta("station_r", float(row["station_r"]))
+			if row.get("trojan", false):
+				s.set_meta("trojan", true)
 			if not s.building:
 				world._arm_station(s)
 		else:
@@ -193,10 +196,17 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 				home = world._home_planet(s.race_id)
 			ai.setup(s, world, home, 14 if row["is_station"] else (3 if row["is_prize"] else s.rank))
 			if s.support:
-				ai.make_hauler()
+				if s.design_name == "Trader":
+					ai.make_trader()
+				else:
+					ai.make_hauler()
 			if row["is_station"]:
 				s.set_meta("station_angle", row["station_angle"])
 		by_pilot[row["pilot"]] = s
+		s.founder = row.get("founder", "")
+		s.orders = row.get("orders", []).duplicate(true)
+		if row.get("ordered", false):
+			s.set_meta("ordered", true)
 		s.deaths = int(row["deaths"])
 		s.credits = int(row["credits"])
 		s.credits_earned = int(row["credits_earned"])
@@ -242,6 +252,11 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 		if not world.ships.any(func(x): return x.support and x.race_id == race_id):
 			for r in GameData.SUPPLY_SHIPS[race_id]:
 				world._spawn_hauler(race_id, r[0], r[1])
+	# and one saved before the markets: the trade ships and the free port
+	for race_id in GameData.TRADE_SHIPS:
+		if not world.ships.any(func(x): return x.support and x.design_name == "Trader" and x.race_id == race_id):
+			world._spawn_trader(race_id, GameData.TRADE_SHIPS[race_id][0], GameData.TRADE_SHIPS[race_id][1])
+	world.spawn_free_port()
 	world._keep_station()
 
 

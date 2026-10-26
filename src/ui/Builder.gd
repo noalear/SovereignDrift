@@ -1,6 +1,8 @@
-## Builder -- the shipyard screen at a starbase.  Pick a hull, fill its
-## hardpoints and bays from the catalogue or your salvage, watch the
-## numbers change, launch.  Everything is drawn by hand like the menu.
+## Builder -- the shipyard screen at a starbase or shipyard station.  Pick
+## a hull, fill its hardpoints and bays from the catalogue or your salvage,
+## watch the numbers change, launch.  A new hull also takes Metals, Alloys
+## or Exotics from the yard's stock (GameData.HULL_MATERIALS).  Everything
+## is drawn by hand like the menu.
 class_name Builder
 extends Control
 
@@ -134,12 +136,16 @@ func _problems() -> Array:
 		out.append("No engine fitted.")
 	if st["power_gen"] <= 0.0:
 		out.append("No power plant fitted.")
-	var armed := false
+	var armed := hardpoints.is_empty()      # a trade ship has no mounts to fill
 	for m in mounts:
 		if m != null:
 			armed = true
 	if not armed:
 		out.append("No weapon mounted.")
+	if hull != orig_hull:
+		var short := World.materials_short(world.yard_stock(base), hull)
+		if short != "":
+			out.append(short)
 	return out
 
 
@@ -437,12 +443,12 @@ func _draw_header(r: Rect2) -> void:
 func _draw_hulls(r: Rect2) -> void:
 	_panel(r, "HULLS")
 	var y := r.position.y + 44
-	for name in GameData.REFIT_ORDER:
-		if name == "Starbase":
-			continue
+	var rows: Array = GameData.yard_hulls()
+	var row_h := minf(50.0, (r.size.y - 44.0 - 150.0) / rows.size())
+	for name in rows:
 		var d: Dictionary = GameData.SHIPS[name]
 		var allowed: bool = d["rank"] <= ship.rank
-		var row := Rect2(r.position.x + 12, y, r.size.x - 24, 46)
+		var row := Rect2(r.position.x + 12, y, r.size.x - 24, row_h - 4.0)
 		var selected: bool = name == hull
 		buttons.append([row, _switch_hull.bind(name), allowed])
 		var idx := buttons.size() - 1
@@ -453,13 +459,20 @@ func _draw_hulls(r: Rect2) -> void:
 		draw_rect(row, Color(0.5, 0.7, 1.0, 0.35), false, 1.0)
 		# a little picture of the hull
 		ShipArt.draw_ship(self, name, base.race_id, 12.0 + d["size"] * 0.12, GameData.race(base.race_id)["color"], 0.0, 1.0 if allowed else 0.35, 0.0, Transform2D(0.0, row.position + Vector2(34, 23)))
-		draw_string(font, row.position + Vector2(74, 20), name, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, TEXT if allowed else Color(0.5, 0.5, 0.55))
+		draw_string(font, row.position + Vector2(74, 20), GameData.hull_label(name), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, TEXT if allowed else Color(0.5, 0.5, 0.55))
 		var sub := "%s · bays %d" % [GameData.rank_name(d["rank"]), GameData.HULL_BAYS[name]] if allowed else "needs %s" % GameData.rank_name(d["rank"])
 		draw_string(font, row.position + Vector2(74, 38), sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DIM)
 		var price := _hull_price(name)
 		var ptxt := "current" if name == orig_hull else ("%d cr" % price)
-		draw_string(font, row.position + Vector2(row.size.x - 110, 24), ptxt, HORIZONTAL_ALIGNMENT_RIGHT, 100, 15, GOLD if name != orig_hull else DIM)
-		y += 50
+		draw_string(font, row.position + Vector2(row.size.x - 110, 20), ptxt, HORIZONTAL_ALIGNMENT_RIGHT, 100, 15, GOLD if name != orig_hull else DIM)
+		if name != orig_hull and GameData.HULL_MATERIALS.has(name):
+			var mats := []
+			var need: Dictionary = GameData.HULL_MATERIALS[name]
+			for k in need:
+				mats.append("%d %s" % [need[k], Economy.NAMES[k].left(2)])
+			var ok := World.materials_short(world.yard_stock(base), name) == ""
+			draw_string(font, row.position + Vector2(row.size.x - 150, 38), " ".join(mats), HORIZONTAL_ALIGNMENT_RIGHT, 140, 12, Color(0.75, 0.85, 1.0) if ok else BAD)
+		y += row_h
 	# the hold
 	y += 10
 	draw_string(font, Vector2(r.position.x + 14, y + 14), "HOLD  %d / %d   (salvage; free to fit, sells at half)" % [hold.size(), Ship.HOLD_SIZE], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.6, 0.8, 1.0))

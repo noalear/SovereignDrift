@@ -103,6 +103,16 @@ func _start() -> void:
 	var guns := w.build_station(2, "DefenseStation", mars, mars.global_position + Vector2(0, mars.radius + 500.0), false)
 	var guns_at: Vector2 = guns.global_position - mars.global_position
 	p.kit = "SensorStation"
+	# markets and yards: the free port's stock, a Terran trade station with
+	# its founder, and an order on the Terran starbase's slip
+	var free_port: Ship = null
+	for s in w.ships:
+		if s.race_id == 4:
+			free_port = s
+	free_port.cargo["food"] = 42.0
+	var mall := w.build_station(1, "TradeStation", jupiter, jupiter.global_position + Vector2(0, -jupiter.radius - 900.0), false)
+	mall.founder = p.pilot_name
+	w.starbase_of(1).orders.append(["Trader", 30.0, p.pilot_name])
 	w.round_rules.note("Test event", 1)
 	var ships_before := w.ships.size()
 	var names_before := []
@@ -153,7 +163,20 @@ func _start() -> void:
 	mars = w.planet_by_name["Mars"]
 	_check(guns2 != null and (guns2.global_position - mars.global_position).distance_to(guns_at) < 5.0, "and keeps its spot over Mars")
 	var haulers := w.ships.filter(func(x): return x.support)
-	_check(haulers.size() == 6 and haulers.all(func(x): return (x.get_node("AI") as AIPilot).hauler), "the supply ships come back as supply ships (%d)" % haulers.size())
+	_check(haulers.size() == 9 and haulers.all(func(x): return (x.get_node("AI") as AIPilot).hauler), "the supply and trade ships come back as haulers (%d)" % haulers.size())
+	_check(haulers.filter(func(x): return x.design_name == "Trader" and (x.get_node("AI") as AIPilot).trader).size() == 3, "and the trade ships as traders")
+	var port2: Ship = null
+	var mall2: Ship = null
+	for s in w.ships:
+		if s.race_id == 4:
+			port2 = s
+		elif s.design_name == "TradeStation":
+			mall2 = s
+	_check(port2 != null and port2.has_meta("trojan") and absf(port2.cargo.get("food", 0.0) - 42.0) < 1.0 and w.ships.filter(func(x): return x.race_id == 4).size() == 1,
+		"the free port comes back once, at the Trojan point, with its market")
+	_check(mall2 != null and mall2.founder == p.pilot_name and Economy.is_market(mall2), "the Terran trade station comes back with its founder")
+	var sb: Ship = w.starbase_of(1)
+	_check(sb.orders.size() == 1 and sb.orders[0][0] == "Trader" and sb.orders[0][2] == p.pilot_name, "the starbase's order comes back on the slip")
 	_check(p.global_position.distance_to(at) < 50.0, "the player is where they were (%.0f px off)" % p.global_position.distance_to(at))
 	var ai2: Ship = null
 	for s in w.ships:

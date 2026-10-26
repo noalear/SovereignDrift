@@ -96,7 +96,8 @@ func _process(_delta: float) -> bool:
 				return false
 			_check(p.race_id == 1, "the test pilot flies for the Terrans")
 			var haulers := w.ships.filter(func(s): return s.support)
-			_check(haulers.size() == 6 and haulers.all(func(s): return s.design_name == "Freighter"), "two supply Freighters per empire (%d)" % haulers.size())
+			_check(haulers.filter(func(s): return s.design_name == "Freighter").size() == 6 and haulers.filter(func(s): return s.design_name == "Trader").size() == 3,
+				"two supply Freighters and a trade ship per empire (%d)" % haulers.size())
 			_check(haulers.all(func(s): return (s.get_node("AI") as AIPilot).hauler and not (s.get_node("AI") as AIPilot).ferry), "they run the supply-ship AI, not the colonist ferry")
 			_haulers(w, false)
 			_ferries_off(w)

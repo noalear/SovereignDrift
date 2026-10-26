@@ -252,7 +252,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			Sfx.play_ui("click", 0.3)
 		else:
 			var s := world.player
-			world.notify(s, "Cargo hold %d / %d. Land on one of your colonies (B) or come alongside one of your stations to load or unload it." % [int(s.cargo_total()), int(s.cargo_max)])
+			world.notify(s, "Cargo hold %d / %d. Land on one of your colonies (B) or come alongside one of your stations or a trade station to load, unload or trade." % [int(s.cargo_total()), int(s.cargo_max)])
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("pause_menu") and cargo_panel != null:
 		_close_cargo()

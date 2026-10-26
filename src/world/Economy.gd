@@ -211,6 +211,8 @@ func seed_stocks() -> void:
 		var rates := production(p)
 		for k in RAW:
 			p.stock[k] = minf(rates[k] * SEED_MINUTES, cap(p))
+		# and what its refinery would have made: a yard needs Alloys for hulls
+		p.stock["alloys"] = REFINE_PER_MIN.get(p.colony_design, 0.0) * SEED_MINUTES
 
 
 ## The host's tick: production lands once a second.
@@ -226,6 +228,8 @@ func tick(delta: float) -> void:
 	for s in world.ships:
 		if s.is_station and not s.dead and not s.building:
 			station_step(s, dt)
+			if s.design_name == "TradeStation":
+				market_step(s, dt)
 
 
 ## One world's production over `dt` seconds.
@@ -289,6 +293,62 @@ static func station_step(s: Ship, dt: float) -> void:
 		var n := minf(rates[k] * dt / 60.0, s.cargo_space())
 		if n > 0.0:
 			s.cargo[k] = s.cargo.get(k, 0.0) + n
+
+
+# ------------------------------------------------------------- markets
+
+## A trade station (the Resources update, phase 4) buys and sells every
+## resource at a price set by how much of it the market holds: the base
+## price at MARKET_TARGET units, twice it when the market is bare, down to
+## a third of it when it is glutted.
+const MARKET_TARGET := 150.0
+## Pilots buy this much over the middle price and sell this much under it.
+const MARKET_SPREAD := 0.1
+## A pilot of another empire pays the station's owner this share as well.
+const MARKET_FEE := 0.1
+## The wider market closes this share of the gap to MARKET_TARGET a second
+## (about ten minutes to settle).
+const MARKET_DRIFT := 1.0 / 600.0
+## What the free port opens with, of every resource.
+const FREE_PORT_STOCK := 160.0
+
+
+static func is_market(s: Ship) -> bool:
+	return s != null and s.design_name == "TradeStation" and not s.building and not s.dead
+
+
+## Does `s` trade at `market` as a foreigner (and pay the owner's fee)?
+static func pays_fee(market: Ship, s: Ship) -> bool:
+	return market.race_id != GameData.NEUTRAL and market.race_id != s.race_id
+
+
+## The middle price of a unit of `k` at a market.
+static func market_price(market: Ship, k: String) -> float:
+	var have: float = market.cargo.get(k, 0.0)
+	return GameData.RESOURCE_PRICE.get(k, 1.0) * clampf(2.0 * MARKET_TARGET / (have + MARKET_TARGET), 0.35, 2.0)
+
+
+## What `s` pays for a unit of `k` here, fee included.
+static func buy_price(market: Ship, k: String, s: Ship) -> float:
+	return market_price(market, k) * (1.0 + MARKET_SPREAD) * (1.0 + (MARKET_FEE if pays_fee(market, s) else 0.0))
+
+
+## What `s` gets for a unit of `k` here, after the fee.
+static func sell_price(market: Ship, k: String, s: Ship) -> float:
+	return market_price(market, k) * (1.0 - MARKET_SPREAD) * (1.0 - (MARKET_FEE if pays_fee(market, s) else 0.0))
+
+
+## The owner's cut of a trade worth `value` at the middle price.
+static func fee_on(market: Ship, s: Ship, value: float) -> float:
+	return value * MARKET_FEE if pays_fee(market, s) else 0.0
+
+
+## The wider market evens the stock out over `dt` seconds.
+static func market_step(market: Ship, dt: float) -> void:
+	var f := minf(MARKET_DRIFT * dt, 1.0)
+	for k in RESOURCES:
+		var have: float = market.cargo.get(k, 0.0)
+		market.cargo[k] = have + (MARKET_TARGET - have) * f
 
 
 ## An empire's worlds and what they hold: [{planet, stock, rates}], the

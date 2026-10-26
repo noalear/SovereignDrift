@@ -36,6 +36,9 @@ var saw_supply := false
 var saw_frame := false
 var saw_station := false
 var depot: Node = null
+var saw_free_port := false
+var saw_order := false
+var order_put := false
 
 
 func _init() -> void:
@@ -111,6 +114,10 @@ func _process(_delta: float) -> bool:
 			depot.invulnerable = 1e9
 		elif depot.building and now - joiner_seen_at > 7000:
 			w.finish_station(depot)
+		# an order on the Terran starbase's slip (long, so it is still there at the end)
+		if not order_put and now - joiner_seen_at > 5000:
+			order_put = true
+			w.starbase_of(1).orders.append(["Freighter", 600.0, "Joiner"])
 	if not is_host and w != null:
 		for s in w.ships:
 			if s.design_name == "SupplyDepot":
@@ -120,6 +127,12 @@ func _process(_delta: float) -> bool:
 					saw_station = true
 	if not is_host and w != null and p != null and p.cargo.get("metals", 0.0) == 3.0:
 		saw_cargo = true
+	if not is_host and w != null:
+		for s in w.ships:
+			if s.race_id == 4 and s.design_name == "TradeStation" and s.cargo_total() > 500.0:
+				saw_free_port = true
+			if s.is_starbase() and s.orders.size() == 1 and s.orders[0][0] == "Freighter":
+				saw_order = true
 	if not is_host and w != null and w.ships.any(func(x): return x.support and x.design_name == "Freighter"):
 		saw_supply = true
 	if is_host and w != null and joiner_seen_at > 0 and now - joiner_seen_at > 3000 and not trade_requested:
@@ -254,5 +267,7 @@ func _finish(w) -> void:
 		_check(saw_supply, "the supply ships arrived as supply ships")
 		_check(saw_frame, "a station frame went up on the client")
 		_check(saw_station, "and was finished there")
+		_check(saw_free_port, "the free port and its market stock arrived")
+		_check(saw_order, "a starbase's order book arrived")
 		_check(net.client != null and net.client.correction_px < 60.0, "reconciliation error small (%.1f px)" % (net.client.correction_px if net.client else -1.0))
 	print("[%s] %s" % [_tag(), "FAILED" if failed else "passed"])
