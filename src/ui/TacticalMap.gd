@@ -237,7 +237,7 @@ func _draw_world_card() -> void:
 	if p == null or p.look == "Sun":
 		return
 	var player: Ship = world.player
-	var rows: Array = p.info_lines(player.race_id if player != null else 1)
+	var rows: Array = p.info_lines(player.race_id if player != null else 1).filter(func(r): return r[1] != "bar")
 	var at := to_map(p.global_position) + Vector2(18, 14)
 	var w := 0.0
 	for row in rows:

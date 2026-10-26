@@ -98,13 +98,15 @@ static func hull_texture(hull_name: String, race_id: int) -> Texture2D:
 		match hull_name:
 			"Destroyer": file = "Raider"
 			"Dreadnought": file = "Battleship"
-			"Freighter", "Trader": file = "Cruiser"
+			"Freighter", "Trader", "DropShip": file = "Cruiser"
 	else:
 		match hull_name:
 			"Raider": file = "Destroyer"
 	var t := texture("res://assets/ships/%s/%s.png" % [folder, file])
 	if t == null and hull_name == "Trader":
 		return hull_texture("Freighter", race_id)   # until the trade ship has its own painting
+	if t == null and hull_name == "DropShip":
+		return hull_texture("Cruiser", race_id)     # until the drop ship has its own painting
 	return t
 
 

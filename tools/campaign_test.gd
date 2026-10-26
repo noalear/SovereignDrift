@@ -113,6 +113,14 @@ func _start() -> void:
 	var mall := w.build_station(1, "TradeStation", jupiter, jupiter.global_position + Vector2(0, -jupiter.radius - 900.0), false)
 	mall.founder = p.pilot_name
 	w.starbase_of(1).orders.append(["Trader", 30.0, p.pilot_name])
+	# the ground war: Mars's garrison and shield, a building going up on
+	# Earth, a battle on Titan, marines aboard a computer pilot's ship
+	mars.garrison = {"infantry": 5.0, "commandos": 1.0}
+	mars.pshield = 1234.0
+	earth.build_q = [["laser", 33.0]]
+	var titan: Planet = w.planet_by_name["Titan"]
+	titan.battle = {"race": 1, "units": {"infantry": 2.0, "armour": 1.0}, "militia": 1.5, "pilot": p.pilot_name, "sabotage": 0.0}
+	ai.troops = {"infantry": 1.0}
 	w.round_rules.note("Test event", 1)
 	var ships_before := w.ships.size()
 	var names_before := []
@@ -163,7 +171,14 @@ func _start() -> void:
 	mars = w.planet_by_name["Mars"]
 	_check(guns2 != null and (guns2.global_position - mars.global_position).distance_to(guns_at) < 5.0, "and keeps its spot over Mars")
 	var haulers := w.ships.filter(func(x): return x.support)
-	_check(haulers.size() == 9 and haulers.all(func(x): return (x.get_node("AI") as AIPilot).hauler), "the supply and trade ships come back as haulers (%d)" % haulers.size())
+	_check(haulers.size() == 12 and haulers.all(func(x): return (x.get_node("AI") as AIPilot).hauler), "the supply, trade and drop ships come back as haulers (%d)" % haulers.size())
+	_check(haulers.filter(func(x): return x.design_name == "DropShip" and (x.get_node("AI") as AIPilot).dropper).size() == 3, "and the drop ships as drop ships")
+	var mars3: Planet = w.planet_by_name["Mars"]
+	_check(mars3.garrison.get("infantry", 0.0) == 5.0 and mars3.garrison.get("commandos", 0.0) == 1.0 and absf(mars3.pshield - 1234.0) < 60.0 and mars3.buildings.has("shield"),
+		"Mars's garrison and planetary shield come back (%s, %d)" % [Ground.units_text(mars3.garrison), int(mars3.pshield)])
+	_check(earth.build_q.size() == 1 and earth.build_q[0][0] == "laser", "Earth's laser battery is still going up")
+	var titan3: Planet = w.planet_by_name["Titan"]
+	_check(not titan3.battle.is_empty() and int(titan3.battle["race"]) == 1 and Ground.strength(titan3.battle["units"]) > 4.0, "the battle for Titan comes back")
 	_check(haulers.filter(func(x): return x.design_name == "Trader" and (x.get_node("AI") as AIPilot).trader).size() == 3, "and the trade ships as traders")
 	var port2: Ship = null
 	var mall2: Ship = null
@@ -183,6 +198,7 @@ func _start() -> void:
 		if s.pilot_name == ai_name:
 			ai2 = s
 	_check(ai2 != null and ai2.credits == 4321 and ai2.score == 999 and ai2.get_node_or_null("AI") != null, "a computer pilot comes back with its purse, score and AI")
+	_check(ai2 != null and (ai2.troop_max == 0 or ai2.troops.get("infantry", 0.0) == 1.0), "and its marines")
 	var pirate2: Ship = null
 	for s in w.ships:
 		if s.race_id == 3:

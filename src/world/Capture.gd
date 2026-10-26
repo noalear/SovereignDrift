@@ -4,7 +4,9 @@
 ## while your crew fights its crew aboard.  Stay close: when the last
 ## defender falls the ship is yours, and if your boarders fall below a
 ## quarter of your crew they are thrown back.  Crews are thinned by hits
-## (Ship.take_damage), so a battered ship is quick to take.
+## (Ship.take_damage), so a battered ship is quick to take.  Marines
+## aboard (infantry or commandos in the troop bays) make a boarding party
+## fight harder (Ground.board_power).
 ##
 ## A ship flown by the computer becomes a prize: a prize crew patches it
 ## up and it flies as your wingman under your colours (the pilot who lost
@@ -52,13 +54,14 @@ static func board_estimate(captor: Node, victim: Node) -> float:
 	var a: float = captor.crew
 	var d: float = victim.crew
 	var floor_a: float = captor.crew_max * REPELLED_AT
+	var power := Ground.board_power(captor)
 	var t := 0.0
 	var dt := 0.1
 	while d > 0.05:
 		if a <= floor_a or t > 60.0:
 			return INF
 		var da := d * DEFENDER_KILLS * dt
-		d -= a * BOARDER_KILLS * dt
+		d -= a * BOARDER_KILLS * power * dt
 		a -= da
 		t += dt
 	return t
@@ -137,7 +140,8 @@ func try_board(captor: Ship, victim: Node) -> bool:
 	victim.boarded_by = captor
 	Sfx.play("dock", captor.global_position, 0.8)
 	var est := board_estimate(captor, victim)
-	world.notify(captor, ("Tractor locked on %s. Boarding: your %d crew against their %d, about %d s. Stay close." % [victim.ship_name, int(ceil(captor.crew)), int(ceil(victim.crew)), int(ceil(est))]) if est < INF
+	var marines := (" and %s" % Ground.units_text(captor.troops)) if captor.troop_count() > 0 else ""
+	world.notify(captor, ("Tractor locked on %s. Boarding: your %d crew%s against their %d, about %d s. Stay close." % [victim.ship_name, int(ceil(captor.crew)), marines, int(ceil(victim.crew)), int(ceil(est))]) if est < INF
 		else ("Tractor locked on %s. Warning: their %d crew will likely throw your %d back." % [victim.ship_name, int(ceil(victim.crew)), int(ceil(captor.crew))]))
 	world.notify(victim, "%s is boarding us! Fight them off or get the engines back." % captor.pilot_name)
 	return true
@@ -188,7 +192,7 @@ func tick(delta: float) -> void:
 		s.board_lost = 0.0
 		# the fight aboard
 		var lost := v.crew * DEFENDER_KILLS * delta
-		v.crew = maxf(v.crew - s.crew * BOARDER_KILLS * delta, 0.0)
+		v.crew = maxf(v.crew - s.crew * BOARDER_KILLS * Ground.board_power(s) * delta, 0.0)
 		s.crew = maxf(s.crew - lost, 0.0)
 		s.board_progress = clampf(1.0 - v.crew / s.board_start_crew, 0.0, 1.0)
 		if v.crew <= 0.05:

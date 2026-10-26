@@ -161,6 +161,8 @@ var cargo_max := 0.0               # units the hold carries
 var cargo_origin: Node2D = null    # the world or station the cargo was last loaded at (no pay for taking it back)
 var cargo_orders := {}             # on the ground: resource -> units still to move (+ load, - unload)
 var support := false               # a computer hauler: works for the empire, not on the scoreboard
+var troops := {}                   # ground units aboard: unit -> how many (the Resources update, phase 5)
+var troop_max := 0                 # units the troop bays hold
 const CARGO_MASS := 0.4            # mass of a unit of cargo
 const CARGO_RATE := 30.0           # units a second through a spaceport
 const KIT_MASS := 100.0            # a station kit, crated
@@ -287,6 +289,8 @@ func refit(p_design: Variant) -> void:
 	if kit != "" and cargo_max < GameData.CARGO_HOLD["Freighter"]:
 		kit = ""                       # too small a hold for a station kit: it stays at the yard
 	_trim_cargo()
+	troop_max = int(GameData.TROOP_BAYS.get(design_name, 0))
+	_trim_troops()
 	fuel = fuel_max
 	crew_max = GameData.HULL_CREW.get(design_name, 10)
 	crew = crew_max
@@ -389,6 +393,25 @@ func cargo_space() -> float:
 	if kit != "":
 		return 0.0
 	return maxf(cargo_max - cargo_total(), 0.0)
+
+
+func troop_count() -> int:
+	return Ground.count(troops)
+
+
+func troop_room() -> int:
+	return maxi(troop_max - troop_count(), 0)
+
+
+## Smaller troop bays after a refit: the extra units stay behind (lost).
+func _trim_troops() -> void:
+	while troop_count() > troop_max:
+		for u in ["armour", "commandos", "infantry"]:
+			if troops.get(u, 0.0) >= 0.5:
+				troops[u] -= 1.0
+				if troops[u] < 0.5:
+					troops.erase(u)
+				break
 
 
 ## A smaller hold after a refit: what no longer fits is lost, the most
@@ -774,6 +797,8 @@ func landing_refusal(p: Planet) -> String:
 		return "Too high to land on %s: fly closer." % p.body_name
 	if (velocity - p.velocity).length() > LAND_SPEED:
 		return "Too fast to land on %s: brake first (X)." % p.body_name
+	if p.is_colonised() and p.owner_race != race_id and p.pshield_up():
+		return "%s's planetary shield is up: nothing lands until it is shot down." % p.body_name
 	return ""
 
 
@@ -1432,6 +1457,7 @@ func _die(killer: Node) -> void:
 	boarded_by = null
 	colonists = 0.0                    # the colonists go down with the ship
 	colonist_origin = null
+	troops.clear()                     # and so do the troops
 	if landing != Landing.NONE:
 		_end_landing()
 		body.enabled = false

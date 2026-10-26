@@ -135,8 +135,17 @@ static func cap(p: Planet) -> float:
 ## makes the goods worse than where they came from.
 static func makes(p: Planet, k: String) -> float:
 	if k == "alloys":
-		return REFINE_PER_MIN.get(p.colony_design, 0.0) * 0.5 if p.is_colonised() else 0.0
+		return refine_rate(p) * 0.5 if p.is_colonised() else 0.0
 	return float(p.richness.get(k, 0))
+
+
+## Alloys a minute a colony can refine: by its size, and more with
+## industry (phase 5's planetary buildings).
+static func refine_rate(p: Planet) -> float:
+	var r: float = REFINE_PER_MIN.get(p.colony_design, 0.0)
+	if p.buildings.has("industry"):
+		r += Ground.INDUSTRY_REFINE
+	return r
 
 
 ## Credits for unloading `n` units of `k` on `p` from `origin` (null:
@@ -163,7 +172,7 @@ static func need(p: Planet, k: String) -> float:
 	var short := clampf(1.0 - p.stock.get(k, 0.0) / maxf(c * 0.5, 1.0), 0.0, 1.0)
 	if makes(p, k) >= 3.0:
 		short *= 0.2
-	if k in ["metals", "fuel"] and REFINE_PER_MIN.has(p.colony_design):
+	if k in ["metals", "fuel"] and refine_rate(p) > 0.0:
 		short = minf(short * 1.5, 1.0)
 	return short
 
@@ -194,8 +203,12 @@ static func production(p: Planet) -> Dictionary:
 		var rate: float = p.richness.get(k, 0) * RATE_PER_POINT * wf
 		if k == "food":
 			rate *= GameData.climate(p.owner_race, p.temperature)
+			if p.buildings.has("farm") and not p.short.has("ice"):
+				rate += Ground.FARM_FOOD * wf
+		elif k == "metals" and p.buildings.has("industry"):
+			rate *= 1.0 + Ground.INDUSTRY_METALS
 		out[k] = rate
-	var refine: float = REFINE_PER_MIN.get(p.colony_design, 0.0)
+	var refine := refine_rate(p)
 	if refine > 0.0:
 		var can := minf(p.stock.get("metals", 0.0) / 2.0, p.stock.get("fuel", 0.0))
 		out["alloys"] = refine if can >= 1.0 else 0.0

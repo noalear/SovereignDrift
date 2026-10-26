@@ -66,6 +66,7 @@ var income_timer := 60.0         # planets pay their empire every minute
 var round_rules: Round = null     # the Conquest rules; the host runs them
 var capture: Capture = null       # boarding and prizes; the host runs them
 var economy: Economy = null       # resources and stockpiles; the host runs them
+var ground: Ground = null         # planetary buildings, troops and ground battles; the host runs them
 var duel := false                # an online free-for-all (Duel); Main sets it on the host
 var duel_rules: Duel = null       # its rules; the host runs them, a client's mirror comes from Net
 var practice := false            # Practice duel: you, your starbase, one pirate at a time
@@ -116,9 +117,11 @@ func _ready() -> void:
 	space.filter = Callable(self, "_can_collide")
 	capture = Capture.new(self)
 	economy = Economy.new(self)
+	ground = Ground.new(self)
 	_build_system()
 	if not Net.is_client():
 		economy.seed_stocks()
+		ground.seed_all()
 	_spawn_rocks()
 	if Net.is_client():
 		# the ships come from the host, and so does the round: this Round
@@ -296,6 +299,8 @@ func _spawn_pilots() -> void:
 			_spawn_hauler(race_id, row[0], row[1])
 	for race_id in GameData.TRADE_SHIPS:
 		_spawn_trader(race_id, GameData.TRADE_SHIPS[race_id][0], GameData.TRADE_SHIPS[race_id][1])
+	for race_id in GameData.DROP_SHIPS:
+		_spawn_dropper(race_id, GameData.DROP_SHIPS[race_id][0], GameData.DROP_SHIPS[race_id][1])
 	spawn_free_port()
 	_spawn_pirate_scouts()
 
@@ -319,6 +324,14 @@ func _spawn_hauler(race_id: int, pilot: String, ship_name: String, hull: String 
 func _spawn_trader(race_id: int, pilot: String, ship_name: String) -> Ship:
 	var s := _spawn_hauler(race_id, pilot, ship_name, "Trader")
 	s.get_node("AI").make_trader()
+	return s
+
+
+## A computer drop ship: it takes troops from the empire's garrisons to
+## enemy worlds whose shields are down.
+func _spawn_dropper(race_id: int, pilot: String, ship_name: String) -> Ship:
+	var s := _spawn_hauler(race_id, pilot, ship_name, "DropShip")
+	s.get_node("AI").make_dropper()
 	return s
 
 
@@ -635,6 +648,7 @@ func _physics_process(delta: float) -> void:
 		duel_rules.tick(delta)
 	elif not practice:
 		economy.tick(delta)
+		ground.tick(delta)
 	_respawns()
 	_score_planets(delta)
 	if campaign and not game_over:
@@ -1643,10 +1657,14 @@ func _on_touched_down(s: Ship, p: Planet) -> void:
 			notify(s, "Landed on %s: refuelling and repairing." % p.body_name)
 		if s.cargo_max > 0.0:
 			notify(s, "%s opens the cargo hold (%d / %d)." % [Keybinds.short_text("cargo"), int(s.cargo_total()), int(s.cargo_max)])
+		if s.troop_max > 0 and (s.troop_count() > 0 or Ground.count(p.garrison) > 0) and not s.support:
+			notify(s, "%s: troops board and go ashore here (garrison %s, aboard %s)." % [Keybinds.short_text("cargo"), Ground.units_text(p.garrison), Ground.units_text(s.troops)])
+	elif s.troop_count() > 0 and p.is_colonised():
+		notify(s, "Landed on the %s colony %s with %s aboard: %s and Send in the troops to attack." % [GameData.race(p.owner_race)["adj"], p.body_name, Ground.units_text(s.troops), Keybinds.short_text("cargo")])
 	elif s.colonists > 0.0:
 		deliver_colonists(s, p)
 	elif p.is_colonised():
-		notify(s, "Landed on the %s colony %s (%s people). Bring colonists to invade it." % [GameData.race(p.owner_race)["adj"], p.body_name, GameData.fmt_pop(p.population)])
+		notify(s, "Landed on the %s colony %s (%s people, garrison %s). Bring troops to take it." % [GameData.race(p.owner_race)["adj"], p.body_name, GameData.fmt_pop(p.population), Ground.units_text(p.garrison)])
 	else:
 		notify(s, "Landed on %s. Nobody lives here: bring colonists to settle it (it can support %s)." % [p.body_name, GameData.fmt_pop(p.optimal_population(s.race_id))])
 
@@ -2316,6 +2334,8 @@ func launch_order(base: Ship, hull: String, buyer_name: String) -> Ship:
 		s = _spawn_hauler(base.race_id, "%s crew %d" % [o["label"], n], ship_name, hull)
 		if hull == "Trader":
 			s.get_node("AI").make_trader()
+		elif hull == "DropShip":
+			s.get_node("AI").make_dropper()
 	else:
 		s = _make_ship("%s's escort %d" % [buyer_name, n], base.race_id, hull, ship_name, false)
 		s.is_prize = true
@@ -2365,6 +2385,67 @@ func finish_station(s: Ship) -> void:
 	notify_all("The %s %s is complete." % [GameData.race(s.race_id)["adj"], s.ship_name], s.race_color())
 
 
+# -------------------------------------------------------- the ground war
+
+## Put up a planetary building on the colony we have landed on.
+func build_command(s: Ship, key: String) -> void:
+	if Net.is_client():
+		Net.client_command("build:%s" % key)
+		return
+	if s.dead or not s.is_landed():
+		return
+	var p := s.land_body
+	var why := Ground.building_refusal(s, p, key)
+	if why != "":
+		notify(s, why)
+		return
+	Ground.queue_building(p, key)
+	notify(s, "%s started on %s: ready in %d s." % [GameData.BUILDINGS[key]["label"], p.body_name, int(GameData.BUILDINGS[key]["build"])])
+	Net.host_colony_changed(p)
+
+
+## Train a ground unit at the colony's barracks.
+func recruit_command(s: Ship, unit: String) -> void:
+	if Net.is_client():
+		Net.client_command("recruit:%s" % unit)
+		return
+	if s.dead or not s.is_landed():
+		return
+	var p := s.land_body
+	var why := Ground.recruit_refusal(s, p, unit)
+	if why != "":
+		notify(s, why)
+		return
+	Ground.queue_recruit(p, unit)
+	var wait := 0.0
+	for e in p.recruit_q:
+		wait += float(e[1])
+	notify(s, "Training %s on %s: ready in %d s." % [GameData.UNITS[unit]["label"].to_lower(), p.body_name, int(ceil(wait))])
+	Net.host_colony_changed(p)
+
+
+## Troops aboard, ashore, or in against an enemy colony ("load", "unload"
+## or "land"; `unit` "" for all of them).
+func troop_command(s: Ship, op: String, unit: String = "") -> void:
+	if Net.is_client():
+		Net.client_command("troops:%s:%s" % [op, unit])
+		return
+	if s.dead:
+		return
+	var why := Ground.troop_refusal(s, op, unit)
+	if why != "":
+		notify(s, why)
+		return
+	var p := s.land_body
+	if op == "land":
+		ground.land(s)
+		return
+	var n := Ground.move_troops(s, op, unit)
+	notify(s, ("%d unit%s aboard: %s (%d of %d bays)." if op == "load" else "%d unit%s ashore. Aboard now: %s (%d of %d bays).") % [n, "" if n == 1 else "s",
+		Ground.units_text(s.troops), s.troop_count(), s.troop_max])
+	Net.host_colony_changed(p)
+
+
 ## The colonists aboard land all at once on a world that is not ours: they
 ## settle it if nobody lives there, or fight the people who do.
 func deliver_colonists(s: Ship, p: Planet) -> void:
@@ -2390,12 +2471,17 @@ func deliver_colonists(s: Ship, p: Planet) -> void:
 		Net.host_colony_changed(p)
 		planet_owner_changed.emit(p)
 		return
-	# invasion: the landing force fights at the offensive factor once the
-	# defences are down, on even terms against shields and guns
+	# invasion by settlers, the weak fallback (troops take worlds now): no
+	# chance against troops, and against the people it takes twenty to
+	# one once the defences are down, twice that while they stand
+	if Ground.count(p.garrison) > 0 or not p.battle.is_empty():
+		notify(s, "The colonists landed on %s were rounded up by its garrison (%s). Troops take garrisoned worlds." % [p.body_name, Ground.units_text(p.garrison)])
+		Net.host_colony_changed(p)
+		return
 	var factor := GameData.OFFENSIVE_FACTOR if p.is_defenceless() else 1.0
-	var attack := people * factor
+	var attack := people * factor / (GameData.COLONIST_RATIO * GameData.OFFENSIVE_FACTOR)
 	if attack > p.population:
-		var survivors := maxf(people - p.population / factor, GameData.MIN_COLONY)
+		var survivors := maxf(people - p.population * GameData.COLONIST_RATIO * GameData.OFFENSIVE_FACTOR / factor, GameData.MIN_COLONY)
 		notify(s, "Invasion of %s succeeded: %s colonists hold it." % [p.body_name, GameData.fmt_pop(survivors)])
 		planet_captured(p, s.race_id, s, survivors)
 		return
@@ -2405,8 +2491,8 @@ func deliver_colonists(s: Ship, p: Planet) -> void:
 		notify(s, "The invasion of %s failed, but it took the %s colony with it." % [p.body_name, defenders])
 		colony_wiped_out(p, s)
 		return
-	notify(s, "The invasion of %s was beaten back: %s defenders are left.%s" % [p.body_name, GameData.fmt_pop(p.population),
-		"" if p.is_defenceless() else " Knock its defences out first: invaders fight twice as hard then."])
+	notify(s, "The invasion of %s was beaten back: %s defenders are left. Colonists need %d to 1%s; troops do it properly." % [p.body_name, GameData.fmt_pop(p.population),
+		int(GameData.COLONIST_RATIO * GameData.OFFENSIVE_FACTOR / factor), "" if p.is_defenceless() else " while its defences stand"])
 	Net.host_colony_changed(p)
 
 
@@ -2414,8 +2500,20 @@ func deliver_colonists(s: Ship, p: Planet) -> void:
 func colony_knocked_out(p: Planet, attacker: Node) -> void:
 	if attacker is Ship:
 		attacker.add_score(10, false)
-	notify_all("%s's defences are down: land colonists on it to take it." % p.body_name, GameData.race(attacker.race_id)["color"] if attacker is Ship else Color(0.9, 0.9, 0.9))
+	notify_all("%s's defences are down: land troops on it to take it." % p.body_name, GameData.race(attacker.race_id)["color"] if attacker is Ship else Color(0.9, 0.9, 0.9))
 	Sfx.play("hit", p.global_position, 0.6, 0.6)
+	Net.host_colony_changed(p)
+
+
+## A planetary shield collapsed under fire: nothing stops a landing for
+## a while.
+func planetary_shield_down(p: Planet, attacker: Node) -> void:
+	if attacker is Ship:
+		attacker.add_score(5, false)
+	notify_all("%s's planetary shield is down for %d s." % [p.body_name, int(Ground.PSHIELD_DOWN)],
+		GameData.race(attacker.race_id)["color"] if attacker is Ship else Color(0.9, 0.9, 0.9))
+	fx.explosion(p.global_position + (attacker.global_position - p.global_position).normalized() * (p.radius * 1.28 + 22.0) if attacker is Node2D else p.global_position,
+		30.0, Color(0.6, 0.85, 1.0))
 	Net.host_colony_changed(p)
 
 
@@ -2557,6 +2655,13 @@ func notify(s: Ship, text: String) -> void:
 func notify_all(text: String, color: Color) -> void:
 	message.emit(text, color)
 	Net.relay_notify_all(text, color)
+
+
+## Tell every person flying for an empire.
+func notify_race(race: int, text: String) -> void:
+	for s in ships:
+		if s.race_id == race and (s.is_player or s.net_id in Net.seats.values()):
+			notify(s, text)
 
 
 func zoom_by(factor: float) -> void:

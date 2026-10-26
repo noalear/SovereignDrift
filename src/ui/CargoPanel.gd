@@ -5,7 +5,10 @@
 ## needs; the port moves them a few dozen units a second.  At a trade
 ## station loading is buying and unloading selling, at market prices.  At
 ## your starbase or a shipyard it also sells station kits and takes ship
-## orders, and with a kit aboard it deploys one where you are.
+## orders, and with a kit aboard it deploys one where you are.  Landed on
+## a colony it also handles the ground war: troops aboard and ashore,
+## recruiting at the barracks and planetary buildings at your own, and
+## sending the troops in at an enemy's.
 class_name CargoPanel
 extends Control
 
@@ -17,7 +20,7 @@ var time := 0.0
 var buttons: Array = []        # [rect, label, callable, enabled]
 var hover := -1
 var want_h := 300.0            # the height the last draw needed
-var tab := ""                  # at a yard: "cargo", "kits" or "orders"
+var tab := ""                  # at a yard: "cargo", "kits" or "orders"; landed: "cargo", "troops" or "buildings"
 
 const W := 560.0
 const ROW_H := 30.0
@@ -104,18 +107,29 @@ func _draw() -> void:
 	draw_string(font, Vector2(16, 28), "CARGO HOLD" + where, HORIZONTAL_ALIGNMENT_LEFT, W - 32, 18, TEXT)
 	var y := _hold_bar(s, 40.0)
 	var trade := port != null and s.cargo_max > 0.0
+	var colony: Planet = s.land_body if s.is_landed() and s.land_body.is_colonised() else null
+	var tabs := []
 	if base != null:
 		# a yard: its counters on tabs, so the panel stays on the screen
-		var tabs := (["cargo"] if trade else []) + ["kits", "orders"]
+		tabs = (["cargo"] if trade else []) + ["kits", "orders"]
+	elif colony != null and colony.owner_race == s.race_id:
+		tabs = ["cargo", "troops", "buildings"]
+	elif colony != null:
+		tabs = ["troops"]
+	if not tabs.is_empty():
 		if not tabs.has(tab):
 			tab = tabs[0]
-		var labels := {"cargo": "Cargo", "kits": "Station kits", "orders": "Ship orders"}
+		var labels := {"cargo": "Cargo", "kits": "Station kits", "orders": "Ship orders", "troops": "Troops", "buildings": "Buildings"}
 		var tw := (W - 32.0 - 8.0 * (tabs.size() - 1)) / tabs.size()
 		for i in tabs.size():
 			var t: String = tabs[i]
 			_button(Rect2(16 + i * (tw + 8.0), y, tw, 26), ("> %s <" % labels[t]) if t == tab else labels[t], _set_tab.bind(t), true)
 		y += 34.0
-	if s.is_landed() and port == null:
+	if colony != null and tab == "troops":
+		y = _troops(s, colony, y)
+	elif colony != null and tab == "buildings":
+		y = _buildings(s, colony, y)
+	elif s.is_landed() and port == null:
 		draw_string(font, Vector2(16, y + 22), "Cargo only moves through your own colonies' spaceports.", HORIZONTAL_ALIGNMENT_LEFT, W - 32, 15, WARN)
 		y += 34.0
 	elif trade and (base == null or tab == "cargo"):
@@ -317,6 +331,103 @@ func _orders(s: Ship, base: Ship, y: float) -> float:
 		draw_string(font, Vector2(16, y + 18), why_all, HORIZONTAL_ALIGNMENT_LEFT, W - 32, 14, WARN)
 		y += 26.0
 	return y
+
+
+## Troops: the garrison and the bays at one of ours, recruiting at its
+## barracks; the battle and the button to send them in at an enemy's.
+func _troops(s: Ship, p: Planet, y: float) -> float:
+	var ours := p.owner_race == s.race_id
+	y += 14.0
+	draw_string(font, Vector2(16, y), "GROUND FORCES", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, TEXT)
+	draw_string(font, Vector2(170, y), "bays %d / %d" % [s.troop_count(), s.troop_max], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DIM)
+	if ours and p.buildings.has("barracks"):
+		draw_string(font, Vector2(290, y), "credits %d" % s.credits, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1.0, 0.85, 0.4))
+	y += 8.0
+	if not ours:
+		var defs := "%s's garrison: %s, militia %.1f%s." % [p.body_name, Ground.units_text(p.garrison), p.battle.get("militia", Ground.militia(p)) if not p.battle.is_empty() else Ground.militia(p),
+			", behind bunkers" if Ground.bunker_factor(p) > 1.0 else ""]
+		draw_string(font, Vector2(16, y + 20), defs, HORIZONTAL_ALIGNMENT_LEFT, W - 32, 14, TEXT)
+		draw_string(font, Vector2(16, y + 40), "Aboard: %s (strength %.1f against %.1f)." % [Ground.units_text(s.troops), Ground.strength(s.troops), Ground.defence(p) * Ground.bunker_factor(p)], HORIZONTAL_ALIGNMENT_LEFT, W - 32, 14, TEXT)
+		y += 52.0
+		if not p.battle.is_empty():
+			var a := Ground.strength(p.battle["units"])
+			var d := Ground.defence(p)
+			var bar := Rect2(16, y + 6, W - 32, 14)
+			draw_rect(bar, GameData.race(p.owner_race)["color"].darkened(0.3))
+			draw_rect(Rect2(bar.position, Vector2(bar.size.x * a / maxf(a + d, 0.01), bar.size.y)), GameData.race(int(p.battle["race"]))["color"])
+			draw_string(font, Vector2(16, y + 38), "Battle: %s %.1f against %.1f." % [GameData.race(int(p.battle["race"]))["adj"], a, d], HORIZONTAL_ALIGNMENT_LEFT, W - 32, 14, WARN)
+			y += 46.0
+		var why := Ground.troop_refusal(s, "land", "")
+		_button(Rect2(16, y + 4, 220, 28), "Send in the troops", func(): world.troop_command(_ship(), "land"), why == "")
+		if why != "":
+			draw_string(font, Vector2(246, y + 24), why, HORIZONTAL_ALIGNMENT_LEFT, W - 262, 13, WARN)
+		y += 40.0
+		draw_string(font, Vector2(16, y + 14), "The battle runs on its own. Warships in orbit help, and kill civilians.", HORIZONTAL_ALIGNMENT_LEFT, W - 32, 13, DIM)
+		return y + 24.0
+	draw_string(font, Vector2(16, y + 4 + 12), "Unit", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DIM)
+	draw_string(font, Vector2(130, y + 16), "Here", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DIM)
+	draw_string(font, Vector2(180, y + 16), "Aboard", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DIM)
+	y += 22.0
+	var why_all := ""
+	for u in GameData.UNIT_ORDER:
+		var d: Dictionary = GameData.UNITS[u]
+		draw_string(font, Vector2(16, y + 20), d["label"], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, TEXT)
+		draw_string(font, Vector2(130, y + 20), str(Ground.shown(p.garrison.get(u, 0.0))), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, TEXT)
+		draw_string(font, Vector2(180, y + 20), str(Ground.shown(s.troops.get(u, 0.0))), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, TEXT)
+		var cost := Ground.cost_text(d["cost"]) + ((", %s people" % GameData.fmt_pop(d["people"])) if d["people"] > 0.0 else "")
+		draw_string(font, Vector2(16, y + 35), "strength %d; %s" % [int(d["strength"]), cost], HORIZONTAL_ALIGNMENT_LEFT, 290, 12, Color(0.6, 0.7, 0.85, 0.8))
+		var bx := W - 16.0 - 3 * 76.0
+		var rwhy := Ground.recruit_refusal(s, p, u)
+		_button(Rect2(bx, y + 6, 70, 26), "Train", func(): world.recruit_command(_ship(), u), rwhy == "")
+		_button(Rect2(bx + 76, y + 6, 70, 26), "Aboard", func(): world.troop_command(_ship(), "load", u), Ground.troop_refusal(s, "load", u) == "")
+		_button(Rect2(bx + 152, y + 6, 70, 26), "Ashore", func(): world.troop_command(_ship(), "unload", u), Ground.troop_refusal(s, "unload", u) == "")
+		if rwhy != "" and why_all == "":
+			why_all = rwhy
+		y += 42.0
+	if not p.recruit_q.is_empty():
+		var wait := 0.0
+		var line := []
+		for e in p.recruit_q:
+			wait += float(e[1])
+			line.append(GameData.UNITS[e[0]]["label"].to_lower())
+		draw_string(font, Vector2(16, y + 16), "Training: %s; all done in %d s." % [", ".join(line), int(ceil(wait))], HORIZONTAL_ALIGNMENT_LEFT, W - 32, 13, Color(0.6, 1.0, 0.7))
+		y += 22.0
+	if why_all != "":
+		draw_string(font, Vector2(16, y + 16), why_all, HORIZONTAL_ALIGNMENT_LEFT, W - 32, 13, WARN)
+		y += 22.0
+	draw_string(font, Vector2(16, y + 16), "Infantry aboard a warship fight as marines when you board (K).", HORIZONTAL_ALIGNMENT_LEFT, W - 32, 13, DIM)
+	return y + 26.0
+
+
+## Planetary buildings, paid from the colony's own stockpile.
+func _buildings(s: Ship, p: Planet, y: float) -> float:
+	y += 14.0
+	draw_string(font, Vector2(16, y), "BUILDINGS", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, TEXT)
+	draw_string(font, Vector2(130, y), "%d of %d slots (%s)" % [p.buildings.size(), Ground.slots(p), p.colony_design.to_lower()], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DIM)
+	y += 8.0
+	var why_all := ""
+	for key in GameData.BUILDING_ORDER:
+		var b: Dictionary = GameData.BUILDINGS[key]
+		var built: bool = p.buildings.has(key)
+		var going: bool = not p.build_q.is_empty() and p.build_q[0][0] == key
+		draw_string(font, Vector2(16, y + 18), b["label"], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.6, 1.0, 0.7) if built else TEXT)
+		draw_string(font, Vector2(190, y + 18), Ground.cost_text(b["cost"]), HORIZONTAL_ALIGNMENT_LEFT, 200, 13, DIM)
+		draw_string(font, Vector2(16, y + 33), b["does"], HORIZONTAL_ALIGNMENT_LEFT, W - 140, 12, Color(0.6, 0.7, 0.85, 0.8))
+		if built:
+			draw_string(font, Vector2(W - 116, y + 24), "built", HORIZONTAL_ALIGNMENT_CENTER, 100, 14, Color(0.6, 1.0, 0.7))
+		elif going:
+			draw_string(font, Vector2(W - 116, y + 24), "%d s" % int(ceil(p.build_q[0][1])), HORIZONTAL_ALIGNMENT_CENTER, 100, 14, Color(1.0, 0.85, 0.4))
+		else:
+			var why := Ground.building_refusal(s, p, key)
+			_button(Rect2(W - 116, y + 6, 100, 26), "Build", func(): world.build_command(_ship(), key), why == "")
+			if why != "" and why_all == "":
+				why_all = why
+		y += 40.0
+	if why_all != "":
+		draw_string(font, Vector2(16, y + 16), why_all, HORIZONTAL_ALIGNMENT_LEFT, W - 32, 13, WARN)
+		y += 22.0
+	draw_string(font, Vector2(16, y + 16), "Shields burn Fuel and troops eat Food: keep the stockpile supplied.", HORIZONTAL_ALIGNMENT_LEFT, W - 32, 13, DIM)
+	return y + 26.0
 
 
 ## With a kit aboard: where it would go up, and the button.

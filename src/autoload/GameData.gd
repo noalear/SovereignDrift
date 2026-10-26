@@ -111,7 +111,7 @@ const STATION_ONLY := ["0001", "1006", "4011", "4503", "5007", "9301", "2004"]
 ## Internal bay volume of each hull.
 const HULL_BAYS := {
 	"Scout": 1300, "Destroyer": 1500, "Raider": 1500, "Cruiser": 1600,
-	"BattleCruiser": 3000, "Battleship": 2200, "Dreadnought": 3000, "Starbase": 20000, "Freighter": 1800, "Trader": 1900,
+	"BattleCruiser": 3000, "Battleship": 2200, "Dreadnought": 3000, "Starbase": 20000, "Freighter": 1800, "Trader": 1900, "DropShip": 1700,
 	"MiningStation": 20000, "GasSkimmer": 20000, "Refinery": 20000, "SupplyDepot": 20000, "SensorStation": 20000, "DefenseStation": 20000,
 	"TradeStation": 20000, "Shipyard": 20000,
 }
@@ -122,14 +122,14 @@ const HULL_CREW := {
 	"Scout": 6, "Destroyer": 12, "Raider": 12, "Freighter": 8, "Cruiser": 24,
 	"BattleCruiser": 36, "Battleship": 44, "Dreadnought": 60, "Starbase": 300,
 	"MiningStation": 12, "GasSkimmer": 12, "Refinery": 20, "SupplyDepot": 30, "SensorStation": 10, "DefenseStation": 40,
-	"Trader": 6, "TradeStation": 30, "Shipyard": 60,
+	"Trader": 6, "TradeStation": 30, "Shipyard": 60, "DropShip": 16,
 }
 
 ## Credits for a hull at the shipyard.
 const HULL_PRICE := {
 	"Scout": 0, "Destroyer": 400, "Cruiser": 1500,
 	"BattleCruiser": 2600, "Battleship": 3600, "Dreadnought": 6000,
-	"Freighter": 300, "Trader": 600,
+	"Freighter": 300, "Trader": 600, "DropShip": 700,
 }
 
 ## What the yard needs from its stockpile to build a hull besides the
@@ -142,6 +142,7 @@ const HULL_MATERIALS := {
 	"Dreadnought": {"alloys": 50, "exotics": 15},
 	"Freighter": {"metals": 20},
 	"Trader": {"metals": 20, "alloys": 5},
+	"DropShip": {"metals": 20, "alloys": 5},
 }
 
 # ------------------------------------------------------------- missiles
@@ -214,6 +215,12 @@ const SHIPS := {
 		"modules": ["1003", "5004", "5003", "2003", "3003", "7002", "9201"],
 		"dock": [180, 0],
 		"weapons": []},
+	# the drop ship (the Resources update, phase 5): carries six ground
+	# units down to a world, heavily armoured, with one light gun
+	"DropShip": {"rank": 0, "speed": 0.2, "size": 38, "turn": 105.0,
+		"modules": ["1003", "5003", "5502", "2003", "3003", "7001", "9201"],
+		"dock": [180, 0],
+		"weapons": [["4501", 0, 0, 0, -120, 120]]},
 	# stations built at construction sites (the Resources update, phase 3):
 	# fixed installations with no engines, never offered at the shipyard
 	"MiningStation": {"rank": 99, "speed": 0.0, "size": 46, "turn": 0.0,
@@ -241,13 +248,14 @@ const SHIPS := {
 
 ## Ships a pilot may refit to at a friendly starbase, in rank order.
 const REFIT_ORDER := ["Scout", "Destroyer", "Cruiser", "BattleCruiser", "Battleship", "Dreadnought", "Starbase"]
-## Civilian hulls the shipyard also sells: the supply ship and the trade ship.
-const CIVIL_HULLS := ["Freighter", "Trader"]
+## Support hulls the shipyard also sells: the supply ship, the trade ship
+## and the drop ship.
+const CIVIL_HULLS := ["Freighter", "Trader", "DropShip"]
 
 
 ## A hull's name as the shipyard lists it.
 static func hull_label(hull: String) -> String:
-	return {"Freighter": "Supply ship", "Trader": "Trade ship"}.get(hull, hull)
+	return {"Freighter": "Supply ship", "Trader": "Trade ship", "DropShip": "Drop ship"}.get(hull, hull)
 
 
 ## The hulls on a shipyard's list, warships first.
@@ -385,14 +393,14 @@ const RACE_PREF_TEMP := {0: 160, 1: 300, 2: 380, 3: 180}
 ## Colonists a hull's cabin holds, in millions.  Starbases never land.
 const COLONIST_CABIN := {
 	"Scout": 40, "Destroyer": 80, "Raider": 80, "Cruiser": 160,
-	"BattleCruiser": 200, "Battleship": 250, "Dreadnought": 400, "Freighter": 800, "Trader": 100, "Starbase": 0,
+	"BattleCruiser": 200, "Battleship": 250, "Dreadnought": 400, "Freighter": 800, "Trader": 100, "DropShip": 0, "Starbase": 0,
 }
 ## Cargo a hull's hold carries, in units of a resource (the Resources
 ## update).  The Freighter is the supply ship; starbases hold stock of their
 ## own later, not in a hold.
 const CARGO_HOLD := {
 	"Scout": 10, "Destroyer": 20, "Raider": 30, "Cruiser": 40,
-	"BattleCruiser": 60, "Battleship": 80, "Dreadnought": 120, "Freighter": 300, "Trader": 400, "Starbase": 0,
+	"BattleCruiser": 60, "Battleship": 80, "Dreadnought": 120, "Freighter": 300, "Trader": 400, "DropShip": 20, "Starbase": 0,
 	# a station's hold is its stockpile; a trade station's is its market
 	"MiningStation": 300, "GasSkimmer": 300, "Refinery": 400, "SupplyDepot": 1500, "SensorStation": 0, "DefenseStation": 0,
 	"TradeStation": 2000, "Shipyard": 600,
@@ -457,8 +465,9 @@ const ORDERS := {
 	"Trader": {"label": "Trade ship", "credits": 600, "build": 45.0, "rank": 5, "does": "trades your colonies' surplus at the markets"},
 	"Destroyer": {"label": "Destroyer escort", "credits": 900, "build": 50.0, "rank": 7, "does": "flies as your wingman"},
 	"Cruiser": {"label": "Cruiser escort", "credits": 2200, "build": 75.0, "rank": 7, "does": "flies as your wingman"},
+	"DropShip": {"label": "Drop ship", "credits": 700, "build": 45.0, "rank": 5, "does": "lands your empire's troops on enemy worlds"},
 }
-const ORDER_LIST := ["Freighter", "Trader", "Destroyer", "Cruiser"]
+const ORDER_LIST := ["Freighter", "Trader", "DropShip", "Destroyer", "Cruiser"]
 ## Supply and trade ships an empire may have on order or flying beyond its
 ## own computer haulers.
 const ORDERED_HAULERS := 4
@@ -478,6 +487,66 @@ const TRADE_SHIPS := {
 	1: ["Factor", "Clipper"],
 	2: ["Broker", "Spoils"],
 }
+## Each empire's computer drop ship: [pilot, ship name].
+const DROP_SHIPS := {
+	0: ["Pathfinder", "Long Leap"],
+	1: ["Sergeant", "Normandy"],
+	2: ["Centurion", "Legion"],
+}
+
+# ------------------------------------------------------------ ground war
+# The Resources update, phase 5: planetary buildings paid from a colony's
+# own stockpile, ground units recruited at a barracks, and the planetary
+# shield that has to fall before anyone lands.
+
+## Planetary buildings.  cost: from the colony's stockpile; build: seconds;
+## upkeep: units a minute from the stockpile.
+const BUILDINGS := {
+	"shield": {"label": "Planetary shield", "cost": {"alloys": 20, "exotics": 10}, "build": 90.0, "upkeep": {"fuel": 1.0},
+		"does": "a bubble over the world: nothing lands and nobody dies while it stands"},
+	"laser": {"label": "Laser battery", "cost": {"metals": 20, "alloys": 4}, "build": 60.0, "upkeep": {},
+		"does": "a long-range beam for the colony's guns"},
+	"silo": {"label": "Missile silo", "cost": {"metals": 15, "alloys": 5, "exotics": 2}, "build": 75.0, "upkeep": {},
+		"does": "guided missiles out to 1400 px"},
+	"flak": {"label": "Flak battery", "cost": {"metals": 10, "alloys": 2}, "build": 45.0, "upkeep": {},
+		"does": "shoots down missiles, and drop ships on their way in"},
+	"barracks": {"label": "Barracks and bunkers", "cost": {"metals": 15}, "build": 45.0, "upkeep": {},
+		"does": "recruits troops; defenders fight at 1.5x behind the bunkers"},
+	"industry": {"label": "Industry", "cost": {"metals": 25, "alloys": 5}, "build": 90.0, "upkeep": {},
+		"does": "refines Alloys and adds half again to Metals output"},
+	"farm": {"label": "Hydroponic farms", "cost": {"metals": 10, "ice": 10}, "build": 60.0, "upkeep": {"ice": 1.0},
+		"does": "Food on a world with a poor climate"},
+}
+const BUILDING_ORDER := ["shield", "laser", "silo", "flak", "barracks", "industry", "farm"]
+## Building slots by colony size.
+const BUILDING_SLOTS := {"Outpost": 2, "Minor": 4, "Major": 6}
+
+## Ground units.  cost: from the stockpile at the barracks; people: taken
+## from the population; strength: in the ground battle; upkeep: a minute.
+const UNITS := {
+	"infantry": {"label": "Infantry", "cost": {"metals": 2}, "people": 50e6, "strength": 1.0, "upkeep": {"food": 1.0},
+		"does": "a cheap holding force; marines aboard a warship"},
+	"armour": {"label": "Armour", "cost": {"metals": 6, "fuel": 2, "alloys": 1}, "people": 0.0, "strength": 4.0, "upkeep": {"fuel": 1.0},
+		"does": "breaks garrisons"},
+	"commandos": {"label": "Commandos", "cost": {"alloys": 1, "exotics": 2}, "people": 20e6, "strength": 2.0, "upkeep": {"food": 1.0},
+		"does": "blow up shields and batteries from the ground; double a boarding party"},
+}
+const UNIT_ORDER := ["infantry", "armour", "commandos"]
+## Ground units a hull carries: warships a squad or two of marines, the
+## drop ship a whole landing force.
+const TROOP_BAYS := {
+	"Scout": 1, "Destroyer": 1, "Raider": 1, "Cruiser": 2, "BattleCruiser": 2, "Battleship": 2, "Dreadnought": 2,
+	"DropShip": 6,
+}
+## What the Sol scenario's colonies start with: a barracks and a garrison
+## by size, and the home worlds a planetary shield as well.
+const START_GROUND := {
+	"Outpost": {"buildings": [], "garrison": {}},
+	"Minor": {"buildings": ["barracks"], "garrison": {"infantry": 2}},
+	"Major": {"buildings": ["barracks"], "garrison": {"infantry": 3, "armour": 1}},
+}
+const HOME_BUILDINGS := ["shield"]
+
 ## Credits a unit of each resource is worth to a hauler who brings it where
 ## it is short (and the base price at trade stations later).
 const RESOURCE_PRICE := {"metals": 1.0, "ice": 1.0, "food": 1.0, "fuel": 2.0, "exotics": 4.0, "alloys": 3.0}
@@ -485,6 +554,10 @@ const RESOURCE_PRICE := {"metals": 1.0, "ice": 1.0, "food": 1.0, "fuel": 2.0, "e
 ## original's offensive_factor of 200%).  Defenders behind their shields
 ## fight it on even terms.
 const OFFENSIVE_FACTOR := 2.0
+## Troops take populated worlds now; colonists still can, but only a
+## world with no troops on it, and only when they outnumber its people
+## this many to one (Kyle's pick: a very weak fallback).
+const COLONIST_RATIO := 20.0
 ## A colony this small dies out; one this big runs Minor, then Major defences.
 const MIN_COLONY := 1000000
 const MINOR_COLONY := 150000000

@@ -38,6 +38,8 @@ var saw_station := false
 var depot: Node = null
 var saw_free_port := false
 var saw_order := false
+var saw_ground := false
+var saw_troops := false
 var order_put := false
 
 
@@ -114,6 +116,15 @@ func _process(_delta: float) -> bool:
 			depot.invulnerable = 1e9
 		elif depot.building and now - joiner_seen_at > 7000:
 			w.finish_station(depot)
+		# the ground war: a battle for Venus held where it is, Mars's shield,
+		# and marines aboard the joiner's ship
+		if now - joiner_seen_at > 5000:
+			var venus = w.planet_by_name["Venus"]
+			venus.garrison = {"armour": 2.0}
+			venus.battle = {"race": 1, "units": {"infantry": 3.0}, "militia": 1.0, "pilot": "Joiner", "sabotage": 0.0}
+			for s in w.ships:
+				if s.pilot_name == "Joiner" and not s.dead and s.troop_max >= 1:
+					s.troops = {"infantry": 1.0}
 		# an order on the Terran starbase's slip (long, so it is still there at the end)
 		if not order_put and now - joiner_seen_at > 5000:
 			order_put = true
@@ -133,6 +144,13 @@ func _process(_delta: float) -> bool:
 				saw_free_port = true
 			if s.is_starbase() and s.orders.size() == 1 and s.orders[0][0] == "Freighter":
 				saw_order = true
+	if not is_host and w != null:
+		var venus = w.planet_by_name["Venus"]
+		var mars = w.planet_by_name["Mars"]
+		if venus.garrison.get("armour", 0.0) == 2.0 and int(venus.battle.get("race", -1)) == 1 and mars.buildings.has("shield") and mars.pshield > 0.0:
+			saw_ground = true
+		if p != null and p.troops.get("infantry", 0.0) == 1.0:
+			saw_troops = true
 	if not is_host and w != null and w.ships.any(func(x): return x.support and x.design_name == "Freighter"):
 		saw_supply = true
 	if is_host and w != null and joiner_seen_at > 0 and now - joiner_seen_at > 3000 and not trade_requested:
@@ -269,5 +287,7 @@ func _finish(w) -> void:
 		_check(saw_station, "and was finished there")
 		_check(saw_free_port, "the free port and its market stock arrived")
 		_check(saw_order, "a starbase's order book arrived")
+		_check(saw_ground, "garrisons, a ground battle and the planetary shields arrived")
+		_check(saw_troops, "the marines aboard the joiner's ship arrived")
 		_check(net.client != null and net.client.correction_px < 60.0, "reconciliation error small (%.1f px)" % (net.client.correction_px if net.client else -1.0))
 	print("[%s] %s" % [_tag(), "FAILED" if failed else "passed"])

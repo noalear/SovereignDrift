@@ -1,7 +1,9 @@
 # Landing and colonists test: land on a friendly colony, take colonists on,
 # lift off into orbit, settle an empty world, invade a knocked-out enemy
-# colony, get beaten back by one whose defences stand, wipe one out by
-# bombardment, and watch the computer pilots ferry colonists themselves.
+# outpost at twenty to one (troops take worlds now: colonists are the weak
+# fallback), get beaten back by one whose defences stand, get rounded up
+# by a garrison, wipe one out by bombardment, and watch the computer
+# pilots ferry colonists themselves.  tools/invasion_test.gd covers troops.
 #   godot --headless --path . -s tools/landing_test.gd
 extends SceneTree
 
@@ -190,9 +192,11 @@ func _process(_delta: float) -> bool:
 			_park(w, mars, 300.0)
 			p.velocity = mars.velocity + Vector2(400, 0)
 			_check("Too fast" in p.landing_refusal(mars), "too fast to land says brake (%s)" % p.landing_refusal(mars))
-			# invasion: knock Phobos out, then land more than half its people
+			# invasion: knock Phobos out, then land twenty times its people
 			var phobos: Planet = w.planet_by_name["Phobos"]
-			phobos.population = p.cabin * 1.2
+			_check(Ground.count(phobos.garrison) == 0 and not phobos.pshield_up(), "Phobos has no troops and no planetary shield")
+			phobos.population = p.cabin / (gm.COLONIST_RATIO * 1.25)
+			phobos.set_meta("before", phobos.population)
 			phobos.take_damage(1e6, p)
 			_check(phobos.is_defenceless() and phobos.silenced > 0.0, "a colony whose hull falls is knocked out, not captured")
 			_check(phobos.owner_race == 2, "it still belongs to the Drengin")
@@ -202,11 +206,14 @@ func _process(_delta: float) -> bool:
 			t0 = now
 			step = 6
 		6:
+			var phobos: Planet = w.planet_by_name["Phobos"]
+			if phobos.owner_race == 2:
+				phobos.set_meta("before", phobos.population)   # passing ships may bomb it on the way down
 			if now - t0 < Ship.DESCENT_TIME + 0.3:
 				return false
-			var phobos: Planet = w.planet_by_name["Phobos"]
 			_check(phobos.owner_race == p.race_id, "the invasion took Phobos (owner %d)" % phobos.owner_race)
-			_check(absf(phobos.population - (p.cabin - p.cabin * 0.6)) < 10e6, "survivors hold it (%s)" % gm.fmt_pop(phobos.population))
+			var held: float = p.cabin - float(phobos.get_meta("before")) * gm.COLONIST_RATIO
+			_check(absf(phobos.population - held) < 5e6, "survivors hold it (%s, expected %s)" % [gm.fmt_pop(phobos.population), gm.fmt_pop(held)])
 			w.try_land(p)
 			t0 = now
 			step = 7
@@ -225,8 +232,17 @@ func _process(_delta: float) -> bool:
 			if now - t0 < Ship.DESCENT_TIME + 0.3:
 				return false
 			var deimos: Planet = w.planet_by_name["Deimos"]
-			_check(deimos.owner_race == 2 and absf(deimos.population - p.cabin) < 2e6, "beaten back by a colony with its defences up (%s left)" % gm.fmt_pop(deimos.population))
+			var left: float = p.cabin * 2.0 - p.cabin / (gm.COLONIST_RATIO * gm.OFFENSIVE_FACTOR)
+			_check(deimos.owner_race == 2 and absf(deimos.population - left) < 2e6, "beaten back by a colony with its defences up (%s left)" % gm.fmt_pop(deimos.population))
 			_check(p.colonists == 0.0, "the landing force was lost")
+			# a garrison rounds colonists up, however many they are
+			deimos.take_damage(1e6, p)
+			deimos.garrison = {"infantry": 1.0}
+			deimos.population = 1.5e6
+			p.colonists = p.cabin
+			w.deliver_colonists(p, deimos)
+			_check(deimos.owner_race == 2 and p.colonists == 0.0 and deimos.population == 1.5e6, "colonists can't take a world with troops on it")
+			deimos.garrison = {}
 			# bombardment after the defences fall kills people, down to nobody
 			deimos.take_damage(1e6, p)
 			deimos.population = 1.5e6

@@ -54,6 +54,18 @@ var defence_range := 0.0
 var hit_flash := 0.0
 var last_attacker: Node = null
 var under_attack := 0.0
+# the ground war (the Resources update, phase 5; see Ground)
+var buildings: Array = []       # GameData.BUILDINGS keys standing here
+var build_q: Array = []         # [key, seconds left]: one building at a time
+var garrison := {}              # unit -> how many are stationed here
+var recruit_q: Array = []       # [unit, seconds left] at the barracks
+var pshield := 0.0              # the planetary shield's charge
+var pshield_down := 0.0         # seconds until a collapsed planetary shield can charge again
+var battle := {}                # a landing being fought: race, units, militia, pilot, sabotage
+var short := {}                 # resource -> true: upkeep the stockpile could not pay
+var desert_t := 0.0             # seconds the troops have gone short
+var flak_t := 0.0
+var shield_fx: ShieldFx = null  # draws the planetary shield (the body's own drawing goes through its shader)
 var material_: ShaderMaterial
 
 
@@ -100,6 +112,9 @@ func setup(p_world: Node, row: Array, parent: Planet, seed_value: int) -> void:
 	_style(rng)
 	material = material_
 	z_index = -5
+	shield_fx = ShieldFx.new()
+	shield_fx.planet = self
+	add_child(shield_fx)
 	update_orbit(0.0)
 
 
@@ -208,6 +223,7 @@ func set_colony(race: int, design: String, pop: float) -> void:
 	if design == "":
 		shield_max = 0.0
 		hull_max = 0.0
+		clear_ground()
 		return
 	var cd: Dictionary = GameData.COLONY_DESIGNS[design]
 	shield_max = GameData.MODULES[cd["shield"]]["p"][0] * 3.0
@@ -226,6 +242,42 @@ func set_colony(race: int, design: String, pop: float) -> void:
 			e["dps"] = 30.0 + float(m["p"][1]) * 0.1
 			e["rate"] = 0.0
 		weapons.append(e)
+	fit_batteries()
+
+
+## The batteries' guns join the colony's own (and leave when a battery is
+## blown up).
+func fit_batteries() -> void:
+	weapons = weapons.filter(func(w): return not w.get("battery", false))
+	if not is_colonised():
+		return
+	if buildings.has("laser"):
+		weapons.append({"id": "4503", "kind": "beam", "range": Ground.LASER_RANGE, "dps": Ground.LASER_DPS, "rate": 0.0, "cooldown": 0.0, "missile": "", "battery": true})
+	if buildings.has("silo"):
+		weapons.append({"id": "4008", "kind": "tube", "missile": "008", "rate": Ground.SILO_RATE, "cooldown": randf(), "reach": Ground.SILO_RANGE, "battery": true})
+
+
+## An empty world has nothing on the ground.
+func clear_ground() -> void:
+	buildings = []
+	build_q = []
+	garrison = {}
+	recruit_q = []
+	pshield = 0.0
+	pshield_down = 0.0
+	battle = {}
+	short = {}
+	desert_t = 0.0
+	weapons = weapons.filter(func(w): return not w.get("battery", false))
+
+
+func pshield_max() -> float:
+	return Ground.PSHIELD_HP if buildings.has("shield") else 0.0
+
+
+## The planetary shield stands: nothing lands and nobody dies.
+func pshield_up() -> bool:
+	return buildings.has("shield") and pshield > 0.0 and pshield_down <= 0.0
 
 
 func is_colonised() -> bool:
@@ -312,7 +364,26 @@ func _process(delta: float) -> void:
 			shield = minf(shield + shield_max * 0.04 * delta, shield_max)
 		if hull < hull_max and under_attack <= 0.0:
 			hull = minf(hull + hull_max * 0.01 * delta, hull_max)
+		_charge_pshield(delta)
+	if shield_fx != null:
+		shield_fx.visible = is_colonised() and pshield_up()
+		if shield_fx.visible:
+			shield_fx.queue_redraw()
 	queue_redraw()
+
+
+## The planetary shield: down for a while after it collapses, fading
+## without Fuel, charging while nobody shoots and the defences stand.
+func _charge_pshield(delta: float) -> void:
+	var top := pshield_max()
+	if top <= 0.0:
+		return
+	if pshield_down > 0.0:
+		pshield_down = maxf(pshield_down - delta, 0.0)
+	elif short.has("fuel"):
+		pshield = maxf(pshield - top * Ground.PSHIELD_FADE * delta, 0.0)
+	elif under_attack <= 0.0 and silenced <= 0.0:
+		pshield = minf(pshield + top * Ground.PSHIELD_CHARGE * delta, top)
 
 
 func _defend(delta: float) -> void:
@@ -320,14 +391,17 @@ func _defend(delta: float) -> void:
 		return                          # practice and duels: the colonies hold their fire
 	if is_defenceless():
 		return                          # knocked out: the guns are silent
-	var enemy: Ship = world.nearest_enemy_ship(global_position, owner_race, defence_range + radius)
+	var reach := defence_range
+	for w in weapons:
+		reach = maxf(reach, w.get("reach", w.get("range", 0.0)))
+	var enemy: Ship = world.nearest_enemy_ship(global_position, owner_race, reach + radius)
 	for w in weapons:
 		w["cooldown"] -= delta
 		if enemy == null:
 			continue
 		var to := enemy.global_position - global_position
 		if w["kind"] == "tube":
-			if w["cooldown"] > 0.0:
+			if w["cooldown"] > 0.0 or to.length() > w.get("reach", defence_range) + radius:
 				continue
 			w["cooldown"] = w["rate"]
 			var md: Dictionary = GameData.MISSILES[w["missile"]]
@@ -360,6 +434,16 @@ func take_damage(amount: float, attacker: Node, _at: Vector2 = Vector2.ZERO) -> 
 	if attacker is Ship:
 		last_attacker = attacker
 	var remaining := amount
+	if pshield_up():
+		# the planetary shield takes it all until it collapses
+		pshield -= remaining
+		if pshield > 0.0:
+			return
+		pshield = 0.0
+		pshield_down = Ground.PSHIELD_DOWN
+		if world.has_method("planetary_shield_down"):
+			world.planetary_shield_down(self, attacker)
+		return
 	if shield > 0.0:
 		var absorbed := minf(shield, remaining)
 		shield -= absorbed
@@ -445,6 +529,7 @@ func info_lines(viewer: int) -> Array:
 		rows.append(["DEFENCES DOWN%s" % ((" for %d s" % int(ceil(silenced))) if silenced > 0.0 else ""), "warn"])
 	else:
 		rows.append(["Defences  %d gun%s, range %d   shields %d%%   hull %d%%" % [weapons.size(), "" if weapons.size() == 1 else "s", int(defence_range), int(100.0 * shield / maxf(shield_max, 1.0)), int(100.0 * hull / maxf(hull_max, 1.0))], "line"])
+	rows.append_array(ground_lines(viewer))
 	rows.append_array(stock_lines(viewer))
 	if owner_race <= 2:
 		var mult: float = world.round_rules.bonus_multiplier() if world != null and world.round_rules != null else 1.0
@@ -452,12 +537,54 @@ func info_lines(viewer: int) -> Array:
 	if mine:
 		var spare: float = world.spare_colonists(self) if world != null else 0.0
 		rows.append(["%s colonists to spare: land and press %s to take them on" % [GameData.fmt_pop(spare), Keybinds.short_text("colonists_board")], "good"])
+		rows.append(["Land and press %s to build, recruit and take troops aboard" % Keybinds.short_text("cargo"), "good"])
+	elif pshield_up():
+		rows.append(["Bring its planetary shield down, then land troops", "line"])
 	elif is_defenceless():
-		rows.append(["Land over %s colonists to take it" % GameData.fmt_pop(population / GameData.OFFENSIVE_FACTOR), "warn"])
+		rows.append(["Land troops to take it", "warn"])
 	else:
-		rows.append(["Knock out its defences, then land over %s colonists" % GameData.fmt_pop(population / GameData.OFFENSIVE_FACTOR), "line"])
+		rows.append(["Knock out its defences, then land troops", "line"])
+	if not mine and Ground.count(garrison) == 0 and battle.is_empty():
+		rows.append(["(or over %s colonists: 20 to 1 once its defences are down)" % GameData.fmt_pop(population * GameData.COLONIST_RATIO), "line"])
 	if not mine:
 		rows.append(["Would support %s %ss (climate %d%%)" % [GameData.fmt_pop(optimal_population(viewer)), viewer_name, int(GameData.climate(viewer, temperature) * 100.0)], "line"])
+	return rows
+
+
+## The planetary shield, the buildings, the garrison and any battle.
+func ground_lines(viewer: int) -> Array:
+	var rows := []
+	var mine := owner_race == viewer
+	var top := pshield_max()
+	if top > 0.0:
+		var pct := int(100.0 * pshield / top)
+		if pshield_down > 0.0:
+			rows.append(["PLANETARY SHIELD DOWN for %d s" % int(ceil(pshield_down)), "warn"])
+		elif short.has("fuel"):
+			rows.append(["Planetary shield %d%%, fading: no Fuel" % pct, "warn"])
+		else:
+			rows.append(["Planetary shield %d%%" % pct, "line" if pshield > 0.0 else "warn"])
+	if not buildings.is_empty() or not build_q.is_empty():
+		var names := []
+		for key in buildings:
+			names.append(GameData.BUILDINGS[key]["label"])
+		var line := "Buildings  %s  (%d of %d slots)" % [", ".join(names) if not names.is_empty() else "none yet", buildings.size(), Ground.slots(self)]
+		rows.append([line, "line"])
+		if mine and not build_q.is_empty():
+			rows.append(["Building the %s: %d s" % [GameData.BUILDINGS[build_q[0][0]]["label"].to_lower(), int(ceil(build_q[0][1]))], "good"])
+	rows.append(["Garrison  %s   militia %.1f" % [Ground.units_text(garrison), Ground.militia(self)], "line"])
+	if mine and not recruit_q.is_empty():
+		rows.append(["Training  %d unit%s, the next in %d s" % [recruit_q.size(), "" if recruit_q.size() == 1 else "s", int(ceil(recruit_q[0][1]))], "good"])
+	if mine and (short.has("fuel") or short.has("food")):
+		rows.append(["Short of %s: troops desert, the shield fades" % " and ".join(short.keys().map(func(k): return Economy.NAMES[k])), "warn"])
+	if not battle.is_empty():
+		var a := Ground.strength(battle["units"])
+		var d := Ground.defence(self)
+		var est := Ground.estimate(a, 0.0, d, Ground.bunker_factor(self))
+		var race := int(battle["race"])
+		rows.append(["GROUND BATTLE  %s %.1f against %.1f   %s" % [GameData.race(race)["adj"], a, d,
+			("about %d s" % int(ceil(est))) if est < INF else "the landing is losing"], "warn"])
+		rows.append(["", "bar", a / maxf(a + d, 0.01), GameData.race(race)["color"], GameData.race(owner_race)["color"]])
 	return rows
 
 
@@ -517,3 +644,20 @@ func _draw() -> void:
 			var sc := rc
 			sc.a = hit_flash * 4.0
 			draw_arc(Vector2.ZERO, radius + 16.0, 0, TAU, 64, sc, 4.0, true)
+
+
+
+## The planetary shield: a faint bubble over the world that flares where
+## it is hit.  A child node, so it is drawn plainly, not by the planet's
+## shader.
+class ShieldFx extends Node2D:
+	var planet: Planet
+
+	func _draw() -> void:
+		var rc: Color = GameData.race(planet.owner_race)["color"].lerp(Color(0.7, 0.9, 1.0), 0.55)
+		var r := planet.radius * 1.28 + 22.0
+		var charge := planet.pshield / maxf(planet.pshield_max(), 1.0)
+		var flash := clampf(planet.hit_flash * 6.0, 0.0, 1.0)
+		draw_circle(Vector2.ZERO, r, Color(rc.r, rc.g, rc.b, 0.05 + 0.12 * flash))
+		draw_arc(Vector2.ZERO, r, 0, TAU, 96, Color(rc.r, rc.g, rc.b, 0.25 + 0.3 * charge + 0.4 * flash), 2.5, true)
+		draw_arc(Vector2.ZERO, r - 5.0, 0, TAU, 96, Color(rc.r, rc.g, rc.b, 0.08 + 0.2 * flash), 6.0, true)
