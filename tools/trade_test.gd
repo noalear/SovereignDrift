@@ -150,7 +150,7 @@ func _process(_delta: float) -> bool:
 			market.invulnerable = 1e9
 			_check(Economy.is_market(market) and market.cargo_max == 2000.0, "a finished trade station is a market")
 			for s in w.ships:
-				if s.race_id == 2 and not s.is_station and not s.support and s.design_name != "Starbase":
+				if s.race_id == 2 and not s.is_station and not s.support and s.design_name != "Starbase" and s.landing == Ship.Landing.NONE:
 					foreigner = s
 					break
 			foreigner.get_node("AI").set_physics_process(false)
@@ -216,7 +216,7 @@ func _process(_delta: float) -> bool:
 			p.rank = 0
 			_check(w.order_refusal(p, yard, "Cruiser").contains("rank"), "a junior pilot can't order warships: %s" % w.order_refusal(p, yard, "Cruiser"))
 			p.rank = 7
-			launched = w.ships.size()
+			launched = w.ships.filter(func(o): return o.has_meta("ordered")).size()
 			t0 = now
 			step = 6
 		6:
@@ -235,7 +235,8 @@ func _process(_delta: float) -> bool:
 					hired = s
 			_check(escort != null and escort.is_prize and escort.prize_of == p and escort.get_node("AI").escort == p, "the Destroyer launched as your wingman")
 			_check(hired != null and hired.support and hired.get_node("AI").trader, "the trade ship launched and joined the empire's traders")
-			_check(w.ships.size() == launched + 2, "two ships joined the system")
+			# counted by the order, since the system's own ships come and go meanwhile
+			_check(w.ships.filter(func(o): return o.has_meta("ordered")).size() == launched + 2, "two ships joined the system")
 			# an ordered ship that is lost stays lost
 			escort.invulnerable = 0.0
 			escort.take_damage(1e6, null)

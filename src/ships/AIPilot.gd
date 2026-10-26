@@ -4,7 +4,9 @@
 ## has disabled when its crew can take them, and a prize crew flies as
 ## the wingman of the pilot who captured the ship (`escort`).  Pilots on
 ## colony duty ferry colonists (land, board, fly, land again); pilots on
-## attack duty knock out enemy colonies' defences for them.
+## attack duty knock out enemy colonies' defences for them.  Supply,
+## trade and drop ships work for the empire: drop ships take troops from
+## the garrisons to enemy worlds whose planetary shields are down.
 class_name AIPilot
 extends Node
 
@@ -45,6 +47,7 @@ var haul_frame: Ship = null      # or the station frame it is for
 var dock_at: Ship = null         # the station this run docks at (to fill a frame, or empty a mine)
 var trader := false              # a trade ship: sells the empire's surplus at the markets, buys what it is short of
 var haul_market: Ship = null     # the market a trade run sells at
+var dropper := false             # a drop ship: carries the empire's troops to enemy worlds
 var duel := false                # a free-for-all: hunt around the arena, never go home to mend
 
 
@@ -424,7 +427,9 @@ func _plan_ferry() -> bool:
 		var score := 0.0
 		var kind := ""
 		if p.is_colonised() and p.owner_race != ship.race_id:
-			if p.is_defenceless() and ship.colonists * GameData.OFFENSIVE_FACTOR > p.population * 1.15:
+			# settlers only take a world with no troops on it, twenty to one
+			if p.is_defenceless() and Ground.count(p.garrison) == 0 and p.battle.is_empty() and not p.pshield_up() \
+					and ship.colonists > p.population * GameData.COLONIST_RATIO * 1.15:
 				score = 3.0
 				kind = "invade"
 		elif not p.is_colonised():
@@ -466,6 +471,11 @@ func _job_still_good() -> bool:
 				and haul_to != null and haul_to.is_colonised() and haul_to.owner_race == ship.race_id
 		"deliver":
 			return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and ship.cargo_total() >= 1.0
+		"muster":
+			return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and Ground.spare_troops(job_planet) >= 1.0 and ship.troop_room() >= 1
+		"assault":
+			return job_planet.is_colonised() and job_planet.owner_race != ship.race_id and ship.troop_count() > 0 \
+				and (_assault_open(job_planet) or ship.is_landing())
 	return false
 
 
@@ -597,9 +607,98 @@ func make_trader() -> void:
 	trader = true
 
 
-## The next run: a trade ship's or a supply ship's.
+## A drop ship: a hauler whose loads are troops.
+func make_dropper() -> void:
+	make_hauler()
+	dropper = true
+
+
+## The next run: a drop ship's, a trade ship's or a supply ship's.
 func _plan_run() -> bool:
+	if dropper:
+		return _plan_drop()
 	return _plan_trade() if trader else _plan_haul()
+
+
+## Is a landing on `p` open now, or about to be (its planetary shield is
+## under fire)?
+static func _assault_open(p: Planet) -> bool:
+	return not p.pshield_up() or p.under_attack > 0.0
+
+
+## The next drop.  With troops aboard: the nearest enemy colony they can
+## beat whose planetary shield is down or under fire, a knocked-out one
+## first.  Otherwise: the friendly garrison with the most to spare.
+func _plan_drop() -> bool:
+	plan_timer -= 0.35
+	if plan_timer > 0.0:
+		return false
+	plan_timer = 3.0
+	job_planet = null
+	job = ""
+	dock_at = null
+	ground_order = false
+	var pos := ship.global_position
+	var best := 0.0
+	var mine := Ground.strength(ship.troops)
+	if ship.troop_count() > 0:
+		for p in world.planets:
+			if not p.is_colonised() or p.owner_race == ship.race_id or p.owner_race == GameData.NEUTRAL or not p.has_surface():
+				continue
+			if not _assault_open(p):
+				continue
+			var ours := 0.0
+			if not p.battle.is_empty():
+				if int(p.battle["race"]) != ship.race_id:
+					continue
+				ours = Ground.strength(p.battle["units"])
+			var factor := 1.0 if p.is_defenceless() or not p.buildings.has("barracks") else Ground.BUNKER_FACTOR
+			if Ground.estimate(mine + ours, 0.0, Ground.defence(p), factor) == INF:
+				continue
+			var score := 10000.0 / (1500.0 + pos.distance_to(p.global_position))
+			if p.is_defenceless():
+				score *= 2.0
+			if score > best:
+				best = score
+				job_planet = p
+				job = "assault"
+		if job_planet != null or ship.troop_room() < 1:
+			return job_planet != null
+	for p in world.planets:
+		if not p.is_colonised() or p.owner_race != ship.race_id or p.under_attack > 0.0:
+			continue
+		var spare := Ground.spare_troops(p)
+		if spare < 1.0:
+			continue
+		var score := minf(spare, 6.0) / (1500.0 + pos.distance_to(p.global_position))
+		if score > best:
+			best = score
+			job_planet = p
+			job = "muster"
+	return job_planet != null
+
+
+## A drop ship on the ground: take the spare troops aboard, or send them
+## in, then lift off.
+func _drop_on_ground() -> void:
+	var here := ship.land_body
+	if not ground_order:
+		ground_order = true
+		if job == "muster" and here == job_planet and here.owner_race == ship.race_id:
+			for u in GameData.UNIT_ORDER:
+				while ship.troop_room() >= 1 and here.garrison.get(u, 0.0) >= 0.95 and Ground.spare_troops(here) >= GameData.UNITS[u]["strength"]:
+					world.troop_command(ship, "load", u)
+		elif job == "assault" and here == job_planet and here.owner_race != ship.race_id and ship.troop_count() > 0:
+			world.troop_command(ship, "land")
+		return
+	if ground_time < 1.2:
+		return
+	ground_order = false
+	world.try_land(ship)              # lift off
+	job_planet = null
+	job = ""
+	plan_timer = 0.0
+	state = State.FERRY if _plan_run() else State.PATROL
 
 
 func _think_hauler() -> void:
@@ -868,6 +967,9 @@ func _plan_trade() -> bool:
 ## On the ground: order the loading or unloading once, wait for the
 ## spaceport, then lift off for the delivery or the next run.
 func _haul_on_ground() -> void:
+	if dropper:
+		_drop_on_ground()
+		return
 	var here := ship.land_body
 	if not ground_order:
 		ground_order = true

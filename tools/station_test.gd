@@ -219,7 +219,7 @@ func _process(_delta: float) -> bool:
 				if s.race_id == 2 and not s.is_station and not s.dead and not s.support:
 					enemy = s
 					break
-			_put(p, jupiter.global_position + Vector2(0, -(jupiter.radius + 900.0)), jupiter.velocity)
+			_put(p, post.global_position - Vector2(3000.0, 0), mars.velocity)   # 7000 px from the enemy, well past its own sensors
 			enemy.set_cloak(false)
 			enemy.cloak_alpha = 1.0
 			_put(enemy, post.global_position + Vector2(4000.0, 0), mars.velocity)

@@ -3,8 +3,9 @@
 ## every couple of minutes, from the pause menu, with F5, and on leaving.
 ## What is saved is the war: the worlds (owners, people, defences,
 ## stockpiles, where they are in their orbits), every pilot, supply ship
-## and prize with their ships, purses, holds and cargo, who is waiting to relaunch, and
-## the campaign's clock and record.  A fight in progress is not: shots in
+## and prize with their ships, purses, holds, cargo and troops, who is
+## waiting to relaunch, the campaign's clock and record, and on the ground
+## each world's buildings, garrison, planetary shield and any battle.  A fight in progress is not: shots in
 ## flight, subsystem damage and pickups start fresh.  The player's score
 ## and kills are the pilot's career, so they come from the profile.
 class_name SaveGame
@@ -71,7 +72,8 @@ static func capture(world: Node) -> Dictionary:
 	var planets := []
 	for p in world.planets:
 		planets.append({"name": p.body_name, "angle": p.orbit_angle, "owner": p.owner_race, "design": p.colony_design,
-			"pop": p.population, "silenced": p.silenced, "shield": p.shield, "hull": p.hull, "stock": p.stock.duplicate()})
+			"pop": p.population, "silenced": p.silenced, "shield": p.shield, "hull": p.hull, "stock": p.stock.duplicate(),
+			"ground": Ground.pack(p)})
 	var waiting := {}
 	for entry in world.respawn_queue:
 		if is_instance_valid(entry[0]):
@@ -123,6 +125,7 @@ static func _ship(world: Node, s: Ship, waiting: Dictionary) -> Dictionary:
 		"home": ai.home.body_name if ai != null and ai.home != null else "",
 		"station_angle": s.get_meta("station_angle", 0.0),
 		"founder": s.founder, "orders": s.orders.duplicate(true), "ordered": s.has_meta("ordered"), "trojan": s.has_meta("trojan"),
+		"troops": s.troops.duplicate(),
 	}
 
 
@@ -145,6 +148,12 @@ static func restore_planets(world: Node, d: Dictionary) -> void:
 		p.stock = Economy.empty_stock()
 		for k in row["stock"]:
 			p.stock[k] = float(row["stock"][k])
+		p.clear_ground()
+		if row.has("ground"):
+			Ground.unpack(p, row["ground"])
+		elif p.is_colonised():
+			# a campaign saved before the ground war: the scenario's garrisons
+			Ground.seed_planet(p, GameData.STARBASES.get(p.owner_race, "") == p.body_name)
 	for p in world.planets:
 		p.update_orbit(0.0)
 		p.sync_body()
@@ -198,6 +207,8 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 			if s.support:
 				if s.design_name == "Trader":
 					ai.make_trader()
+				elif s.design_name == "DropShip":
+					ai.make_dropper()
 				else:
 					ai.make_hauler()
 			if row["is_station"]:
@@ -220,6 +231,10 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 		for k in row.get("cargo", {}):
 			s.cargo[k] = float(row["cargo"][k])
 		s._trim_cargo()
+		s.troops = {}
+		for u in row.get("troops", {}):
+			s.troops[u] = float(row["troops"][u])
+		s._trim_troops()
 		s.cargo_origin = world.planet_by_name.get(row.get("cargo_origin", ""), null)
 		if s.cargo_max >= GameData.CARGO_HOLD["Freighter"] and GameData.STATIONS.has(row.get("kit", "")):
 			s.kit = row["kit"]
@@ -256,6 +271,10 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 	for race_id in GameData.TRADE_SHIPS:
 		if not world.ships.any(func(x): return x.support and x.design_name == "Trader" and x.race_id == race_id):
 			world._spawn_trader(race_id, GameData.TRADE_SHIPS[race_id][0], GameData.TRADE_SHIPS[race_id][1])
+	# and one saved before the ground war: the drop ships
+	for race_id in GameData.DROP_SHIPS:
+		if not world.ships.any(func(x): return x.support and x.design_name == "DropShip" and x.race_id == race_id):
+			world._spawn_dropper(race_id, GameData.DROP_SHIPS[race_id][0], GameData.DROP_SHIPS[race_id][1])
 	world.spawn_free_port()
 	world._keep_station()
 

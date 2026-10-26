@@ -11,7 +11,7 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 15
+const PROTOCOL := 16
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -415,6 +415,12 @@ func _rpc_command(cmd: String) -> void:
 			world.deploy_kit(s)
 		_ when cmd.begins_with("order:"):
 			world.order_command(s, cmd.get_slice(":", 1))
+		_ when cmd.begins_with("build:"):
+			world.build_command(s, cmd.get_slice(":", 1))
+		_ when cmd.begins_with("recruit:"):
+			world.recruit_command(s, cmd.get_slice(":", 1))
+		_ when cmd.begins_with("troops:"):
+			world.troop_command(s, cmd.get_slice(":", 1), cmd.get_slice(":", 2))
 
 
 func _apply_remote_inputs() -> void:
@@ -517,7 +523,8 @@ func host_colony_changed(p: Node) -> void:
 func _colony_state() -> Array:
 	var out := []
 	for p in world.planets:
-		out.append([p.owner_race, p.colony_design, p.population, p.silenced])
+		# with the ground war: buildings, garrison, planetary shield, battle
+		out.append([p.owner_race, p.colony_design, p.population, p.silenced, Ground.pack(p)])
 	return out
 
 
@@ -972,6 +979,8 @@ func _rpc_colonies(state: Array) -> void:
 				world.planet_owner_changed.emit(p)
 		p.population = row[2]
 		p.silenced = row[3]
+		if row.size() > 4:
+			Ground.unpack(p, row[4])
 
 
 ## The stockpiles, every couple of seconds (the Resources update).
@@ -1021,10 +1030,11 @@ func _rpc_stations(rows: Array) -> void:
 
 
 @rpc("authority", "reliable")
-func _rpc_cabin(colonists: float, transfer: int) -> void:
+func _rpc_cabin(colonists: float, transfer: int, troops: Dictionary) -> void:
 	if world != null and world.player != null:
 		world.player.colonists = colonists
 		world.player.transfer = transfer
+		world.player.troops = troops
 
 
 @rpc("authority", "reliable")
@@ -1448,5 +1458,5 @@ func _physics_process(delta: float) -> void:
 			var s: Node = ships_by_id.get(seats[peer_id], null)
 			if s != null and is_instance_valid(s):
 				_rpc_purse.rpc_id(peer_id, s.credits, s.hold, s.blueprints)
-				_rpc_cabin.rpc_id(peer_id, s.colonists, s.transfer)
+				_rpc_cabin.rpc_id(peer_id, s.colonists, s.transfer, s.troops)
 				_rpc_cargo.rpc_id(peer_id, s.cargo, s.cargo_orders, s.kit)

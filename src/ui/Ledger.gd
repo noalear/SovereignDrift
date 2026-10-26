@@ -69,13 +69,14 @@ func _draw() -> void:
 	draw_string(font, Vector2(x, y + 50), "What your worlds hold and make a minute. Stock stays on the world that made it; supply ships will carry it. Click a world to fly there.", HORIZONTAL_ALIGNMENT_LEFT, w, 15, DIM)
 	y += 74.0
 	# columns: world, colony, people, then one per resource
-	var cols: Array[float] = [x, x + 190.0, x + 300.0]
-	var res_x := x + 420.0
-	var res_w := (w - 420.0) / Economy.RESOURCES.size()
+	var cols: Array[float] = [x, x + 190.0, x + 300.0, x + 400.0]
+	var res_x := x + 510.0
+	var res_w := (w - 510.0) / Economy.RESOURCES.size()
 	draw_rect(Rect2(x - 12, y - 6, w + 24, vp.y - y - 40), PANEL)
 	draw_string(font, Vector2(cols[0], y + 20), "World", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, DIM)
 	draw_string(font, Vector2(cols[1], y + 20), "Colony", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, DIM)
 	draw_string(font, Vector2(cols[2], y + 20), "People", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, DIM)
+	draw_string(font, Vector2(cols[3], y + 20), "Troops", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, DIM)
 	for i in Economy.RESOURCES.size():
 		var k: String = Economy.RESOURCES[i]
 		draw_string(font, Vector2(res_x + i * res_w, y + 20), Economy.NAMES[k], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Economy.COLORS[k])
@@ -101,10 +102,14 @@ func _draw() -> void:
 		var lit := p == hover or (world.player != null and p == world.player.nav_target)
 		if lit:
 			draw_rect(rect, Color(0.18, 0.3, 0.55, 0.45))
-		var name_col := TEXT if p.silenced <= 0.0 else Color(1.0, 0.55, 0.45)
-		draw_string(font, Vector2(cols[0], y + 21), p.body_name + ("  (down)" if p.silenced > 0.0 else ""), HORIZONTAL_ALIGNMENT_LEFT, 180, 17, name_col)
+		var fighting := not p.battle.is_empty()
+		var name_col := TEXT if p.silenced <= 0.0 and not fighting else Color(1.0, 0.55, 0.45)
+		draw_string(font, Vector2(cols[0], y + 21), p.body_name + ("  (battle)" if fighting else ("  (down)" if p.silenced > 0.0 else "")), HORIZONTAL_ALIGNMENT_LEFT, 180, 17, name_col)
 		draw_string(font, Vector2(cols[1], y + 21), p.colony_design, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, DIM)
 		draw_string(font, Vector2(cols[2], y + 21), GameData.fmt_pop(p.population), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, DIM)
+		# the garrison's units, and whether a planetary shield stands over them
+		var troops := "%d%s" % [Ground.count(p.garrison), "  shield" if p.pshield_up() else ""]
+		draw_string(font, Vector2(cols[3], y + 21), troops, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1.0, 0.7, 0.4) if p.short.has("food") or p.short.has("fuel") else DIM)
 		for i in Economy.RESOURCES.size():
 			var k: String = Economy.RESOURCES[i]
 			_cell(Vector2(res_x + i * res_w, y), row["stock"].get(k, 0.0), row["rates"][k], Economy.cap(p), 16)

@@ -63,7 +63,8 @@ func _start() -> void:
 	var before: float = earth.stock["metals"]
 	var rates := Economy.production(earth)
 	Economy.step(earth, 120.0)
-	_check(absf(earth.stock["metals"] - minf(before + rates["metals"] * 2.0, Economy.cap(earth))) < 0.5, "Earth makes %.1f metals a minute" % rates["metals"])
+	# less what the refinery eats: two Metals an Alloy (Earth holds Fuel for its shield)
+	_check(absf(earth.stock["metals"] - minf(before + (rates["metals"] - 2.0 * rates.get("alloys", 0.0)) * 2.0, Economy.cap(earth))) < 0.5, "Earth makes %.1f metals a minute" % rates["metals"])
 	_check(rates["food"] > rates["metals"], "Earth is the Terran breadbasket (food %.1f a minute)" % rates["food"])
 	# the cap
 	Economy.step(earth, 60.0 * 600.0)
