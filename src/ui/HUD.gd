@@ -134,6 +134,8 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 			reach = maxf(reach, maxf(sh.shield_bubble.half.x, sh.shield_bubble.half.y) + sh.shield_bubble.position.length())
 		var friend: bool = sh.team() == p.team()
 		var col := Color(0.45, 1.0, 0.5) if friend else Color(1.0, 0.38, 0.32)
+		if sh.race_id == GameData.NEUTRAL:
+			col = sh.race_color()
 		var text: String = station_label(sh) if sh.is_station else sh.pilot_name
 		var pos := at - Vector2(0, reach * cam.zoom.x + 8.0)
 		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
@@ -439,7 +441,7 @@ func _draw_radar(p: Ship, vp: Vector2) -> void:
 		if d.length() > r:
 			continue
 		var col := s.race_color()
-		var hostile := s.team() != p.team()
+		var hostile := s.team() != p.team() and s.race_id != GameData.NEUTRAL
 		if s.is_station:
 			draw_rect(Rect2(c + d - Vector2(4, 4), Vector2(8, 8)), col)
 		else:
@@ -489,11 +491,11 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 	# docking prompt
 	var dock_text := ""
 	if not p.dead and not p.is_landing() and world.nearest_base(p) != null:
-		dock_text = "In docking range:  U  opens the shipyard   %s  cargo and station kits" % Keybinds.short_text("cargo") + ("" if p.speed() <= 220.0 else "  (brake first)")
+		dock_text = "In docking range:  U  opens the shipyard   %s  cargo, kits and ship orders" % Keybinds.short_text("cargo") + ("" if p.speed() <= 220.0 else "  (brake first)")
 	elif not p.dead and not p.is_landing():
 		var port = world.cargo_port(p)
 		if port != null and p.cargo_max > 0.0:
-			dock_text = "Alongside %s:  %s  moves cargo" % [world.port_name(port), Keybinds.short_text("cargo")]
+			dock_text = "Alongside %s:  %s  %s" % [world.port_name(port), Keybinds.short_text("cargo"), "buys and sells" if Economy.is_market(port as Ship) else "moves cargo"]
 		elif p.kit != "":
 			dock_text = "%s kit aboard:  %s  deploys it here" % [GameData.STATIONS[p.kit]["label"], Keybinds.short_text("cargo")]
 	if dock_text != "":

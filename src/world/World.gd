@@ -294,13 +294,16 @@ func _spawn_pilots() -> void:
 	for race_id in GameData.SUPPLY_SHIPS:
 		for row in GameData.SUPPLY_SHIPS[race_id]:
 			_spawn_hauler(race_id, row[0], row[1])
+	for race_id in GameData.TRADE_SHIPS:
+		_spawn_trader(race_id, GameData.TRADE_SHIPS[race_id][0], GameData.TRADE_SHIPS[race_id][1])
+	spawn_free_port()
 	_spawn_pirate_scouts()
 
 
 ## A computer supply ship (the Freighter): it hauls the empire's goods and
 ## stays off the scoreboard.
-func _spawn_hauler(race_id: int, pilot: String, ship_name: String) -> Ship:
-	var s := _make_ship(pilot, race_id, "Freighter", ship_name, false)
+func _spawn_hauler(race_id: int, pilot: String, ship_name: String, hull: String = "Freighter") -> Ship:
+	var s := _make_ship(pilot, race_id, hull, ship_name, false)
 	s.support = true
 	var ai := AIPilot.new()
 	ai.name = "AI"
@@ -309,6 +312,35 @@ func _spawn_hauler(race_id: int, pilot: String, ship_name: String) -> Ship:
 	ai.make_hauler()
 	_place_at_home(s, 900.0)
 	return s
+
+
+## A computer trade ship: it sells its empire's surplus at the markets and
+## buys what its colonies are short of.
+func _spawn_trader(race_id: int, pilot: String, ship_name: String) -> Ship:
+	var s := _spawn_hauler(race_id, pilot, ship_name, "Trader")
+	s.get_node("AI").make_trader()
+	return s
+
+
+## The free port: a neutral trade station at Jupiter's leading Trojan point,
+## open to every empire and fought over by none.  It opens well stocked.
+func spawn_free_port() -> Ship:
+	var jupiter: Planet = planet_by_name.get("Jupiter", null)
+	if jupiter == null:
+		return null
+	for o in ships:
+		if o.race_id == GameData.NEUTRAL and o.design_name == "TradeStation":
+			return o
+	var st := _make_ship("Port authority", GameData.NEUTRAL, "TradeStation", "Jupiter free port", false)
+	st.station_body = jupiter
+	st.set_meta("trojan", true)
+	for k in Economy.RESOURCES:
+		st.cargo[k] = Economy.FREE_PORT_STOCK
+	_keep_station()
+	st.reset_physics_interpolation()
+	st.body.pos = st.global_position
+	st.body.vel = st.velocity
+	return st
 
 
 ## Practice duel: no round clock and no fleets, the colonies hold their
@@ -471,6 +503,13 @@ func _keep_station() -> void:
 			home = planet_by_name.get(GameData.STARBASES.get(s.race_id, ""), null)
 		if home == null:
 			continue
+		if s.has_meta("trojan"):
+			# 60 degrees ahead of the world in its orbit, as far from the Sun
+			var c := sun.global_position if sun != null else Vector2.ZERO
+			var lead := PI / 3.0 * (1.0 if (home.global_position - c).cross(home.velocity) >= 0.0 else -1.0)
+			s.global_position = c + (home.global_position - c).rotated(lead)
+			s.velocity = home.velocity.rotated(lead)
+			continue
 		if not s.has_meta("station_angle"):
 			# on the side of the planet away from the Sun
 			s.set_meta("station_angle", home.global_position.angle() + randf_range(-0.6, 0.6))
@@ -589,6 +628,7 @@ func _physics_process(delta: float) -> void:
 	_landed_ships(delta)
 	_cargo_moves(delta)
 	_stations(delta)
+	_yards(delta)
 	_refuel(delta)
 	capture.tick(delta)
 	if duel_rules != null:
@@ -675,8 +715,8 @@ func _can_collide(a: PhysicsBody, b: PhysicsBody) -> bool:
 			return false
 		if other.kind == PhysicsBody.Kind.SHIP:
 			var t: Ship = other.node
-			if t == m.owner_ship or t.team() == m.owner_team:
-				return false
+			if t == m.owner_ship or t.team() == m.owner_team or t.race_id == GameData.NEUTRAL:
+				return false      # (shots pass the free port by)
 		return true
 	if ka == PhysicsBody.Kind.PLANET or kb == PhysicsBody.Kind.PLANET:
 		var p: Planet = (a if ka == PhysicsBody.Kind.PLANET else b).node
@@ -704,7 +744,7 @@ func nearest_enemy_ship(pos: Vector2, side: int, range_px: float, viewer: Ship =
 	var best: Ship = null
 	var best_d := range_px
 	for s in ships:
-		if s.dead or s.team() == side or s.is_landing():
+		if s.dead or s.team() == side or s.is_landing() or s.race_id == GameData.NEUTRAL:
 			continue
 		if s.spoken_for(side):
 			continue      # a friend is taking that one alive
@@ -726,7 +766,7 @@ func nearest_known_enemy(viewer: Ship, range_px: float = 16000.0) -> Ship:
 	var best: Ship = null
 	var best_d := range_px
 	for s in ships:
-		if s.dead or s.team() == viewer.team() or s.is_starbase() or s.is_landing():
+		if s.dead or s.team() == viewer.team() or s.is_starbase() or s.is_landing() or s.race_id == GameData.NEUTRAL:
 			continue
 		var d := viewer.global_position.distance_to(s.global_position)
 		if d >= best_d:
@@ -895,7 +935,7 @@ func _collide_missiles() -> void:
 		for s in ships:
 			if s.dead or s == m.owner_ship or s.is_landing():
 				continue
-			if s.team() == m.owner_team:
+			if s.team() == m.owner_team or s.race_id == GameData.NEUTRAL:
 				continue      # no friendly fire, mines included
 			if m.check_hit(s.body):
 				m.hit_point = Vector2.INF
@@ -925,7 +965,7 @@ func raycast_beam(shooter: Node, origin: Vector2, dir: Vector2, range_px: float)
 	var shooter_race: int = shooter.race_id if "race_id" in shooter else shooter.owner_race
 	var shooter_team: int = shooter.team() if shooter is Ship else shooter_race
 	for s in ships:
-		if s.dead or s == shooter or s.team() == shooter_team or s.warping or s.is_landing():
+		if s.dead or s == shooter or s.team() == shooter_team or s.warping or s.is_landing() or s.race_id == GameData.NEUTRAL:
 			continue
 		var t := space.ray_body(origin, dir, s.body, best_t)
 		if t >= 0.0 and t < best_t:
@@ -1104,7 +1144,7 @@ func _refuel(delta: float) -> void:
 		var rate := 0.0
 		var hands := 0.0
 		for o in ships:
-			if _serves_ships(o) and o.race_id == s.race_id and o != s and o.global_position.distance_to(s.global_position) < o.size + 260.0:
+			if _serves_ships(o) and (o.race_id == s.race_id or o.race_id == GameData.NEUTRAL) and o != s and o.global_position.distance_to(s.global_position) < o.size + 260.0:
 				rate = maxf(rate, 0.12)
 				hands = CREW_FROM_BASE
 		for p in planets:
@@ -1128,9 +1168,10 @@ func _refuel(delta: float) -> void:
 				notify(s, "Refuelling.")
 
 
-## Starbases and finished supply depots refuel ships and make up their crews.
+## Starbases, finished supply depots and shipyards, and the free port
+## refuel ships and make up their crews.
 func _serves_ships(o: Ship) -> bool:
-	return not o.dead and (o.is_starbase() or (o.design_name == "SupplyDepot" and not o.building))
+	return not o.dead and not o.building and (o.is_starbase() or o.design_name in ["SupplyDepot", "Shipyard"] or o.race_id == GameData.NEUTRAL)
 
 
 func _collect_powerups() -> void:
@@ -1220,6 +1261,7 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 			player_died.emit()
 		return   # drops, score and respawn are the host's
 	Net.host_ship_died(s, killer)
+	s.orders.clear()
 	if duel_rules != null:
 		# a duel leaves no loot: nothing to spend it on, and a computer
 		# pilot that fitted it would outgun the rest
@@ -1387,8 +1429,8 @@ func _respawns() -> void:
 		var s: Ship = entry[0]
 		if not is_instance_valid(s):
 			continue
-		if elapsed >= entry[1] and (s.is_prize or (s.is_station and not s.is_starbase())):
-			remove_ship(s)        # a prize's crew does not come back, nor a built station
+		if elapsed >= entry[1] and (s.is_prize or s.has_meta("ordered") or (s.is_station and not s.is_starbase())):
+			remove_ship(s)        # a prize's crew does not come back, nor a built station or an ordered ship
 		elif elapsed >= entry[1]:
 			var home := _home_planet(s.race_id)
 			if s.is_station:
@@ -1668,8 +1710,9 @@ func _landed_ships(delta: float) -> void:
 # ---------------------------------------------------------------- cargo
 
 ## Where this ship can move cargo now: the friendly colony it sits on, or
-## one of its empire's stations with a hold, alongside and matching speed.
-## null when neither.
+## one of its empire's stations with a hold (or any empire's trade
+## station: markets are open to all), alongside and matching speed.  null
+## when neither.
 func cargo_port(s: Ship) -> Node2D:
 	if s.dead or s.is_station:
 		return null
@@ -1679,7 +1722,7 @@ func cargo_port(s: Ship) -> Node2D:
 	if s.is_landing():
 		return null
 	for o in ships:
-		if o.is_station and not o.dead and o.race_id == s.race_id and o.cargo_max > 0.0 \
+		if o.is_station and not o.dead and (o.race_id == s.race_id or Economy.is_market(o)) and o.cargo_max > 0.0 \
 				and o.global_position.distance_to(s.global_position) < o.size + DOCK_RANGE \
 				and (s.velocity - o.velocity).length() < DOCK_SPEED:
 			return o
@@ -1703,8 +1746,9 @@ func port_stock(port) -> Dictionary:
 
 
 ## Units of `k` a port will take: a world up to its cap; a frame what it
-## still needs; a depot anything it has room for; a refinery its Metals
-## and Fuel.  Mines and skimmers are for loading only.
+## still needs; a depot or a market anything it has room for; a refinery
+## its Metals and Fuel; a shipyard what it builds hulls from.  Mines and
+## skimmers are for loading only.
 func port_room(port, k: String) -> float:
 	if port is Planet:
 		return maxf(Economy.cap(port) - port.stock.get(k, 0.0), 0.0)
@@ -1712,8 +1756,10 @@ func port_room(port, k: String) -> float:
 	if st.building:
 		return maxf(float(GameData.STATIONS[st.design_name]["cost"].get(k, 0)) - st.cargo.get(k, 0.0), 0.0)
 	match st.design_name:
-		"SupplyDepot":
+		"SupplyDepot", "TradeStation":
 			return st.cargo_space()
+		"Shipyard":
+			return st.cargo_space() if GameData.YARD_GOODS.has(k) else 0.0
 		"Refinery":
 			return st.cargo_space() if k in ["metals", "fuel"] else 0.0
 	return 0.0
@@ -1731,22 +1777,27 @@ func port_name(port) -> String:
 
 
 ## Credits for unloading at a port.  A world pays for what it was short
-## of (Economy.delivery_pay); goods from a mine, skimmer or refinery count
-## as made elsewhere, while a depot only stores what was already paid for.
-## A frame pays the full price for every unit it needs.
+## of (Economy.delivery_pay); goods from a mine, skimmer, refinery or
+## market count as made elsewhere, while a depot or a yard only stores
+## what was already paid for.  A frame pays the full price for every unit
+## it needs, a shipyard for what brings it up to its stock (YARD_GOODS).
+## (Selling at a market is priced by the market, in _move_cargo.)
 func cargo_pay(port, origin, k: String, n: float) -> float:
 	if port is Planet:
 		if origin is Ship:
-			return 0.0 if origin.design_name == "SupplyDepot" else Economy.delivery_pay(port, null, k, n)
+			return 0.0 if origin.design_name in ["SupplyDepot", "Shipyard"] else Economy.delivery_pay(port, null, k, n)
 		return Economy.delivery_pay(port, origin as Planet, k, n)
 	if port.building:
 		return GameData.RESOURCE_PRICE.get(k, 1.0) * n
+	if port.design_name == "Shipyard" and origin != port:
+		return GameData.RESOURCE_PRICE.get(k, 1.0) * clampf(GameData.YARD_GOODS.get(k, 0.0) - port.cargo.get(k, 0.0), 0.0, n)
 	return 0.0
 
 
 ## L: load a resource (amount > 0) or unload it (< 0) at one of your
 ## colonies or stations; "all" fills the hold from everything the port has,
-## or empties it.  Goods move at the port's pace.
+## or empties it.  Goods move at the port's pace.  At a market loading is
+## buying and unloading selling, and "all" only sells.
 func cargo_command(s: Ship, res: String, amount: float) -> void:
 	if Net.is_client():
 		Net.client_command("cargo:%s:%d" % [res, int(amount)])
@@ -1767,8 +1818,15 @@ func cargo_command(s: Ship, res: String, amount: float) -> void:
 		notify(s, "The station kit fills the hold: deploy it first.")
 		return
 	var stock := port_stock(port)
+	var market := Economy.is_market(port as Ship) if port is Ship else false
+	if market and amount > 0.0 and s.credits < 1:
+		notify(s, "No credits to buy with.")
+		return
 	if res == "all":
 		s.cargo_orders.clear()
+		if amount > 0.0 and market:
+			notify(s, "Buy one resource at a time at a market.")
+			return
 		if amount > 0.0:
 			# the hold fills in proportion to what the port has
 			var have := 0.0
@@ -1811,12 +1869,27 @@ func _cargo_moves(delta: float) -> void:
 func _move_cargo(s: Ship, port, delta: float) -> void:
 	var stock := port_stock(port)
 	var store := port_store(port)
+	var market := port is Ship and Economy.is_market(port)
 	var step := Ship.CARGO_RATE * delta / s.cargo_orders.size()
 	for k in s.cargo_orders.keys():
 		var want: float = s.cargo_orders[k]
 		var n := 0.0
 		if want > 0.0:
 			n = minf(minf(step, want), minf(s.cargo_space(), stock.get(k, 0.0)))
+			if market and n > 0.0:
+				# bought: paid for as it comes aboard, while the purse lasts
+				var price := Economy.buy_price(port, k, s)
+				var owed: float = s.get_meta("trade_owed", 0.0)
+				n = minf(n, maxf(float(s.credits) - owed, 0.0) / price)
+				if n > 0.0:
+					owed += n * price
+					s.credits -= int(owed)
+					s.set_meta("trade_owed", owed - int(owed))
+					_trade_tally(s, "trade_cost", n * price)
+					_trade_tally(s, "trade_bought", n)
+					_trade_tally(s, "trade_fee", n * price - n * price / (1.0 + Economy.MARKET_FEE) if Economy.pays_fee(port, s) else 0.0)
+				elif s.credits < 1:
+					s.set_meta("trade_broke", true)
 			if n > 0.0:
 				s.cargo[k] = s.cargo.get(k, 0.0) + n
 				stock[k] -= n
@@ -1827,7 +1900,12 @@ func _move_cargo(s: Ship, port, delta: float) -> void:
 		else:
 			n = minf(minf(step, -want), minf(s.cargo.get(k, 0.0), port_room(port, k)))
 			if n > 0.0:
-				s.set_meta("cargo_pay", float(s.get_meta("cargo_pay", 0.0)) + cargo_pay(port, s.cargo_origin, k, n))
+				if market:
+					var got := Economy.sell_price(port, k, s) * n
+					s.set_meta("cargo_pay", float(s.get_meta("cargo_pay", 0.0)) + got)
+					_trade_tally(s, "trade_fee", got / (1.0 - Economy.MARKET_FEE) - got if Economy.pays_fee(port, s) else 0.0)
+				else:
+					s.set_meta("cargo_pay", float(s.get_meta("cargo_pay", 0.0)) + cargo_pay(port, s.cargo_origin, k, n))
 				s.set_meta("cargo_moved", float(s.get_meta("cargo_moved", 0.0)) + n)
 				s.cargo[k] -= n
 				store[k] = store.get(k, 0.0) + n
@@ -1842,7 +1920,13 @@ func _move_cargo(s: Ship, port, delta: float) -> void:
 		_settle_cargo(s)
 
 
-## Unloading is paid when it ends (or the ship leaves part-way).
+func _trade_tally(s: Ship, key: String, v: float) -> void:
+	if v > 0.0:
+		s.set_meta(key, float(s.get_meta(key, 0.0)) + v)
+
+
+## Unloading is paid when it ends (or the ship leaves part-way); a market
+## trade is summed up, and the station's owner gets the fee.
 func _settle_cargo(s: Ship) -> void:
 	s.cargo_orders.clear()
 	var port = (s.get_meta("cargo_port") if s.has_meta("cargo_port") else null)
@@ -1850,8 +1934,15 @@ func _settle_cargo(s: Ship) -> void:
 		port = null
 	var moved: float = s.get_meta("cargo_moved", 0.0)
 	var pay := int(s.get_meta("cargo_pay", 0.0))
-	for m in ["cargo_moved", "cargo_pay", "cargo_port"]:
+	var bought: float = s.get_meta("trade_bought", 0.0)
+	var cost: float = s.get_meta("trade_cost", 0.0)
+	var fee := int(s.get_meta("trade_fee", 0.0))
+	var broke: bool = s.get_meta("trade_broke", false)
+	for m in ["cargo_moved", "cargo_pay", "cargo_port", "trade_owed", "trade_bought", "trade_cost", "trade_fee", "trade_broke"]:
 		s.remove_meta(m)
+	if port is Ship and Economy.is_market(port):
+		_settle_trade(s, port, moved, pay, bought, cost, fee, broke)
+		return
 	if moved <= 0.0 or port == null:
 		notify(s, "Hold %d / %d." % [int(s.cargo_total()), int(s.cargo_max)])
 		return
@@ -1870,6 +1961,39 @@ func _settle_cargo(s: Ship) -> void:
 		notify(s, "Unloaded %d units on %s (no pay: it was not short of them, or makes them as well as where they came from)." % [int(moved), where])
 	if port is Ship and port.building and port.cargo_total() >= port.cargo_max - 0.01:
 		notify(s, "%s has all its materials: the work begins." % where.capitalize())
+
+
+func _settle_trade(s: Ship, market: Ship, sold: float, pay: int, bought: float, cost: float, fee: int, broke: bool) -> void:
+	var where := port_name(market)
+	if pay > 0:
+		s.earn(pay)
+		if not s.support:
+			s.add_score(maxi(pay / 60, 1), false)
+	var parts := []
+	if bought >= 1.0:
+		parts.append("Bought %d units for %d credits" % [int(bought), int(round(cost))])
+		s.cargo_origin = market
+	if sold >= 1.0:
+		parts.append("sold %d units for %d credits" % [int(sold), pay] if not parts.is_empty() else "Sold %d units for %d credits" % [int(sold), pay])
+	if parts.is_empty():
+		notify(s, "Out of credits." if broke else "Hold %d / %d." % [int(s.cargo_total()), int(s.cargo_max)])
+	else:
+		notify(s, "%s at %s%s.%s" % [" and ".join(parts), where, (" (%d to its owners)" % fee) if fee > 0 else "", "  Out of credits." if broke else ""])
+	if fee > 0:
+		var owner := pilot_named(market.founder)
+		if owner != null:
+			owner.earn(fee)
+			notify(owner, "Your %s took %d credits in fees from %s." % [market.ship_name, fee, s.pilot_name])
+
+
+## The ship flown by the pilot of this name, or null.
+func pilot_named(n: String) -> Ship:
+	if n == "":
+		return null
+	for o in ships:
+		if o.pilot_name == n and not o.is_station:
+			return o
+	return null
 
 
 # ------------------------------------------------------------- stations
@@ -1895,7 +2019,27 @@ func sensor_sees(s: Ship, race: int) -> bool:
 	return false
 
 
-## L at your own starbase: buy a station kit (or hand one back, key "").
+## What a station wants hauled to it: a frame its materials, a shipyard
+## its stock of hull materials (GameData.YARD_GOODS).
+func supply_wants(st: Ship) -> Dictionary:
+	var out := {}
+	if st.dead:
+		return out
+	if st.building:
+		for k in GameData.STATIONS[st.design_name]["cost"]:
+			var n := port_room(st, k)
+			if n >= 0.5:
+				out[k] = n
+	elif st.design_name == "Shipyard":
+		for k in GameData.YARD_GOODS:
+			var n := minf(GameData.YARD_GOODS[k] - st.cargo.get(k, 0.0), st.cargo_space())
+			if n >= 0.5:
+				out[k] = n
+	return out
+
+
+## L at your starbase or a shipyard: buy a station kit (or hand one back,
+## key "").
 func kit_command(s: Ship, key: String) -> void:
 	if Net.is_client():
 		Net.client_command("kit:%s" % key)
@@ -1903,7 +2047,7 @@ func kit_command(s: Ship, key: String) -> void:
 	if s.dead:
 		return
 	if nearest_base(s) == null:
-		notify(s, "Station kits are sold at your starbase: come alongside it.")
+		notify(s, "Station kits are sold at your starbase and shipyards: come alongside one.")
 		return
 	if key == "":
 		if s.kit != "":
@@ -2010,6 +2154,7 @@ func deploy_kit(s: Ship) -> void:
 	var p: Planet = site["body"]
 	var out := (s.global_position - p.global_position).normalized()
 	var f := build_station(s.race_id, key, p, s.global_position + out * (s.size + float(GameData.SHIPS[key]["size"]) + 40.0))
+	f.founder = s.pilot_name
 	var cost := []
 	for k in GameData.STATIONS[key]["cost"]:
 		cost.append("%d %s" % [GameData.STATIONS[key]["cost"][k], Economy.NAMES[k]])
@@ -2072,6 +2217,130 @@ func _arm_station(st: Ship) -> void:
 	ai.name = "AI"
 	st.add_child(ai)
 	ai.setup(st, self, st.station_body if st.station_body != null else _home_planet(st.race_id), 10)
+
+
+## L at your starbase or a shipyard: order a ship for the empire
+## (GameData.ORDERS).  The yard builds one order at a time.
+func order_command(s: Ship, hull: String) -> void:
+	if Net.is_client():
+		Net.client_command("order:%s" % hull)
+		return
+	if s.dead:
+		return
+	var base := nearest_base(s)
+	var why := order_refusal(s, base, hull)
+	if why != "":
+		notify(s, why)
+		return
+	var o: Dictionary = GameData.ORDERS[hull]
+	s.credits -= int(o["credits"])
+	take_materials(yard_stock(base), hull)
+	base.orders.append([hull, float(o["build"]), s.pilot_name])
+	var wait := 0.0
+	for e in base.orders:
+		wait += float(e[1])
+	notify(s, "Ordered a %s at %s: it launches in %d s." % [o["label"].to_lower(), base.ship_name, int(ceil(wait))])
+
+
+## The most orders a yard queues at once.
+const YARD_SLIPS := 3
+
+
+## Why this pilot cannot order `hull` here, or "".
+func order_refusal(s: Ship, base: Ship, hull: String) -> String:
+	if base == null:
+		return "Ships are ordered at your starbase or a shipyard: come alongside one."
+	if not GameData.ORDERS.has(hull):
+		return "That yard does not build those."
+	var o: Dictionary = GameData.ORDERS[hull]
+	if s.rank < int(o["rank"]) and not s.support:
+		return "A %s needs the rank of %s." % [o["label"].to_lower(), GameData.RANKS[int(o["rank"])]["name"]]
+	if s.credits < int(o["credits"]):
+		return "A %s costs %d credits." % [o["label"].to_lower(), o["credits"]]
+	if base.orders.size() >= YARD_SLIPS:
+		return "The yard's slips are full: wait for a launch."
+	if hull in GameData.CIVIL_HULLS:
+		if ordered_haulers(s.race_id) >= GameData.ORDERED_HAULERS:
+			return "Your empire already runs %d ordered supply and trade ships." % GameData.ORDERED_HAULERS
+	elif capture.prizes_of(s).size() + _orders_by(s, false) >= Capture.MAX_PRIZES_PER_PILOT:
+		return "You already lead as many wingmen and prizes as you can (%d)." % Capture.MAX_PRIZES_PER_PILOT
+	return materials_short(yard_stock(base), hull)
+
+
+## Ordered supply and trade ships an empire has flying or on the slips.
+func ordered_haulers(race: int) -> int:
+	var n := 0
+	for o in ships:
+		if o.support and o.has_meta("ordered") and o.race_id == race:
+			n += 1
+		if o.race_id == race:
+			for e in o.orders:
+				if e[0] in GameData.CIVIL_HULLS:
+					n += 1
+	return n
+
+
+## Orders this pilot has on the slips: civilian hulls or warships.
+func _orders_by(s: Ship, civil: bool) -> int:
+	var n := 0
+	for o in ships:
+		for e in o.orders:
+			if e[2] == s.pilot_name and (e[0] in GameData.CIVIL_HULLS) == civil:
+				n += 1
+	return n
+
+
+## Yards work through their orders, one at a time.
+func _yards(delta: float) -> void:
+	for b in ships:
+		if b.orders.is_empty() or b.dead:
+			continue
+		b.orders[0][1] = float(b.orders[0][1]) - delta
+		if b.orders[0][1] <= 0.0:
+			var e: Array = b.orders.pop_front()
+			launch_order(b, e[0], e[2])
+
+
+## An order leaves the slip beside its yard: a supply or trade ship joins
+## the empire's haulers, a warship flies as its buyer's wingman.
+func launch_order(base: Ship, hull: String, buyer_name: String) -> Ship:
+	var buyer := pilot_named(buyer_name)
+	var o: Dictionary = GameData.ORDERS[hull]
+	var n := 1
+	for x in ships:
+		if x.has_meta("ordered") and x.race_id == base.race_id and x.design_name == hull:
+			n += 1
+	var ship_name := "%s %s %d" % [GameData.race(base.race_id)["adj"], o["label"], n]
+	var s: Ship
+	if hull in GameData.CIVIL_HULLS:
+		s = _spawn_hauler(base.race_id, "%s crew %d" % [o["label"], n], ship_name, hull)
+		if hull == "Trader":
+			s.get_node("AI").make_trader()
+	else:
+		s = _make_ship("%s's escort %d" % [buyer_name, n], base.race_id, hull, ship_name, false)
+		s.is_prize = true
+		s.prize_of = buyer
+		var ai := AIPilot.new()
+		ai.name = "AI"
+		s.add_child(ai)
+		ai.setup(s, self, _home_planet(base.race_id), 4)
+		ai.escort = buyer
+	s.set_meta("ordered", true)
+	var a := randf() * TAU
+	var off := Vector2(cos(a), sin(a)) * (base.size * 1.4 + 120.0)
+	s.global_position = base.global_position + off
+	s.velocity = base.velocity + off.normalized() * 30.0
+	s.rotation = off.angle()
+	s.reset_physics_interpolation()
+	s.body.pos = s.global_position
+	s.body.vel = s.velocity
+	s.body.angle = s.rotation
+	s.invulnerable = 2.0
+	Net.host_ship_added(s)
+	Sfx.play("dock", base.global_position, 0.7)
+	if buyer != null:
+		notify(buyer, "Your %s %s has launched from %s." % [o["label"].to_lower(), ship_name, base.ship_name])
+	return s
 
 
 ## Frames with all their materials in get built.
@@ -2186,11 +2455,12 @@ func cycle_nav(s: Ship) -> void:
 	notify(s, "Navigation: %s." % s.nav_target.body_name)
 
 
-## Open the shipyard: needs a friendly starbase within docking range.
+## Open the shipyard: needs a friendly starbase or shipyard station within
+## docking range.
 func try_refit(s: Ship) -> void:
 	var base := nearest_base(s)
 	if base == null:
-		notify(s, "The shipyard is at your starbase (fly within docking range and press U).")
+		notify(s, "The shipyard is at your starbase or a shipyard station (fly within docking range and press U).")
 		return
 	if s.speed() > 220.0:
 		notify(s, "Too fast to dock: brake first (X).")
@@ -2198,12 +2468,52 @@ func try_refit(s: Ship) -> void:
 	shipyard_requested.emit(s, base)
 
 
-## The friendly starbase this ship could dock at, if any.
+## The friendly yard this ship could dock at, if any: its starbase or a
+## finished shipyard station.
 func nearest_base(s: Ship) -> Ship:
 	for o in ships:
-		if o.is_starbase() and not o.dead and o.race_id == s.race_id and o.global_position.distance_to(s.global_position) < o.size + 320.0:
+		if is_yard(o) and o.race_id == s.race_id and o.global_position.distance_to(s.global_position) < o.size + 320.0:
 			return o
 	return null
+
+
+static func is_yard(o: Ship) -> bool:
+	return not o.dead and (o.is_starbase() or (o.design_name == "Shipyard" and not o.building))
+
+
+## What a yard builds hulls from: a shipyard station's own stock, or the
+## stockpile of the home world under a starbase.
+func yard_stock(base: Ship) -> Dictionary:
+	if base == null:
+		return {}
+	if base.design_name == "Shipyard":
+		return base.cargo
+	var home := _home_planet(base.race_id)
+	return home.stock if home.is_colonised() and home.owner_race == base.race_id else {}
+
+
+## Why a yard with this stock cannot build `hull`, or "".
+static func materials_short(stock: Dictionary, hull: String) -> String:
+	var need: Dictionary = GameData.HULL_MATERIALS.get(hull, {})
+	var short := []
+	for k in need:
+		if stock.get(k, 0.0) < need[k]:
+			short.append("%d %s (it has %d)" % [need[k], Economy.NAMES[k], int(stock.get(k, 0.0))])
+	return "" if short.is_empty() else "A %s needs %s from the yard's stock." % [hull, ", ".join(short)]
+
+
+static func take_materials(stock: Dictionary, hull: String) -> void:
+	var need: Dictionary = GameData.HULL_MATERIALS.get(hull, {})
+	for k in need:
+		stock[k] = maxf(stock.get(k, 0.0) - need[k], 0.0)
+
+
+## Why the yard this ship is docked at cannot launch it as `design`, or "":
+## a new hull takes its materials from the yard's stock.
+func build_refusal(s: Ship, design: Dictionary) -> String:
+	if design.get("name", "") == s.design_name:
+		return ""
+	return materials_short(yard_stock(nearest_base(s)), design.get("name", ""))
 
 
 ## Apply a shipyard build to a ship where it sits.
@@ -2211,6 +2521,12 @@ func apply_build(s: Ship, design: Dictionary) -> void:
 	if Net.is_client():
 		Net.client_build(s, design)   # the host fits it and tells everyone
 		return
+	var why := build_refusal(s, design)
+	if why != "":
+		notify(s, why)
+		return
+	if design["name"] != s.design_name:
+		take_materials(yard_stock(nearest_base(s)), design["name"])
 	var pos := s.global_position
 	var vel := s.velocity
 	var rot := s.rotation

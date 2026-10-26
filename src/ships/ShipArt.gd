@@ -90,7 +90,7 @@ static func hull_texture(hull_name: String, race_id: int) -> Texture2D:
 	var folder: String = ["arcean", "terran", "drengin", "pirate"][clampi(race_id, 0, 3)]
 	var file := hull_name
 	if GameData.is_station_hull(hull_name):
-		var yard: String = ["arcean", "terran", "drengin", "drengin"][clampi(race_id, 0, 3)]
+		var yard: String = ["arcean", "terran", "drengin", "drengin", "terran"][clampi(race_id, 0, 4)]
 		# a built station's own painting when there is one, else the starbase's
 		var own := texture("res://assets/ships/stations/%s_%s.png" % [hull_name, yard]) if hull_name != "Starbase" else null
 		return own if own != null else texture("res://assets/ships/stations/%s.png" % yard)
@@ -98,11 +98,14 @@ static func hull_texture(hull_name: String, race_id: int) -> Texture2D:
 		match hull_name:
 			"Destroyer": file = "Raider"
 			"Dreadnought": file = "Battleship"
-			"Freighter": file = "Cruiser"
+			"Freighter", "Trader": file = "Cruiser"
 	else:
 		match hull_name:
 			"Raider": file = "Destroyer"
-	return texture("res://assets/ships/%s/%s.png" % [folder, file])
+	var t := texture("res://assets/ships/%s/%s.png" % [folder, file])
+	if t == null and hull_name == "Trader":
+		return hull_texture("Freighter", race_id)   # until the trade ship has its own painting
+	return t
 
 
 static func part_texture(name: String) -> Texture2D:

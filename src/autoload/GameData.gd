@@ -25,7 +25,14 @@ const RACES := [
 	{"id": 3, "name": "Pirate", "adj": "Pirate", "home": "Ceres",
 	 "color": Color(1.0, 0.75, 0.3), "dark": Color(0.4, 0.3, 0.1),
 	 "weapon1": "Mass driver", "weapon2": "Plasma torpedo"},
+	# nobody's: the free port at Jupiter's Trojan point (the Resources update)
+	{"id": 4, "name": "Free port", "adj": "Free", "home": "Jupiter",
+	 "color": Color(0.95, 0.88, 0.6), "dark": Color(0.4, 0.36, 0.2),
+	 "weapon1": "Mass driver", "weapon2": "Plasma torpedo"},
 ]
+## The side of the free port: every empire's ships may use it, and nobody
+## fights over it.
+const NEUTRAL := 4
 
 # -------------------------------------------------------------- modules
 # id -> {name, vol, mass, power, hp, func, p (parameters)}
@@ -104,8 +111,9 @@ const STATION_ONLY := ["0001", "1006", "4011", "4503", "5007", "9301", "2004"]
 ## Internal bay volume of each hull.
 const HULL_BAYS := {
 	"Scout": 1300, "Destroyer": 1500, "Raider": 1500, "Cruiser": 1600,
-	"BattleCruiser": 3000, "Battleship": 2200, "Dreadnought": 3000, "Starbase": 20000, "Freighter": 1800,
+	"BattleCruiser": 3000, "Battleship": 2200, "Dreadnought": 3000, "Starbase": 20000, "Freighter": 1800, "Trader": 1900,
 	"MiningStation": 20000, "GasSkimmer": 20000, "Refinery": 20000, "SupplyDepot": 20000, "SensorStation": 20000, "DefenseStation": 20000,
+	"TradeStation": 20000, "Shipyard": 20000,
 }
 
 ## Crew aboard each hull.  Hits kill crew, damage control works as fast
@@ -114,12 +122,26 @@ const HULL_CREW := {
 	"Scout": 6, "Destroyer": 12, "Raider": 12, "Freighter": 8, "Cruiser": 24,
 	"BattleCruiser": 36, "Battleship": 44, "Dreadnought": 60, "Starbase": 300,
 	"MiningStation": 12, "GasSkimmer": 12, "Refinery": 20, "SupplyDepot": 30, "SensorStation": 10, "DefenseStation": 40,
+	"Trader": 6, "TradeStation": 30, "Shipyard": 60,
 }
 
 ## Credits for a hull at the shipyard.
 const HULL_PRICE := {
 	"Scout": 0, "Destroyer": 400, "Cruiser": 1500,
 	"BattleCruiser": 2600, "Battleship": 3600, "Dreadnought": 6000,
+	"Freighter": 300, "Trader": 600,
+}
+
+## What the yard needs from its stockpile to build a hull besides the
+## credits (Kyle's pick: bigger hulls cost Alloys and Exotics).  A starbase
+## yard draws on its home world's stockpile, a shipyard station on its own.
+const HULL_MATERIALS := {
+	"Cruiser": {"alloys": 10},
+	"BattleCruiser": {"alloys": 20, "exotics": 4},
+	"Battleship": {"alloys": 30, "exotics": 8},
+	"Dreadnought": {"alloys": 50, "exotics": 15},
+	"Freighter": {"metals": 20},
+	"Trader": {"metals": 20, "alloys": 5},
 }
 
 # ------------------------------------------------------------- missiles
@@ -186,6 +208,12 @@ const SHIPS := {
 		"modules": ["1001", "5001", "5502", "2003", "3003", "7003", "9201"],
 		"dock": [180, 0],
 		"weapons": [["4001", 0, 0, 0, -50, 50]]},
+	# the trade ship (the Resources update, phase 4): unarmed, fast, heavily
+	# shielded, with the biggest hold
+	"Trader": {"rank": 0, "speed": 0.23, "size": 40, "turn": 110.0,
+		"modules": ["1003", "5004", "5003", "2003", "3003", "7002", "9201"],
+		"dock": [180, 0],
+		"weapons": []},
 	# stations built at construction sites (the Resources update, phase 3):
 	# fixed installations with no engines, never offered at the shipyard
 	"MiningStation": {"rank": 99, "speed": 0.0, "size": 46, "turn": 0.0,
@@ -201,6 +229,10 @@ const SHIPS := {
 	"DefenseStation": {"rank": 99, "speed": 0.0, "size": 50, "turn": 30.0,
 		"modules": ["1006", "5005", "7002"],
 		"weapons": [["4003", 0, 0, 0, -180, 180], ["4010", 120, 0, 120, 0, 360], ["4010", 240, 0, 240, 0, 360]]},
+	"TradeStation": {"rank": 99, "speed": 0.0, "size": 60, "turn": 0.0,
+		"modules": ["1004", "5004", "7002"], "weapons": []},
+	"Shipyard": {"rank": 99, "speed": 0.0, "size": 64, "turn": 0.0,
+		"modules": ["1006", "5004", "7002", "0001"], "weapons": []},
 	"BattleCruiser": {"rank": 8, "speed": 0.22, "size": 46, "turn": 110.0, "aces": true,
 		"modules": ["1005", "5005", "2003", "3003", "7003", "9203"],
 		"dock": [180, 0],
@@ -209,6 +241,22 @@ const SHIPS := {
 
 ## Ships a pilot may refit to at a friendly starbase, in rank order.
 const REFIT_ORDER := ["Scout", "Destroyer", "Cruiser", "BattleCruiser", "Battleship", "Dreadnought", "Starbase"]
+## Civilian hulls the shipyard also sells: the supply ship and the trade ship.
+const CIVIL_HULLS := ["Freighter", "Trader"]
+
+
+## A hull's name as the shipyard lists it.
+static func hull_label(hull: String) -> String:
+	return {"Freighter": "Supply ship", "Trader": "Trade ship"}.get(hull, hull)
+
+
+## The hulls on a shipyard's list, warships first.
+static func yard_hulls() -> Array:
+	var out := []
+	for n in REFIT_ORDER:
+		if n != "Starbase":
+			out.append(n)
+	return out + CIVIL_HULLS
 
 # ---------------------------------------------------------------- ranks
 # name, level, active score, total score, total kills, duty
@@ -337,16 +385,17 @@ const RACE_PREF_TEMP := {0: 160, 1: 300, 2: 380, 3: 180}
 ## Colonists a hull's cabin holds, in millions.  Starbases never land.
 const COLONIST_CABIN := {
 	"Scout": 40, "Destroyer": 80, "Raider": 80, "Cruiser": 160,
-	"BattleCruiser": 200, "Battleship": 250, "Dreadnought": 400, "Freighter": 800, "Starbase": 0,
+	"BattleCruiser": 200, "Battleship": 250, "Dreadnought": 400, "Freighter": 800, "Trader": 100, "Starbase": 0,
 }
 ## Cargo a hull's hold carries, in units of a resource (the Resources
 ## update).  The Freighter is the supply ship; starbases hold stock of their
 ## own later, not in a hold.
 const CARGO_HOLD := {
 	"Scout": 10, "Destroyer": 20, "Raider": 30, "Cruiser": 40,
-	"BattleCruiser": 60, "Battleship": 80, "Dreadnought": 120, "Freighter": 300, "Starbase": 0,
-	# a station's hold is its stockpile
+	"BattleCruiser": 60, "Battleship": 80, "Dreadnought": 120, "Freighter": 300, "Trader": 400, "Starbase": 0,
+	# a station's hold is its stockpile; a trade station's is its market
 	"MiningStation": 300, "GasSkimmer": 300, "Refinery": 400, "SupplyDepot": 1500, "SensorStation": 0, "DefenseStation": 0,
+	"TradeStation": 2000, "Shipyard": 600,
 }
 
 ## Stations built from kits (the Resources update, phase 3).  cost: what
@@ -367,8 +416,13 @@ const STATIONS := {
 		"does": "shows your empire every ship within 6000 px"},
 	"DefenseStation": {"label": "Defensive station", "cost": {"metals": 30, "alloys": 8}, "build": 120.0, "kit": 350, "where": "any",
 		"does": "a turret platform guarding a world, a mine or a lane"},
+	# phase 4: trade and shipyards
+	"TradeStation": {"label": "Trade station", "cost": {"metals": 40, "alloys": 10}, "build": 180.0, "kit": 400, "where": "any",
+		"does": "a market for every resource; you take 10% of foreign trade"},
+	"Shipyard": {"label": "Shipyard", "cost": {"metals": 60, "alloys": 20, "exotics": 5}, "build": 240.0, "kit": 500, "where": "any",
+		"does": "refits (U), sells kits and builds ships away from home"},
 }
-const STATION_ORDER := ["MiningStation", "GasSkimmer", "Refinery", "SupplyDepot", "SensorStation", "DefenseStation"]
+const STATION_ORDER := ["MiningStation", "GasSkimmer", "Refinery", "SupplyDepot", "SensorStation", "DefenseStation", "TradeStation", "Shipyard"]
 ## The rank that may buy and deploy station kits (Lt. Cmdr.).
 const KIT_RANK := 5
 
@@ -394,11 +448,35 @@ static func frame_design(key: String) -> Dictionary:
 	return d
 
 
+## Ships a pilot can order at a starbase or shipyard (the Resources update,
+## phase 4): credits, seconds to build, the rank that may order it, and the
+## yard's materials (HULL_MATERIALS).  Supply and trade ships join the
+## empire's haulers; a warship flies as the buyer's wingman.
+const ORDERS := {
+	"Freighter": {"label": "Supply ship", "credits": 400, "build": 40.0, "rank": 5, "does": "hauls your empire's goods"},
+	"Trader": {"label": "Trade ship", "credits": 600, "build": 45.0, "rank": 5, "does": "trades your colonies' surplus at the markets"},
+	"Destroyer": {"label": "Destroyer escort", "credits": 900, "build": 50.0, "rank": 7, "does": "flies as your wingman"},
+	"Cruiser": {"label": "Cruiser escort", "credits": 2200, "build": 75.0, "rank": 7, "does": "flies as your wingman"},
+}
+const ORDER_LIST := ["Freighter", "Trader", "Destroyer", "Cruiser"]
+## Supply and trade ships an empire may have on order or flying beyond its
+## own computer haulers.
+const ORDERED_HAULERS := 4
+## What a shipyard station keeps in stock for building hulls; haulers bring
+## it up to this much of each, and are paid for it.
+const YARD_GOODS := {"metals": 120.0, "alloys": 120.0, "exotics": 40.0}
+
 ## Each empire's computer supply ships: [pilot, ship name].
 const SUPPLY_SHIPS := {
 	0: [["Gatherer", "Plenty"], ["Forager", "Harvest Moon"]],
 	1: [["Quartermaster", "Providence"], ["Purser", "Endeavour"]],
 	2: [["Tithe", "Tribute"], ["Toll", "Plunder"]],
+}
+## Each empire's computer trade ship: [pilot, ship name].
+const TRADE_SHIPS := {
+	0: ["Barterer", "Silk Road"],
+	1: ["Factor", "Clipper"],
+	2: ["Broker", "Spoils"],
 }
 ## Credits a unit of each resource is worth to a hauler who brings it where
 ## it is short (and the base price at trade stations later).

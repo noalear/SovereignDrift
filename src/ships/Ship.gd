@@ -169,6 +169,8 @@ var kit := ""                      # a station kit aboard (GameData.STATIONS key
 var building := false              # a frame: waiting for its materials, then the work
 var build_t := 0.0                 # seconds of work done on the frame
 var station_body: Planet = null    # the world a built station keeps station over
+var founder := ""                  # the pilot who deployed this station (a trade station pays them its fees)
+var orders: Array = []             # a yard's build queue: [hull, seconds left, buyer's pilot name]
 var art_model: Dictionary = {}     # the sprite model, rebuilt on refit
 var hull_race := -1                # whose shipyard built the hull (the painting); -1: race_id
 
@@ -1352,8 +1354,8 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 ## `sys_mult` and `focus` say how hard it is on the ship's systems (see
 ## ShipSystems.hit).
 func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_mult: float = 1.0, focus: String = "", crew_mult: float = 1.0) -> void:
-	if dead or invulnerable > 0.0:
-		return
+	if dead or invulnerable > 0.0 or race_id == GameData.NEUTRAL:
+		return                         # (the free port is under every empire's protection)
 	if land_scale < 0.5:
 		return                         # down in the atmosphere, out of the fight
 	if attacker is Ship and attacker != self:

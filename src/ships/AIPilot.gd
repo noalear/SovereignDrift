@@ -43,6 +43,8 @@ var haul_res := ""               # what the run is for
 var haul_to: Planet = null       # where the load goes
 var haul_frame: Ship = null      # or the station frame it is for
 var dock_at: Ship = null         # the station this run docks at (to fill a frame, or empty a mine)
+var trader := false              # a trade ship: sells the empire's surplus at the markets, buys what it is short of
+var haul_market: Ship = null     # the market a trade run sells at
 var duel := false                # a free-for-all: hunt around the arena, never go home to mend
 
 
@@ -104,7 +106,7 @@ func _think() -> void:
 			state = State.PATROL
 	# acquire
 	var tgt := ship.target
-	if tgt == null or not is_instance_valid(tgt) or (tgt is Ship and (tgt.dead or not tgt.visible_to(ship) or tgt.team() == ship.team())):
+	if tgt == null or not is_instance_valid(tgt) or (tgt is Ship and (tgt.dead or not tgt.visible_to(ship) or tgt.team() == ship.team() or tgt.race_id == GameData.NEUTRAL)):
 		tgt = null
 	elif tgt is Planet and (not tgt.is_colonised() or tgt.owner_race == ship.race_id or tgt.is_defenceless()):
 		tgt = null                      # knocked out: leave it for the colonists
@@ -195,7 +197,7 @@ func _think() -> void:
 ## else whatever comes within the leash.
 func _escort_target(current: Node2D) -> Node2D:
 	var lead: Node2D = escort.target
-	if lead is Ship and is_instance_valid(lead) and not lead.dead and lead.team() != ship.team() and lead.visible_to(ship) \
+	if lead is Ship and is_instance_valid(lead) and not lead.dead and lead.team() != ship.team() and lead.race_id != GameData.NEUTRAL and lead.visible_to(ship) \
 			and lead.global_position.distance_to(escort.global_position) < ESCORT_LEASH:
 		return lead
 	if current != null and current.global_position.distance_to(escort.global_position) < ESCORT_LEASH:
@@ -456,7 +458,10 @@ func _job_still_good() -> bool:
 		"load":
 			if haul_frame != null:
 				return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and _spare_for_frame(job_planet, haul_res) >= 1.0 \
-					and is_instance_valid(haul_frame) and not haul_frame.dead and haul_frame.building and world.port_room(haul_frame, haul_res) >= 0.5
+					and is_instance_valid(haul_frame) and world.supply_wants(haul_frame).get(haul_res, 0.0) >= 0.5
+			if haul_market != null:
+				return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and Economy.surplus(job_planet, haul_res) >= 5.0 \
+					and Economy.is_market(haul_market)
 			return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and Economy.surplus(job_planet, haul_res) >= 5.0 \
 				and haul_to != null and haul_to.is_colonised() and haul_to.owner_race == ship.race_id
 		"deliver":
@@ -467,16 +472,27 @@ func _job_still_good() -> bool:
 ## A docking run still worth flying: the frame still wants what we carry,
 ## the mine still has a load for us.
 func _dock_job_good() -> bool:
-	if dock_at == null or not is_instance_valid(dock_at) or dock_at.dead or dock_at.race_id != ship.race_id:
+	if dock_at == null or not is_instance_valid(dock_at) or dock_at.dead:
+		return false
+	if dock_at.race_id != ship.race_id and not Economy.is_market(dock_at):
 		return false
 	match job:
 		"supply":
-			if not dock_at.building:
-				return false
+			var wants: Dictionary = world.supply_wants(dock_at)
 			for k in ship.cargo:
-				if world.port_room(dock_at, k) >= 0.5:
+				if wants.get(k, 0.0) >= 0.5:
 					return true
 			return false
+		"sell":
+			if not Economy.is_market(dock_at) or ship.cargo_total() < 1.0:
+				return false
+			for k in ship.cargo:
+				if world.port_room(dock_at, k) >= 1.0:
+					return true
+			return false
+		"buy":
+			return Economy.is_market(dock_at) and dock_at.cargo.get(haul_res, 0.0) >= 5.0 and ship.cargo_space() >= 5.0 \
+				and ship.credits >= Economy.buy_price(dock_at, haul_res, ship) * 5.0
 		"collect":
 			return _collectable(dock_at) >= 10.0 and ship.cargo_space() >= 10.0
 	return false
@@ -575,6 +591,17 @@ func make_hauler() -> void:
 	aggression = 0.0
 
 
+## A trade ship: a hauler that works the markets.
+func make_trader() -> void:
+	make_hauler()
+	trader = true
+
+
+## The next run: a trade ship's or a supply ship's.
+func _plan_run() -> bool:
+	return _plan_trade() if trader else _plan_haul()
+
+
 func _think_hauler() -> void:
 	var now := Time.get_ticks_msec() / 1000.0
 	var foe: Ship = ship.last_attacker as Ship if is_instance_valid(ship.last_attacker) else null
@@ -601,11 +628,11 @@ func _think_hauler() -> void:
 			if dock_at != null:
 				_haul_docked()
 			elif not _job_still_good():
-				state = State.FERRY if _plan_haul() else State.PATROL
+				state = State.FERRY if _plan_run() else State.PATROL
 		_:
 			if hurt and home != null and ship.cargo_total() < 1.0:
 				state = State.RETREAT
-			elif _plan_haul():
+			elif _plan_run():
 				state = State.FERRY
 			else:
 				state = State.PATROL
@@ -626,6 +653,7 @@ func _plan_haul() -> bool:
 	job = ""
 	dock_at = null
 	haul_frame = null
+	haul_market = null
 	ground_order = false
 	var pos := ship.global_position
 	var ours := []
@@ -636,8 +664,8 @@ func _plan_haul() -> bool:
 	var producers := []
 	for o in world.ships:
 		if o.is_station and not o.dead and o.race_id == ship.race_id:
-			if o.building and o.cargo_total() < o.cargo_max - 0.5:
-				frames.append(o)
+			if not world.supply_wants(o).is_empty():
+				frames.append(o)          # a frame, or a shipyard short of hull materials
 			elif _collectable(o) > 0.0:
 				producers.append(o)
 	var best := 0.0
@@ -645,9 +673,10 @@ func _plan_haul() -> bool:
 		# a frame that needs what we carry comes first: it pays full price
 		for f in frames:
 			var n := 0.0
+			var wants: Dictionary = world.supply_wants(f)
 			for k in ship.cargo:
-				n += minf(ship.cargo[k], world.port_room(f, k)) * GameData.RESOURCE_PRICE.get(k, 1.0)
-			var v := n * FRAME_PRIORITY / (1500.0 + pos.distance_to(f.global_position))
+				n += minf(ship.cargo[k], wants.get(k, 0.0)) * GameData.RESOURCE_PRICE.get(k, 1.0)
+			var v := n * _priority(f) / (1500.0 + pos.distance_to(f.global_position))
 			if n >= 1.0 and v > best:
 				best = v
 				dock_at = f
@@ -689,8 +718,9 @@ func _plan_haul() -> bool:
 				taken[[oa.dock_at, oa.job]] = true
 	# materials for a frame, from the nearest colony that can spare them
 	for f in frames:
-		for k in GameData.STATIONS[f.design_name]["cost"]:
-			var need: float = world.port_room(f, k)
+		var wants: Dictionary = world.supply_wants(f)
+		for k in wants:
+			var need: float = wants[k]
 			if need < 1.0 or taken.has([f, k]) or taken.has([f, "supply"]):
 				continue
 			for src in ours:
@@ -698,7 +728,7 @@ func _plan_haul() -> bool:
 				if amount < minf(need, 5.0):
 					continue
 				var trip: float = 1500.0 + pos.distance_to(src.global_position) + src.global_position.distance_to(f.global_position)
-				var v: float = amount * GameData.RESOURCE_PRICE.get(k, 1.0) * FRAME_PRIORITY / trip
+				var v: float = amount * GameData.RESOURCE_PRICE.get(k, 1.0) * _priority(f) / trip
 				if v > best:
 					best = v
 					job_planet = src
@@ -749,6 +779,92 @@ func _plan_haul() -> bool:
 	return job_planet != null
 
 
+## The next trade run.  With goods aboard: the market that pays best for
+## them (or a colony that wants them, if no market does).  Empty: a
+## colony's surplus to the market that pays most for it, or goods a market
+## sells cheap that one of our colonies is short of.  Trade ships use their
+## own empire's markets and the free port.
+func _plan_trade() -> bool:
+	plan_timer -= 0.35
+	if plan_timer > 0.0:
+		return false
+	plan_timer = 3.0
+	job_planet = null
+	job = ""
+	dock_at = null
+	haul_frame = null
+	haul_market = null
+	haul_to = null
+	ground_order = false
+	var markets := []
+	for o in world.ships:
+		if Economy.is_market(o) and (o.race_id == ship.race_id or o.race_id == GameData.NEUTRAL):
+			markets.append(o)
+	var pos := ship.global_position
+	var best := 0.0
+	if ship.cargo_total() >= 1.0:
+		for m in markets:
+			if m == ship.cargo_origin:
+				continue
+			var v := 0.0
+			for k in ship.cargo:
+				v += Economy.sell_price(m, k, ship) * minf(ship.cargo[k], world.port_room(m, k))
+			v /= 1500.0 + pos.distance_to(m.global_position)
+			if v > best:
+				best = v
+				dock_at = m
+				job = "sell"
+		if dock_at != null:
+			return true
+		plan_timer = 0.0
+		return _plan_haul()          # nowhere to sell it: to a colony, like a supply ship
+	var ours := []
+	for p in world.planets:
+		if p.is_colonised() and p.owner_race == ship.race_id and p.has_surface() and p.under_attack <= 0.0:
+			ours.append(p)
+	for src in ours:
+		for k in Economy.RESOURCES:
+			var spare := minf(Economy.surplus(src, k), ship.cargo_max)
+			if spare < 30.0:
+				continue
+			for m in markets:
+				var amount := minf(spare, world.port_room(m, k))
+				var trip: float = 1500.0 + pos.distance_to(src.global_position) + src.global_position.distance_to(m.global_position)
+				var v: float = Economy.sell_price(m, k, ship) * amount / trip
+				if amount >= 30.0 and v > best:
+					best = v
+					job_planet = src
+					job = "load"
+					haul_res = k
+					haul_market = m
+	for m in markets:
+		for k in Economy.RESOURCES:
+			var have: float = m.cargo.get(k, 0.0)
+			var price := Economy.buy_price(m, k, ship)
+			if have < 40.0 or price > GameData.RESOURCE_PRICE.get(k, 1.0):
+				continue           # only what sells cheap
+			for dst in ours:
+				var want := Economy.need(dst, k)
+				if want < 0.4:
+					continue
+				var amount := minf(minf(have - 10.0, Economy.wanted(dst, k) + 20.0), minf(ship.cargo_max, ship.credits / price))
+				if amount < 20.0:
+					continue
+				var trip: float = 1500.0 + pos.distance_to(m.global_position) + m.global_position.distance_to(dst.global_position)
+				var v: float = amount * want * GameData.RESOURCE_PRICE.get(k, 1.0) * 0.8 / trip
+				if v > best:
+					best = v
+					job_planet = null
+					job = "buy"
+					dock_at = m
+					haul_res = k
+					haul_to = dst
+	if dock_at != null:
+		haul_market = null
+		return true
+	return job_planet != null
+
+
 ## On the ground: order the loading or unloading once, wait for the
 ## spaceport, then lift off for the delivery or the next run.
 func _haul_on_ground() -> void:
@@ -756,11 +872,25 @@ func _haul_on_ground() -> void:
 	if not ground_order:
 		ground_order = true
 		if job == "load" and here == job_planet and haul_frame != null and is_instance_valid(haul_frame):
-			# everything the frame still needs that this colony can spare
+			# everything the frame (or yard) still needs that this colony can spare
 			var room := ship.cargo_space()
-			for k in GameData.STATIONS[haul_frame.design_name]["cost"]:
-				var n := floorf(minf(minf(world.port_room(haul_frame, k), _spare_for_frame(here, k)), room))
+			var wants: Dictionary = world.supply_wants(haul_frame)
+			for k in wants:
+				var n := floorf(minf(minf(wants[k], _spare_for_frame(here, k)), room))
 				if n >= 1.0:
+					world.cargo_command(ship, k, n)
+					room -= n
+			return
+		if job == "load" and here == job_planet and haul_market != null:
+			# the run's resource first, then any other surplus the market pays well for
+			var room := ship.cargo_space()
+			var order: Array = [haul_res]
+			for k in Economy.RESOURCES:
+				if k != haul_res and Economy.is_market(haul_market) and Economy.sell_price(haul_market, k, ship) >= GameData.RESOURCE_PRICE.get(k, 1.0) * 0.8:
+					order.append(k)
+			for k in order:
+				var n := floorf(minf(Economy.surplus(here, k), room))
+				if n >= 10.0:
 					world.cargo_command(ship, k, n)
 					room -= n
 			return
@@ -794,6 +924,11 @@ func _haul_on_ground() -> void:
 		dock_at = haul_frame
 		job_planet = null
 		state = State.FERRY
+	elif job == "load" and ship.cargo_total() >= 1.0 and Economy.is_market(haul_market):
+		job = "sell"
+		dock_at = haul_market
+		job_planet = null
+		state = State.FERRY
 	elif job == "load" and ship.cargo_total() >= 1.0 and haul_to != null:
 		job = "deliver"
 		job_planet = haul_to
@@ -803,11 +938,17 @@ func _haul_on_ground() -> void:
 		job_planet = null
 		job = ""
 		plan_timer = 0.0
-		state = State.FERRY if _plan_haul() else State.PATROL
+		state = State.FERRY if _plan_run() else State.PATROL
 
 
-## Frame runs are worth this many times a colony run of the same goods.
+## Frame runs are worth this many times a colony run of the same goods,
+## and runs to stock a shipyard this many.
 const FRAME_PRIORITY := 4.0
+const YARD_PRIORITY := 2.0
+
+
+static func _priority(st: Ship) -> float:
+	return FRAME_PRIORITY if st.building else YARD_PRIORITY
 ## A station's output is worth fetching once this much has piled up.
 const COLLECT_AT := 60.0
 
@@ -842,7 +983,7 @@ func _fly_to_dock(delta: float) -> void:
 func _haul_docked() -> void:
 	if not _dock_job_good() and ship.cargo_orders.is_empty():
 		dock_at = null
-		state = State.FERRY if _plan_haul() else State.PATROL
+		state = State.FERRY if _plan_run() else State.PATROL
 		return
 	if world.cargo_port(ship) != dock_at:
 		ground_order = false
@@ -855,17 +996,35 @@ func _haul_docked() -> void:
 				world.cargo_command(ship, "alloys", 1e6)
 			else:
 				world.cargo_command(ship, "all", 1.0)
+		elif job == "buy":
+			var n := floorf(minf(minf(ship.cargo_space(), dock_at.cargo.get(haul_res, 0.0) - 10.0), Economy.wanted(haul_to, haul_res) + 20.0))
+			world.cargo_command(ship, haul_res, maxf(n, 1.0))
+		elif job == "supply":
+			# only what the station wants: a shipyard takes its hull materials
+			var wants: Dictionary = world.supply_wants(dock_at)
+			for k in ship.cargo.keys():
+				if wants.get(k, 0.0) >= 0.5:
+					world.cargo_command(ship, k, -minf(ship.cargo[k], wants[k]))
 		else:
 			world.cargo_command(ship, "all", -1.0)
 		return
 	ground_time += 0.35
 	if not ship.cargo_orders.is_empty() or ground_time < 1.0:
 		return
+	if job == "buy" and ship.cargo_total() >= 1.0 and haul_to != null:
+		# bought: on to the colony that was short of it
+		dock_at = null
+		job = "deliver"
+		job_planet = haul_to
+		last_drop = null
+		state = State.FERRY
+		return
 	dock_at = null
 	haul_frame = null
+	haul_market = null
 	job = ""
 	plan_timer = 0.0
-	state = State.FERRY if _plan_haul() else State.PATROL
+	state = State.FERRY if _plan_run() else State.PATROL
 
 
 ## An enemy colony nearby whose defences still stand.
