@@ -421,10 +421,11 @@ func _build_body() -> void:
 func _build_weapons() -> void:
 	weapons.clear()
 	has_turret = false
+	# shots leave from the turret as drawn on the painted hull
+	var spots := ShipArt.weapon_spots(design["name"], hull_race, size, design["weapons"])
 	for w in design["weapons"]:
 		var m: Dictionary = GameData.MODULES[w[0]]
-		# shots leave from the turret as drawn on the painted hull
-		var spot := ShipArt.weapon_spot(design["name"], hull_race, size, w)
+		var spot: Vector2 = spots[weapons.size()]
 		var entry := {
 			"id": w[0], "name": m["name"], "kind": m["func"],
 			"mount_angle": spot.angle(), "mount_radius": spot.length(),

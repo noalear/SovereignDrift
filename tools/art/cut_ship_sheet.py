@@ -1,5 +1,7 @@
 # Cut a ChatGPT reference sheet of six hulls (Scout..Dreadnought, nose
-# right, on black, names along the bottom) into transparent PNGs.
+# right, on black, names along the bottom) into transparent PNGs.  Ships
+# stacked one above the other are read top to bottom instead (the hull
+# sheets ref-hulls-<empire>-small/large.png: pass label_top 1.0).
 #   python3 tools/art/cut_ship_sheet.py <sheet.png> <out_dir> [names] [label_top]
 # names: comma-separated, left to right (default the six hulls); label_top:
 # the fraction of the height where the labels start (default 0.82).  The
@@ -26,6 +28,11 @@ sizes = ndimage.sum(np.ones_like(lab), lab, index=range(1, n + 1))
 keep = sorted(range(1, n + 1), key=lambda i: -sizes[i - 1])[:len(names)]
 boxes = ndimage.find_objects(lab)
 blobs = sorted([(boxes[i - 1][1].start, boxes[i - 1][1].stop, i) for i in keep])
+# a stacked sheet: the ships overlap left to right, so order them by height
+ys = sorted([(boxes[i - 1][0].start, i) for i in keep])
+stacked = any(b[0] < a[1] - 10 for a, b in zip(blobs, blobs[1:]))
+if stacked:
+    blobs = [(boxes[i - 1][1].start, boxes[i - 1][1].stop, i) for _, i in ys]
 merged = [(x0, x1) for x0, x1, _ in blobs]
 labels_kept = [i for _, _, i in blobs]
 print("runs", merged)
