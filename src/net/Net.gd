@@ -11,7 +11,7 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 16
+const PROTOCOL := 17
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -421,6 +421,8 @@ func _rpc_command(cmd: String) -> void:
 			world.recruit_command(s, cmd.get_slice(":", 1))
 		_ when cmd.begins_with("troops:"):
 			world.troop_command(s, cmd.get_slice(":", 1), cmd.get_slice(":", 2))
+		_ when cmd.begins_with("job:"):
+			world.job_command(s, int(cmd.get_slice(":", 1)))
 
 
 func _apply_remote_inputs() -> void:
@@ -1029,6 +1031,47 @@ func _rpc_stations(rows: Array) -> void:
 			s.rotation = rot
 
 
+## Convoys and their escorts, for the system map: [[hauler id, escort ids...]].
+func _convoy_state() -> Array:
+	var out := []
+	for g in world.governors.values():
+		for h in g.convoys:
+			if not is_instance_valid(h):
+				continue
+			var row := [h.net_id]
+			for e in g.convoys[h]["guards"]:
+				if is_instance_valid(e):
+					row.append(e.net_id)
+			out.append(row)
+	return out
+
+
+@rpc("authority", "reliable")
+func _rpc_convoys(rows: Array) -> void:
+	var on := {}
+	for row in rows:
+		var h: Node = ships_by_id.get(row[0], null)
+		if h == null or not is_instance_valid(h):
+			continue
+		on[h] = true
+		for i in range(1, row.size()):
+			var e: Node = ships_by_id.get(row[i], null)
+			if e != null and is_instance_valid(e):
+				on[e] = h
+	for id in ships_by_id:
+		var s: Node = ships_by_id[id]
+		if is_instance_valid(s):
+			s.convoy = on.get(s, null) is bool
+			s.guarding = on.get(s, null) if on.get(s, null) is Node else null
+
+
+## The seated pilot's empire's job board (Governor.pack_board rows).
+@rpc("authority", "reliable")
+func _rpc_jobs(rows: Array) -> void:
+	if world != null:
+		world.job_board = rows
+
+
 @rpc("authority", "reliable")
 func _rpc_cabin(colonists: float, transfer: int, troops: Dictionary) -> void:
 	if world != null and world.player != null:
@@ -1215,7 +1258,10 @@ static func _clean_offer(offer: Variant) -> Dictionary:
 				o["blueprints"].append(str(b))
 		var cargo: Variant = offer.get("cargo", {})
 		if cargo is Dictionary:
-			o["cargo"] = cargo   # reserved for carried population
+			# resources from the cargo hold, whole units
+			for k in cargo:
+				if Economy.RESOURCES.has(str(k)) and int(cargo[k]) > 0:
+					o["cargo"][str(k)] = int(cargo[k])
 	return o
 
 
@@ -1229,11 +1275,14 @@ func _offer_fits(s: Node, o: Dictionary) -> bool:
 	for b in o["blueprints"]:
 		if not s.blueprints.has(b):
 			return false
+	for k in o["cargo"]:
+		if o["cargo"][k] > s.cargo.get(k, 0.0) + 0.01:
+			return false
 	return true
 
 
 func _purse_of(s: Node) -> Dictionary:
-	return {"credits": s.credits, "hold": s.hold.duplicate(), "blueprints": s.blueprints.duplicate()}
+	return {"credits": s.credits, "hold": s.hold.duplicate(), "blueprints": s.blueprints.duplicate(), "cargo": s.cargo.duplicate()}
 
 
 func _park(s: Node, on: bool) -> void:
@@ -1367,6 +1416,10 @@ func _take(s: Node, o: Dictionary) -> Dictionary:
 	for i in idx:
 		out["parts"].append(s.hold[i])
 		s.hold.remove_at(i)
+	for k in o["cargo"]:
+		s.cargo[k] = s.cargo.get(k, 0.0) - o["cargo"][k]
+		if s.cargo[k] < 0.01:
+			s.cargo.erase(k)
 	return out
 
 
@@ -1381,6 +1434,15 @@ func _give(s: Node, goods: Dictionary) -> void:
 	for b in goods["blueprints"]:
 		if not s.blueprints.has(b):
 			s.blueprints.append(b)
+	# goods for the hold: what does not fit is left floating in crates
+	for k in goods.get("cargo", {}):
+		var n: float = goods["cargo"][k]
+		var fits := minf(n, maxf(s.cargo_space(), 0.0))
+		if fits > 0.0:
+			s.cargo[k] = s.cargo.get(k, 0.0) + fits
+		if n - fits >= 1.0:
+			world.spawn_powerup("rs:%s:%d" % [k, int(n - fits)], s.global_position + Vector2(randf_range(-40, 40), randf_range(-40, 40)), s.velocity)
+			world.notify(s, "Hold full: %d %s left floating beside you." % [int(n - fits), Economy.NAMES[k]])
 
 
 func _close_trade(t: Dictionary, reason: String) -> void:
@@ -1452,6 +1514,7 @@ func _physics_process(delta: float) -> void:
 		_rpc_colonies.rpc(_colony_state())
 		_rpc_economy.rpc(world.economy.pack())
 		_rpc_stations.rpc(_station_state())
+		_rpc_convoys.rpc(_convoy_state())
 		if world.duel_rules != null:
 			_rpc_duel.rpc(world.duel_rules.pack())
 		for peer_id in seats:
@@ -1460,3 +1523,5 @@ func _physics_process(delta: float) -> void:
 				_rpc_purse.rpc_id(peer_id, s.credits, s.hold, s.blueprints)
 				_rpc_cabin.rpc_id(peer_id, s.colonists, s.transfer, s.troops)
 				_rpc_cargo.rpc_id(peer_id, s.cargo, s.cargo_orders, s.kit)
+				var gov: Governor = world.governors.get(s.race_id, null)
+				_rpc_jobs.rpc_id(peer_id, gov.pack_board() if gov != null else [])

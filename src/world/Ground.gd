@@ -64,11 +64,9 @@ const FARM_FOOD := 8.0
 ## share on top of the Metals output.
 const INDUSTRY_REFINE := 4.0
 const INDUSTRY_METALS := 0.5
-## Until the empire governors (phase 6), every barracks of the three
-## empires keeps recruiting infantry up to this much strength, checking
-## every GOVERN_EVERY seconds.
+## The empire governors (Governor.gd) keep every barracks recruiting up
+## to this much strength, half as much again where the enemy comes.
 const GARRISON_TARGET := {"Outpost": 2.0, "Minor": 4.0, "Major": 7.0}
-const GOVERN_EVERY := 20.0
 ## What a computer drop ship leaves behind when it takes troops away: at
 ## least this much, and half the world's garrison target.
 const GARRISON_KEEP := 2.0
@@ -78,7 +76,6 @@ const MARINE_BONUS := 0.5
 
 var world: Node
 var _second := 0.0
-var _govern := GOVERN_EVERY
 
 
 func _init(p_world: Node = null) -> void:
@@ -344,7 +341,7 @@ static func _defenders_text(p: Planet) -> String:
 # ------------------------------------------------------------ the host
 
 ## Every host physics frame: battles, flak, the queues; upkeep once a
-## second; the stand-in recruiting every GOVERN_EVERY.
+## second.
 func tick(delta: float) -> void:
 	for p in world.planets:
 		if not p.is_colonised():
@@ -363,12 +360,6 @@ func tick(delta: float) -> void:
 		for p in world.planets:
 			if p.is_colonised():
 				_upkeep(p, dt)
-	_govern -= delta
-	if _govern <= 0.0:
-		_govern = GOVERN_EVERY
-		for p in world.planets:
-			if p.is_colonised() and p.owner_race <= 2:
-				_auto_recruit(p)
 
 
 ## Warships of `race` over the battle: [how many, their support strength].
@@ -513,16 +504,24 @@ func _queues(p: Planet, delta: float) -> void:
 
 ## The world feeds and fuels what it has; a shortfall fades the shield
 ## (Planet._process) and, after a while, costs a unit.
-func _upkeep(p: Planet, dt: float) -> void:
+## What a world's buildings and garrison eat a minute.
+static func upkeep_rate(p: Planet) -> Dictionary:
 	var need := {}
 	for key in p.buildings:
 		var up: Dictionary = GameData.BUILDINGS[key]["upkeep"]
 		for k in up:
-			need[k] = need.get(k, 0.0) + float(up[k]) * dt / 60.0
+			need[k] = need.get(k, 0.0) + float(up[k])
 	for u in p.garrison:
 		var up: Dictionary = GameData.UNITS[u]["upkeep"]
 		for k in up:
-			need[k] = need.get(k, 0.0) + float(up[k]) * p.garrison[u] * dt / 60.0
+			need[k] = need.get(k, 0.0) + float(up[k]) * p.garrison[u]
+	return need
+
+
+func _upkeep(p: Planet, dt: float) -> void:
+	var need := upkeep_rate(p)
+	for k in need:
+		need[k] *= dt / 60.0
 	var short := {}
 	for k in need:
 		var have: float = p.stock.get(k, 0.0)
@@ -553,20 +552,6 @@ func _upkeep(p: Planet, dt: float) -> void:
 			Net.host_colony_changed(p)
 	if was_short != (short.has("fuel") or short.has("food")):
 		Net.host_colony_changed(p)
-
-
-## The stand-in for the empire governors: a barracks below its target
-## trains infantry, and armour when the world is rich enough for it.
-func _auto_recruit(p: Planet) -> void:
-	if not p.recruit_q.is_empty() or not p.buildings.has("barracks"):
-		return
-	if strength(p.garrison) >= float(GARRISON_TARGET.get(p.colony_design, 2.0)):
-		return
-	var unit := "infantry"
-	if p.stock.get("metals", 0.0) >= 40.0 and p.stock.get("fuel", 0.0) >= 20.0 and p.stock.get("alloys", 0.0) >= 10.0 and randf() < 0.35:
-		unit = "armour"
-	if recruit_refusal(null, p, unit) == "":
-		queue_recruit(p, unit)
 
 
 ## A computer drop ship's share of a garrison: what is over the keep.

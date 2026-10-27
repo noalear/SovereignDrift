@@ -267,7 +267,10 @@ static func yard_hulls() -> Array:
 	return out + CIVIL_HULLS
 
 # ---------------------------------------------------------------- ranks
-# name, level, active score, total score, total kills, duty
+# name, level, active score, total score, total kills, duty: what a
+# computer pilot of that rank does (colonize: ferry colonists; attack:
+# knock out enemy colonies; escort: guard convoys; raid: hunt enemy
+# supply ships; protect: hold the starbase)
 
 const RANKS := [
 	{"name": "Cadet", "score": 0, "kills": 0, "duty": "colonize"},
@@ -275,13 +278,13 @@ const RANKS := [
 	{"name": "2nd Lt.", "score": 25, "kills": 10, "duty": "colonize"},
 	{"name": "1st Lt.", "score": 50, "kills": 20, "duty": "attack"},
 	{"name": "Sr. Lt.", "score": 100, "kills": 40, "duty": "colonize"},
-	{"name": "Lt. Cmdr.", "score": 250, "kills": 80, "duty": "harass"},
-	{"name": "Cmdr.", "score": 500, "kills": 100, "duty": "colonize"},
+	{"name": "Lt. Cmdr.", "score": 250, "kills": 80, "duty": "escort"},
+	{"name": "Cmdr.", "score": 500, "kills": 100, "duty": "escort"},
 	{"name": "Captain", "score": 1000, "kills": 150, "duty": "attack"},
-	{"name": "Sr. Captain", "score": 2500, "kills": 200, "duty": "harass"},
-	{"name": "Fleet Captain", "score": 5000, "kills": 400, "duty": "colonize"},
+	{"name": "Sr. Captain", "score": 2500, "kills": 200, "duty": "raid"},
+	{"name": "Fleet Captain", "score": 5000, "kills": 400, "duty": "raid"},
 	{"name": "Commodore", "score": 10000, "kills": 1000, "duty": "attack"},
-	{"name": "Rear Admiral", "score": 25000, "kills": 2000, "duty": "harass"},
+	{"name": "Rear Admiral", "score": 25000, "kills": 2000, "duty": "raid"},
 	{"name": "Vice Admiral", "score": 50000, "kills": 3000, "duty": "colonize"},
 	{"name": "Admiral", "score": 100000, "kills": 5000, "duty": "attack"},
 	{"name": "Fleet Admiral", "score": 250000, "kills": 8000, "duty": "protect"},

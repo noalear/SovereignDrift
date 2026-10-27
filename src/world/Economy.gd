@@ -210,9 +210,19 @@ static func production(p: Planet) -> Dictionary:
 		out[k] = rate
 	var refine := refine_rate(p)
 	if refine > 0.0:
-		var can := minf(p.stock.get("metals", 0.0) / 2.0, p.stock.get("fuel", 0.0))
+		var can := minf(p.stock.get("metals", 0.0) / 2.0, refinable_fuel(p))
 		out["alloys"] = refine if can >= 1.0 else 0.0
 	return out
+
+
+## Fuel the refinery may burn: what is over FUEL_RESERVE minutes of the
+## world's own upkeep (its shield and armour come first).
+static func refinable_fuel(p: Planet) -> float:
+	return maxf(p.stock.get("fuel", 0.0) - Ground.upkeep_rate(p).get("fuel", 0.0) * FUEL_RESERVE, 0.0)
+
+
+## Minutes of Fuel upkeep a refinery leaves in the stockpile.
+const FUEL_RESERVE := 20.0
 
 
 ## A fresh game: every colony starts with a few minutes of its own output.
@@ -257,7 +267,7 @@ static func step(p: Planet, dt: float) -> void:
 			p.stock[k] = minf(have + rates[k] * dt / 60.0, c)
 	if rates["alloys"] > 0.0 and p.stock.get("alloys", 0.0) < c:
 		var n := minf(rates["alloys"] * dt / 60.0, c - p.stock.get("alloys", 0.0))
-		n = minf(n, minf(p.stock["metals"] / 2.0, p.stock["fuel"]))
+		n = minf(n, minf(p.stock["metals"] / 2.0, refinable_fuel(p)))
 		p.stock["metals"] -= n * 2.0
 		p.stock["fuel"] -= n
 		p.stock["alloys"] = p.stock.get("alloys", 0.0) + n

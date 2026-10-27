@@ -67,6 +67,8 @@ var round_rules: Round = null     # the Conquest rules; the host runs them
 var capture: Capture = null       # boarding and prizes; the host runs them
 var economy: Economy = null       # resources and stockpiles; the host runs them
 var ground: Ground = null         # planetary buildings, troops and ground battles; the host runs them
+var governors := {}               # race -> Governor: each empire's economy, convoys and job board (host)
+var job_board: Array = []         # a client's copy of its empire's board (Governor.pack_board rows)
 var duel := false                # an online free-for-all (Duel); Main sets it on the host
 var duel_rules: Duel = null       # its rules; the host runs them, a client's mirror comes from Net
 var practice := false            # Practice duel: you, your starbase, one pirate at a time
@@ -122,6 +124,8 @@ func _ready() -> void:
 	if not Net.is_client():
 		economy.seed_stocks()
 		ground.seed_all()
+		for race_id in [0, 1, 2]:
+			governors[race_id] = Governor.new(self, race_id)
 	_spawn_rocks()
 	if Net.is_client():
 		# the ships come from the host, and so does the round: this Round
@@ -649,6 +653,8 @@ func _physics_process(delta: float) -> void:
 	elif not practice:
 		economy.tick(delta)
 		ground.tick(delta)
+		for g in governors.values():
+			g.tick(delta)
 	_respawns()
 	_score_planets(delta)
 	if campaign and not game_over:
@@ -1925,6 +1931,9 @@ func _move_cargo(s: Ship, port, delta: float) -> void:
 				else:
 					s.set_meta("cargo_pay", float(s.get_meta("cargo_pay", 0.0)) + cargo_pay(port, s.cargo_origin, k, n))
 				s.set_meta("cargo_moved", float(s.get_meta("cargo_moved", 0.0)) + n)
+				var by: Dictionary = s.get_meta("cargo_moved_by", {})
+				by[k] = float(by.get(k, 0.0)) + n
+				s.set_meta("cargo_moved_by", by)
 				s.cargo[k] -= n
 				store[k] = store.get(k, 0.0) + n
 				s.cargo_orders[k] = want + n
@@ -1956,8 +1965,11 @@ func _settle_cargo(s: Ship) -> void:
 	var cost: float = s.get_meta("trade_cost", 0.0)
 	var fee := int(s.get_meta("trade_fee", 0.0))
 	var broke: bool = s.get_meta("trade_broke", false)
-	for m in ["cargo_moved", "cargo_pay", "cargo_port", "trade_owed", "trade_bought", "trade_cost", "trade_fee", "trade_broke"]:
+	var moved_by: Dictionary = s.get_meta("cargo_moved_by", {})
+	for m in ["cargo_moved", "cargo_moved_by", "cargo_pay", "cargo_port", "trade_owed", "trade_bought", "trade_cost", "trade_fee", "trade_broke"]:
 		s.remove_meta(m)
+	if moved > 0.0 and port != null and governors.has(s.race_id):
+		governors[s.race_id].delivered(s, port, moved_by)
 	if port is Ship and Economy.is_market(port):
 		_settle_trade(s, port, moved, pay, bought, cost, fee, broke)
 		return
@@ -2383,6 +2395,55 @@ func finish_station(s: Ship) -> void:
 	Net.host_refit(s)
 	Sfx.play("dock", s.global_position, 0.8)
 	notify_all("The %s %s is complete." % [GameData.race(s.race_id)["adj"], s.ship_name], s.race_color())
+
+
+# -------------------------------------------------------- the job board
+
+## Take a job off your empire's board (id 0: drop the one you hold).  One
+## job at a time; taking another drops the first.
+func job_command(s: Ship, id: int) -> void:
+	if Net.is_client():
+		Net.client_command("job:%d" % id)
+		return
+	var gov: Governor = governors.get(s.race_id, null)
+	if gov == null or s.dead:
+		return
+	var held := gov.job_of(s)
+	if id == 0 or (not held.is_empty() and held["id"] == id):
+		if not held.is_empty():
+			held["taken"] = null
+			notify(s, "Job dropped: %s." % gov.job_text(held))
+		return
+	var j := gov.job_by_id(id)
+	var why := job_refusal(s, j)
+	if why != "":
+		notify(s, why)
+		return
+	if not held.is_empty():
+		held["taken"] = null
+	j["taken"] = s
+	j["since"] = elapsed
+	var nav := Governor.job_nav(j)
+	if nav != null:
+		s.nav_target = nav
+	if j["kind"] == "haul":
+		notify(s, "Job taken: %s. It pays %d credits on delivery, over the usual pay. Nav set to %s." % [gov.job_text(j), j["pay"], port_name(j["from"])])
+	else:
+		notify(s, "Job taken: %s. Stay within %d of it until it arrives for %d credits. Nav set to %s, where it is bound; the map (Tab) shows the convoy." % [gov.job_text(j), int(Governor.ESCORT_RANGE), j["pay"], nav.body_name if nav != null else "its destination"])
+
+
+static func job_refusal(s: Ship, j: Dictionary) -> String:
+	if j.is_empty():
+		return "That job is gone."
+	if j["race"] != s.race_id:
+		return "That is another empire's job."
+	if j["taken"] != null and j["taken"] != s and is_instance_valid(j["taken"]):
+		return "%s already took that job." % j["taken"].pilot_name
+	if j["kind"] == "haul" and s.cargo_max < 20.0:
+		return "A haul job needs a cargo hold: fly a Freighter or a bigger hull."
+	if j["kind"] == "escort" and s.weapons.is_empty():
+		return "An escort needs guns."
+	return ""
 
 
 # -------------------------------------------------------- the ground war
