@@ -9,11 +9,12 @@
 ## the garrisons to enemy worlds whose planetary shields are down.  Pilots
 ## on escort duty guard the empire's convoys when its governor asks;
 ## pilots on raid duty (and the pirate) hunt enemy supply ships, lone ones
-## first, and board them for their cargo.
+## first, and board them for their cargo.  Supply ships fly round enemy
+## colonies' guns and run for shelter when an enemy warship comes near.
 class_name AIPilot
 extends Node
 
-enum State { PATROL, ATTACK, EVADE, RETREAT, ESCORT, BOARD, FERRY }
+enum State { PATROL, ATTACK, EVADE, RETREAT, ESCORT, BOARD, FERRY, FLEE }
 
 ## A boarding that would take longer than this is not worth trying.
 const BOARD_PATIENCE := 20.0
@@ -57,9 +58,28 @@ var convoy_guard := false        # `escort` is a convoy, not the captor of a pri
 var raid := false                # hunts enemy supply ships
 var kit_body: Planet = null      # a supply ship's kit run: where the station goes up
 var kit_turn := 0.0              # how far round the world to try, when the first spot is taken
+var kit_side := Vector2.ZERO     # the side of the world the run came in on
 
 ## Raiders look for supply ships this far out (still only what they can see).
 const RAID_RANGE := 9000.0
+## A supply ship runs for shelter when an enemy warship it can see comes
+## this close, and goes back to work once the warship is this far off.
+const FLEE_RANGE := 2200.0
+const SAFE_RANGE := 3200.0
+## A warship off raid duty goes after an enemy supply ship only this close.
+const PREY_RANGE := 800.0
+## A run to or from a place under an enemy colony's guns is worth this
+## much of a safe one: taken only when nothing safer is worth doing.
+const EXPOSED_WORTH := 0.25
+## Supply ships keep this much further off an enemy colony than its guns reach.
+const GUN_MARGIN := 350.0
+
+var flee_from: Ship = null       # the warship a supply ship is running from
+var shelter: Node2D = null       # and where it is running to: a friendly colony or station
+var _route_for := Vector2.INF    # the last route asked for, and the way found round enemy guns
+var _route_way := Vector2.ZERO
+var _route_at := 0.0
+var _exposed := {}               # place -> under enemy guns, for one round of planning
 
 
 func setup(p_ship: Ship, p_world: Node, p_home: Planet, level: int) -> void:
@@ -163,6 +183,9 @@ func _think() -> void:
 		tgt = null
 	elif tgt is Planet and (not tgt.is_colonised() or tgt.owner_race == ship.race_id or tgt.is_defenceless()):
 		tgt = null                      # knocked out: leave it for the colonists
+	elif tgt is Ship and tgt.support and not raid and not duel and state != State.BOARD and tgt != ship.last_attacker \
+			and tgt.global_position.distance_to(ship.global_position) > PREY_RANGE * 1.25:
+		tgt = null                      # a supply ship got away: not worth the chase
 	# a friend is taking that one alive: leave it be
 	if tgt is Ship and tgt.boarded_by != ship and tgt.claimed_by != ship and tgt.spoken_for(ship.team()):
 		tgt = null
@@ -170,6 +193,14 @@ func _think() -> void:
 		tgt = _escort_target(tgt)
 	elif tgt == null or (randf() < 0.1 and state != State.BOARD):
 		var best: Ship = world.nearest_enemy_ship(ship.global_position, ship.team(), ship.sensor_range, ship)
+		# supply ships are the raiders' business: the rest fight warships,
+		# and shoot at a passing supply ship only when it comes close
+		if best != null and best.support and not raid and not duel:
+			var rival := _nearest_warship(ship.sensor_range)
+			if rival != null:
+				best = rival
+			elif best.global_position.distance_to(ship.global_position) > PREY_RANGE:
+				best = null
 		if best == null and duel:
 			best = world.nearest_known_enemy(ship)   # the arena is small: everyone in it is fair game
 		# answer a recent attacker first
@@ -451,6 +482,8 @@ func _act(delta: float) -> void:
 				i["fire_mine"] = _mine_ok(tgt, away.length()) and randf() < 0.05
 				i["fire_beam"] = false
 			_avoid_planets(delta)
+		State.FLEE:
+			_flee(delta)
 		State.FERRY:
 			if dock_at != null and is_instance_valid(dock_at):
 				_fly_to_dock(delta)
@@ -525,6 +558,11 @@ func _plan_ferry() -> bool:
 
 
 func _job_still_good() -> bool:
+	# a kit run has no job planet: the starbase, then the site
+	if job == "kit":
+		return dock_at != null and is_instance_valid(dock_at) and not dock_at.dead and kit_body != null
+	if job == "deploy":
+		return kit_body != null and is_instance_valid(kit_body) and ship.kit != ""
 	if job_planet == null or not is_instance_valid(job_planet):
 		return false
 	match job:
@@ -552,10 +590,6 @@ func _job_still_good() -> bool:
 		"assault":
 			return job_planet.is_colonised() and job_planet.owner_race != ship.race_id and ship.troop_count() > 0 \
 				and (_assault_open(job_planet) or ship.is_landing())
-		"kit":
-			return dock_at != null and is_instance_valid(dock_at) and not dock_at.dead and kit_body != null
-		"deploy":
-			return kit_body != null and is_instance_valid(kit_body) and ship.kit != ""
 	return false
 
 
@@ -612,12 +646,7 @@ func _fly_to_job(delta: float) -> void:
 		out = Vector2.RIGHT
 	var point := p.global_position + out.normalized() * (p.radius + ship.size + 140.0)
 	var far := ship.global_position.distance_to(point)
-	if far > 2500.0:
-		# a long way: the general flight code, warp included
-		_avoid_planets(delta)
-		_steer_to(point, delta, true)
-		if ship.qdrv > 0.0 and far > 5000.0 and not ship.warping and absf(i["turn"]) < 0.1 and ship.energy > 400.0:
-			ship.start_warp()
+	if _fly_far(point, far, delta):
 		return
 	if ship.warping:
 		ship.end_warp()
@@ -703,6 +732,7 @@ func start_kit(key: String, body: Planet) -> void:
 	haul_res = key
 	kit_body = body
 	kit_turn = 0.0
+	kit_side = Vector2.ZERO
 	job_planet = null
 	haul_to = null
 	haul_frame = null
@@ -734,7 +764,8 @@ func _deploy_kit() -> void:
 		world.deploy_kit(ship)
 		_end_kit()
 	elif "Too close" in site["why"] and kit_turn < TAU:
-		kit_turn += 0.6             # move round the world a little
+		if ship.global_position.distance_to(_site_point()) < 250.0:
+			kit_turn += 0.6         # there, and still crowded: move round the world a little
 	elif not "Fly within" in site["why"]:
 		ship.kit = ""               # taken meanwhile, or the world changed hands
 		_end_kit()
@@ -751,20 +782,24 @@ func _fly_to_site(delta: float) -> void:
 	var p := kit_body
 	if p == null or not is_instance_valid(p):
 		return
-	var out := (ship.global_position - p.global_position)
-	if out.length() < 1.0:
-		out = Vector2.RIGHT
-	var point := p.global_position + out.normalized().rotated(kit_turn) * (p.radius + 450.0)
+	var point := _site_point()
 	var far := ship.global_position.distance_to(point)
-	if far > 2500.0:
-		_avoid_planets(delta)
-		_steer_to(point, delta, true)
-		if ship.qdrv > 0.0 and far > 5000.0 and not ship.warping and absf(ship.inputs["turn"]) < 0.1 and ship.energy > 400.0:
-			ship.start_warp()
+	if _fly_far(point, far, delta):
 		return
 	if ship.warping:
 		ship.end_warp()
 	_close_on(point, p.velocity)
+
+
+## Where over the kit's world to put the station up: the near side,
+## turned round by kit_turn when that spot is crowded.
+func _site_point() -> Vector2:
+	var p := kit_body
+	if kit_side == Vector2.ZERO:
+		kit_side = (ship.global_position - p.global_position).normalized()
+		if kit_side == Vector2.ZERO:
+			kit_side = Vector2.RIGHT
+	return p.global_position + kit_side.rotated(kit_turn) * (p.radius + 450.0)
 
 
 ## The next run: a drop ship's, a trade ship's or a supply ship's.
@@ -863,19 +898,36 @@ func _drop_on_ground() -> void:
 func _think_hauler() -> void:
 	var now := Time.get_ticks_msec() / 1000.0
 	var foe: Ship = ship.last_attacker as Ship if is_instance_valid(ship.last_attacker) else null
-	if foe != null and not foe.dead and foe.race_id != ship.race_id and now - ship.last_attacked_at < 5.0 \
-			and foe.global_position.distance_to(ship.global_position) < 1600.0:
+	if foe == null or foe.dead or foe.race_id == ship.race_id or now - ship.last_attacked_at >= 5.0 \
+			or foe.global_position.distance_to(ship.global_position) >= 1600.0:
+		# running: until the warship falls well behind, or, once under the
+		# shelter's guns, until it keeps its distance
+		# (nothing to fear while nothing can hurt us)
+		foe = _nearest_warship(SAFE_RANGE if state == State.FLEE and not _sheltered() else FLEE_RANGE) if ship.invulnerable <= 0.0 else null
+	if foe != null:
 		ship.target = foe
+		flee_from = foe
+		if state != State.FLEE or shelter == null or not is_instance_valid(shelter):
+			shelter = _shelter(foe)
+		if shelter != null:
+			state = State.FLEE
+			return
+		# nowhere to run to: jink about and hope
 		if state != State.EVADE:
 			evade_dir = 1.0 if randf() < 0.5 else -1.0
 		state = State.EVADE
 		evade_timer = 2.0
 		return
+	if state == State.FLEE:
+		# out of sight or well behind: back to work
+		flee_from = null
+		shelter = null
+		state = State.FERRY if _job_still_good() or _dock_job_good() else State.PATROL
 	if state == State.EVADE:
 		evade_timer -= 0.35
 		if evade_timer > 0.0:
 			return
-		state = State.FERRY if _job_still_good() else State.PATROL
+		state = State.FERRY if _job_still_good() or _dock_job_good() else State.PATROL
 	ship.target = null
 	var hurt := ship.hull < ship.hull_max * 0.4 or ship.fuel_fraction() < 0.15
 	match state:
@@ -917,6 +969,7 @@ func _plan_haul() -> bool:
 	haul_frame = null
 	haul_market = null
 	ground_order = false
+	_exposed.clear()
 	var pos := ship.global_position
 	var ours := []
 	for p in world.planets:
@@ -938,7 +991,7 @@ func _plan_haul() -> bool:
 			var wants: Dictionary = world.supply_wants(f)
 			for k in ship.cargo:
 				n += minf(ship.cargo[k], wants.get(k, 0.0)) * GameData.RESOURCE_PRICE.get(k, 1.0)
-			var v := n * _priority(f) / (1500.0 + pos.distance_to(f.global_position))
+			var v := n * _priority(f) * _safety(f) / (1500.0 + pos.distance_to(f.global_position))
 			if n >= 1.0 and v > best:
 				best = v
 				dock_at = f
@@ -956,7 +1009,7 @@ func _plan_haul() -> bool:
 			if room < 5.0:
 				continue
 			# nobody short: any other colony with room takes it
-			v = maxf(v, 0.01) / (1500.0 + pos.distance_to(p.global_position))
+			v = maxf(v, 0.01) * _safety(p) / (1500.0 + pos.distance_to(p.global_position))
 			if v > best:
 				best = v
 				job_planet = p
@@ -993,7 +1046,7 @@ func _plan_haul() -> bool:
 				if amount < minf(need, 5.0):
 					continue
 				var trip: float = 1500.0 + pos.distance_to(src.global_position) + src.global_position.distance_to(f.global_position)
-				var v: float = amount * GameData.RESOURCE_PRICE.get(k, 1.0) * _priority(f) / trip
+				var v: float = amount * GameData.RESOURCE_PRICE.get(k, 1.0) * _priority(f) * _safety(src) * _safety(f) / trip
 				if v > best:
 					best = v
 					job_planet = src
@@ -1012,7 +1065,7 @@ func _plan_haul() -> bool:
 				worth += st.cargo[k] * GameData.RESOURCE_PRICE.get(k, 1.0)
 		worth *= minf(amount / maxf(_collectable(st), 1.0), 1.0)
 		# a full station stops working: fetch it first
-		var v: float = worth * (3.0 if st.cargo_space() < st.cargo_max * 0.2 else 2.0) / (1500.0 + pos.distance_to(st.global_position))
+		var v: float = worth * (3.0 if st.cargo_space() < st.cargo_max * 0.2 else 2.0) * _safety(st) / (1500.0 + pos.distance_to(st.global_position))
 		if v > best:
 			best = v
 			job_planet = null
@@ -1034,7 +1087,7 @@ func _plan_haul() -> bool:
 					continue
 				var amount := minf(spare, maxf(Economy.wanted(dst, k), 20.0))
 				var trip: float = 1500.0 + pos.distance_to(src.global_position) + src.global_position.distance_to(dst.global_position)
-				var v: float = amount * want * GameData.RESOURCE_PRICE.get(k, 1.0) / trip
+				var v: float = amount * want * GameData.RESOURCE_PRICE.get(k, 1.0) * _safety(src) * _safety(dst) / trip
 				if v > best:
 					best = v
 					job_planet = src
@@ -1061,6 +1114,7 @@ func _plan_trade() -> bool:
 	haul_market = null
 	haul_to = null
 	ground_order = false
+	_exposed.clear()
 	var markets := []
 	for o in world.ships:
 		if Economy.is_market(o) and (o.race_id == ship.race_id or o.race_id == GameData.NEUTRAL):
@@ -1074,7 +1128,7 @@ func _plan_trade() -> bool:
 			var v := 0.0
 			for k in ship.cargo:
 				v += Economy.sell_price(m, k, ship) * minf(ship.cargo[k], world.port_room(m, k))
-			v /= 1500.0 + pos.distance_to(m.global_position)
+			v *= _safety(m) / (1500.0 + pos.distance_to(m.global_position))
 			if v > best:
 				best = v
 				dock_at = m
@@ -1095,7 +1149,7 @@ func _plan_trade() -> bool:
 			for m in markets:
 				var amount := minf(spare, world.port_room(m, k))
 				var trip: float = 1500.0 + pos.distance_to(src.global_position) + src.global_position.distance_to(m.global_position)
-				var v: float = Economy.sell_price(m, k, ship) * amount / trip
+				var v: float = Economy.sell_price(m, k, ship) * amount * _safety(src) * _safety(m) / trip
 				if amount >= 30.0 and v > best:
 					best = v
 					job_planet = src
@@ -1116,7 +1170,7 @@ func _plan_trade() -> bool:
 				if amount < 20.0:
 					continue
 				var trip: float = 1500.0 + pos.distance_to(m.global_position) + m.global_position.distance_to(dst.global_position)
-				var v: float = amount * want * GameData.RESOURCE_PRICE.get(k, 1.0) * 0.8 / trip
+				var v: float = amount * want * GameData.RESOURCE_PRICE.get(k, 1.0) * 0.8 * _safety(m) * _safety(dst) / trip
 				if v > best:
 					best = v
 					job_planet = null
@@ -1128,6 +1182,21 @@ func _plan_trade() -> bool:
 		haul_market = null
 		return true
 	return job_planet != null
+
+
+## How much a run to or from `n` is worth for its danger: less when an
+## enemy colony's guns cover it (EXPOSED_WORTH).
+func _safety(n: Node2D) -> float:
+	if not _exposed.has(n):
+		var under := false
+		var r: float = (n as Planet).radius if n is Planet else 0.0
+		for p in world.planets:
+			if p != n and p.is_colonised() and p.owner_race != ship.race_id and p.owner_race != GameData.NEUTRAL and not p.is_defenceless() \
+					and p.global_position.distance_to(n.global_position) < Governor.gun_reach(p) + p.radius + r:
+				under = true
+				break
+		_exposed[n] = under
+	return EXPOSED_WORTH if _exposed[n] else 1.0
 
 
 ## On the ground: order the loading or unloading once, wait for the
@@ -1229,17 +1298,12 @@ static func _spare_for_frame(p: Planet, k: String) -> float:
 ## Fly to a station and hold alongside it, on its far side from its world.
 func _fly_to_dock(delta: float) -> void:
 	var st := dock_at
-	var i := ship.inputs
 	var out := st.global_position - (st.station_body.global_position if st.station_body != null else ship.global_position)
 	if out.length() < 1.0:
 		out = Vector2.RIGHT
 	var point := st.global_position + out.normalized() * (st.size + ship.size + 70.0)
 	var far := ship.global_position.distance_to(point)
-	if far > 2500.0:
-		_avoid_planets(delta)
-		_steer_to(point, delta, true)
-		if ship.qdrv > 0.0 and far > 5000.0 and not ship.warping and absf(i["turn"]) < 0.1 and ship.energy > 400.0:
-			ship.start_warp()
+	if _fly_far(point, far, delta):
 		return
 	if ship.warping:
 		ship.end_warp()
@@ -1311,6 +1375,135 @@ func _colony_to_bombard() -> Planet:
 			best_d = d
 			best = p
 	return best
+
+
+## A supply ship's long haul: the general flight code, warp included,
+## by way of a spot beside any enemy colony whose guns cover the straight
+## line.  False when the point is close and the run's own approach takes over.
+func _fly_far(point: Vector2, far: float, delta: float) -> bool:
+	var way := _route(point)
+	if far <= 2500.0 and way == point:
+		return false
+	_steer_to(way, delta, way == point)
+	_avoid_planets(delta)
+	if way == point and ship.qdrv > 0.0 and far > 5000.0 and not ship.warping and absf(ship.inputs["turn"]) < 0.1 and ship.energy > 400.0:
+		ship.start_warp()
+	return true
+
+
+## The way to a point that keeps out of enemy colonies' guns and the
+## Sun's heat: the point itself, or a spot beside the first of them that
+## covers the straight line.  A run that starts or ends inside one can't
+## help it, so that one is left out.  Worked out a few times a second.
+func _route(point: Vector2) -> Vector2:
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _route_at < 0.4 and point.distance_to(_route_for) < 300.0:
+		return point if _route_way == _route_for else _route_way
+	_route_at = now
+	_route_for = point
+	_route_way = point
+	var from := ship.global_position
+	var seg := point - from
+	var length := seg.length()
+	if length < 1.0:
+		return point
+	var dir := seg / length
+	var first := INF
+	for p in world.planets:
+		var keep := 0.0
+		if p == world.sun:
+			keep = p.radius * (1.0 + World.SUN_HEAT_RADII * 0.65) + GUN_MARGIN   # where the heat starts to hurt
+		elif p.is_colonised() and p.owner_race != ship.race_id and p.owner_race != GameData.NEUTRAL and not p.is_defenceless():
+			keep = Governor.gun_reach(p) + p.radius + GUN_MARGIN
+		else:
+			continue
+		var c: Vector2 = p.global_position
+		if c.distance_to(point) < keep or c.distance_to(from) < keep:
+			continue
+		var t := (c - from).dot(dir)
+		if t <= 0.0 or t >= length or t >= first:
+			continue
+		var on_line := from + dir * t
+		var miss := c.distance_to(on_line)
+		if miss >= keep:
+			continue
+		var side := (on_line - c) / miss if miss > 1.0 else dir.orthogonal()
+		first = t
+		_route_way = c + side * (keep + 250.0)
+	return _route_way
+
+
+## The nearest enemy warship in sight within `reach`: what a supply ship
+## runs from, and what a warship would rather fight.
+func _nearest_warship(reach: float) -> Ship:
+	var best: Ship = null
+	var best_d := reach
+	for s in world.ships:
+		if s.dead or s.support or s.is_station or s.team() == ship.team() or s.race_id == GameData.NEUTRAL or s.is_landing() or s.is_disabled():
+			continue
+		var d: float = s.global_position.distance_to(ship.global_position)
+		if d < best_d and s.visible_to(ship):
+			best_d = d
+			best = s
+	return best
+
+
+## Where to run from a warship: the nearest friendly colony with its guns
+## up, or friendly station, counting a place the warship lies toward as
+## further off.
+func _shelter(foe: Ship) -> Node2D:
+	var best: Node2D = null
+	var best_v := INF
+	var at := ship.global_position
+	var from: Vector2 = (foe.global_position - at).normalized()
+	var places: Array = []
+	for p in world.planets:
+		if p.is_colonised() and p.owner_race == ship.race_id and not p.is_defenceless() and Governor.gun_reach(p) > 0.0:
+			places.append(p)
+	for s in world.ships:
+		if s.is_station and not s.dead and s.race_id == ship.race_id:
+			places.append(s)
+	for n in places:
+		var to: Vector2 = n.global_position - at
+		var v := to.length() * (1.0 + 2.0 * maxf(to.normalized().dot(from), 0.0))
+		if v < best_v:
+			best_v = v
+			best = n
+	return best
+
+
+## Close alongside the shelter we are running to.
+func _sheltered() -> bool:
+	return shelter != null and is_instance_valid(shelter) and ship.global_position.distance_to(shelter.global_position) < _shelter_r() + ship.size + 800.0
+
+
+func _shelter_r() -> float:
+	return (shelter as Planet).radius if shelter is Planet else (shelter as Ship).size
+
+
+## Run for the shelter at full speed, dropping mines behind, then hold
+## alongside it under its guns.
+func _flee(delta: float) -> void:
+	if shelter == null or not is_instance_valid(shelter):
+		return
+	var i := ship.inputs
+	var out := ship.global_position - shelter.global_position
+	if out.length() < 1.0:
+		out = Vector2.RIGHT
+	var point := shelter.global_position + out.normalized() * (_shelter_r() + ship.size + 200.0)
+	var far := ship.global_position.distance_to(point)
+	if far < 600.0:
+		if ship.warping:
+			ship.end_warp()
+		_close_on(point, (shelter as Planet).velocity if shelter is Planet else (shelter as Ship).velocity)
+		return
+	_steer_to(point, delta, true)
+	_avoid_planets(delta)
+	i["boost"] = ship.energy > ship.energy_max * 0.3 and far > 900.0
+	if flee_from != null and is_instance_valid(flee_from):
+		i["fire_mine"] = _mine_ok(flee_from, flee_from.global_position.distance_to(ship.global_position)) and randf() < 0.05
+	if ship.qdrv > 0.0 and far > 4000.0 and not ship.warping and absf(i["turn"]) < 0.1 and ship.energy > 400.0:
+		ship.start_warp()
 
 
 ## Steer away from planets and the sun we are about to hit.

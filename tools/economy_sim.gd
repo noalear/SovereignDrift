@@ -11,8 +11,11 @@ var main: Node
 var minutes := 30.0
 var next_report := 60.0
 var battles := {}               # planet -> was fighting last frame
-var tally := {"battles": 0, "taken": 0, "convoys": 0, "raided": 0, "boarded": 0, "kits": 0}
+var tally := {"battles": 0, "taken": 0, "convoys": 0, "raided": 0, "boarded": 0, "kits": 0, "fled": 0}
+var fleeing := {}               # supply ships running for shelter last frame
+var kit_runs := {}              # supply ships on a station kit run last frame
 var raiders := {}               # what killed supply ships: raid duty, pirate, other warship, colony guns, station
+var roles := {}                 # and which kind: supply, trade or drop ship
 var seen_convoys := {}
 var real0 := 0
 var gd: Node
@@ -61,7 +64,7 @@ func _died(_victim, killer, s: Ship) -> void:
 		return
 	var kind := "other"
 	if killer == null or not is_instance_valid(killer):
-		kind = "nothing (sun, rocks)"
+		kind = "no killer (rocks, silo missiles)"
 	elif killer is Planet:
 		kind = "colony guns"
 	elif killer is Ship and killer.is_station:
@@ -74,8 +77,19 @@ func _died(_victim, killer, s: Ship) -> void:
 		kind = "warship"
 	raiders[kind] = int(raiders.get(kind, 0)) + 1
 	var ai: AIPilot = s.get_node_or_null("AI")
-	print("  %s: %s supply ship %s lost to %s (%s run, %s)" % [Round._fmt(main.world.elapsed), gd.race(s.race_id)["adj"], s.ship_name, kind,
-		ai.job if ai != null else "-", killer.ship_name if killer is Ship else (killer.body_name if killer is Planet else "-")])
+	# the nearest enemy colony, and how far inside or outside its guns' reach
+	var near := ""
+	var near_d := INF
+	for p in main.world.planets:
+		if p.is_colonised() and p.owner_race != s.race_id:
+			var d: float = p.global_position.distance_to(s.global_position) - p.radius - Governor.gun_reach(p)
+			if d < near_d:
+				near_d = d
+				near = p.body_name
+	var role := "drop ship" if ai != null and ai.dropper else ("trade ship" if ai != null and ai.trader else "supply ship")
+	roles[role] = int(roles.get(role, 0)) + 1
+	print(("  %s: %s " + role + " %s lost to %s (%s run, %s, %s; %s %+d from its guns' reach)") % [Round._fmt(main.world.elapsed), gd.race(s.race_id)["adj"], s.ship_name, kind,
+		ai.job if ai != null else "-", AIPilot.State.keys()[ai.state] if ai != null else "-", killer.ship_name if killer is Ship else (killer.body_name if killer is Planet else "-"), near, int(near_d)])
 	if killer is Ship and killer.race_id != s.race_id:
 		tally["raided"] += 1
 
@@ -96,6 +110,19 @@ func _process(_delta: float) -> bool:
 			tally["battles"] += 1
 			print("  %s: ground battle on %s (%s against %s)" % [Round._fmt(w.elapsed), pl.body_name, gd.race(int(pl.battle["race"]))["name"], gd.race(pl.owner_race)["name"]])
 		battles[pl] = on
+	for s in w.ships:
+		var ai: AIPilot = s.get_node_or_null("AI") if s.support else null
+		if ai != null:
+			var on_kit: bool = ai.job in ["kit", "deploy"]
+			if on_kit != kit_runs.get(s, false):
+				print("  %s: %s %s %s a %s kit run (%s, %s)" % [Round._fmt(w.elapsed), gd.race(s.race_id)["adj"], s.ship_name, "starts" if on_kit else "ends",
+					ai.haul_res if on_kit else "", AIPilot.State.keys()[ai.state], ai.kit_body.body_name if ai.kit_body != null else "-"])
+			kit_runs[s] = on_kit
+		if ai != null and "FLEE" in AIPilot.State:
+			var on: bool = ai.state == AIPilot.State.get("FLEE")
+			if on and not fleeing.get(s, false):
+				tally["fled"] += 1
+			fleeing[s] = on
 	for g in w.governors.values():
 		for h in g.convoys:
 			if not seen_convoys.has(h.get_instance_id() * 1000 + int(w.elapsed / 120.0)):
@@ -143,6 +170,13 @@ func _report(w: World) -> void:
 	for race in [0, 1, 2]:
 		var h: Planet = w._home_planet(race)
 		homes.append("%s sh %d fuel %d%s" % [h.body_name, int(h.pshield), int(h.stock.get("fuel", 0.0)), " (theirs)" if h.owner_race != race else ""])
-	print("    homes: %s   supply ships lost to: %s" % [", ".join(homes), raiders])
-	line += " | battles %d taken %d convoys %d raided %d kits %d jobs %d" % [tally["battles"], tally["taken"], tally["convoys"], tally["raided"], tally["kits"], jobs]
+	var states := {}
+	for s in w.ships:
+		var ai: AIPilot = s.get_node_or_null("AI") if s.support and not s.dead else null
+		if ai != null:
+			var key: String = AIPilot.State.keys()[ai.state] + ("/" + ai.job if ai.job in ["kit", "deploy"] else "")
+			states[key] = int(states.get(key, 0)) + 1
+	print("    homes: %s   supply ships lost to: %s, by kind: %s" % [", ".join(homes), raiders, roles])
+	print("    support ships now: %s" % [states])
+	line += " | battles %d taken %d convoys %d raided %d kits %d jobs %d fled %d" % [tally["battles"], tally["taken"], tally["convoys"], tally["raided"], tally["kits"], jobs, tally["fled"]]
 	print(line)
