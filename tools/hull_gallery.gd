@@ -1,11 +1,12 @@
 # Pictures of every combat hull for every empire with its stock loadout,
 # for checking the hull paintings, the weapon sockets and the turrets on
 # them: hulls.png (all empires on one sheet) and hulls_<empire>.png (one
-# empire close up).
+# empire close up).  SF_HULLS=Trader,DropShip,... draws those hulls instead
+# (the support ships and stations of the Resources update).
 #   xvfb-run -a -s "-screen 0 1920x1080x24" godot --path . --rendering-driver opengl3 -s tools/hull_gallery.gd
 extends SceneTree
 
-const HULLS := ["Scout", "Destroyer", "Cruiser", "BattleCruiser", "Battleship", "Dreadnought"]
+var HULLS := ["Scout", "Destroyer", "Cruiser", "BattleCruiser", "Battleship", "Dreadnought"]
 const ORDER := [[1, "Terran"], [0, "Arcean"], [2, "Drengin"], [3, "Pirate"]]
 
 var out_dir := "/tmp/claude-0/sf/shots"
@@ -17,6 +18,8 @@ var frames := 0
 func _init() -> void:
 	if OS.has_environment("SF_SHOTS"):
 		out_dir = OS.get_environment("SF_SHOTS")
+	if OS.has_environment("SF_HULLS"):
+		HULLS = Array(OS.get_environment("SF_HULLS").split(","))
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	canvas = Node2D.new()
 	canvas.draw.connect(_draw_page)
@@ -42,6 +45,8 @@ func _process(_delta: float) -> bool:
 func _hulls_for(race: int) -> Array:
 	var out := []
 	for h in HULLS:
+		if race == 3 and root.get_node("GameData").is_station_hull(h):
+			continue                      # pirates build no stations
 		out.append("Raider" if race == 3 and h == "Destroyer" else h)
 	return out
 
@@ -66,11 +71,12 @@ func _draw_page() -> void:
 	# one empire close up
 	var race: int = ORDER[page - 1][0]
 	var hulls := _hulls_for(race)
-	var cw := vp.x / 3.0
+	var cols := ceili(hulls.size() / 2.0)
+	var cw := vp.x / cols
 	var ch := vp.y / 2.0
 	for i in hulls.size():
-		var c := i % 3
-		var r := i / 3
+		var c := i % cols
+		var r := i / cols
 		var centre := Vector2((c + 0.5) * cw, (r + 0.5) * ch + 10)
 		_ship(hulls[i], race, centre, Vector2(cw, ch) * 0.9)
 		canvas.draw_string(font, Vector2(c * cw + 10, r * ch + 24), "%s %s" % [ORDER[page - 1][1], hulls[i]], HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(0.8, 0.85, 0.9))

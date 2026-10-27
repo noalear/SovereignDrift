@@ -56,6 +56,11 @@ const MOUNTS := {
 	"pirate/BattleCruiser": [[0.82, 0.36], [0.66, 0.76], [0.45, 0.76], [0.55, 0.3], [0.32, 0.76]],
 	"pirate/Battleship": [[0.62, 0.5], [0.47, 0.5], [0.38, 0.78], [0.38, 0.22], [0.22, 0.5]],
 	"pirate/Battleship@Dreadnought": [[0.62, 0.5], [0.38, 0.78], [0.38, 0.22], [0.47, 0.5], [0.22, 0.5]],
+	# Defensive station: main gun on the hub, the two flak guns in opposite
+	# gun pits (all three turn the full circle, so where they sit is looks)
+	"stations/DefenseStation_terran": [[0.5, 0.45], [0.27, 0.64], [0.744, 0.245]],
+	"stations/DefenseStation_arcean": [[0.504, 0.49], [0.297, 0.645], [0.718, 0.319]],
+	"stations/DefenseStation_drengin": [[0.5, 0.5], [0.29, 0.655], [0.709, 0.333]],
 }
 
 static var _textures := {}
