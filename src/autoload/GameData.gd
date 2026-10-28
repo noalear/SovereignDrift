@@ -163,16 +163,16 @@ const HULL_MATERIALS := {
 
 const MISSILES := {
 	"001": {"dtype": "kinetic", "name": "bolt", "warhead": 150, "fire_v": 0.60, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.20, "life": 3.2, "radius": 4, "look": "bolt"},
-	"002": {"dtype": "explosive", "name": "mine", "warhead": 2500, "fire_v": 0.05, "guided": false, "trigger": "prox", "prox": 50, "seek_range": 0, "max_v": 0.05, "life": 32.0, "radius": 9, "look": "mine"},
+	"002": {"dtype": "explosive", "name": "mine", "shootable": true, "blast": 127, "warhead": 2500, "fire_v": 0.05, "guided": false, "trigger": "prox", "prox": 58, "seek_range": 0, "max_v": 0.05, "life": 60.0, "radius": 9, "look": "mine"},
 	"003": {"dtype": "plasma", "name": "plasma", "warhead": 500, "fire_v": 0.35, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "plasma"},
-	"004": {"dtype": "explosive", "name": "torpedo", "warhead": 1500, "fire_v": 0.30, "guided": false, "trigger": "prox", "prox": 64, "seek_range": 0, "max_v": 0.95, "life": 3.2, "radius": 7, "look": "grenade"},
-	"008": {"dtype": "explosive", "name": "missile", "warhead": 180, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 4, "look": "missile", "turn": 3.5, "accel": 220},
-	"009": {"dtype": "explosive", "name": "seeker", "warhead": 400, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 5, "look": "missile", "turn": 2.5, "accel": 220, "heat": true},
+	"004": {"dtype": "explosive", "name": "torpedo", "shootable": true, "blast": 90, "warhead": 1500, "fire_v": 0.30, "guided": false, "trigger": "prox", "prox": 64, "seek_range": 0, "max_v": 0.95, "life": 3.2, "radius": 7, "look": "grenade"},
+	"008": {"dtype": "explosive", "name": "missile", "shootable": true, "warhead": 180, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 4, "look": "missile", "turn": 3.5, "accel": 220},
+	"009": {"dtype": "explosive", "name": "seeker", "shootable": true, "warhead": 400, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 5, "look": "missile", "turn": 2.5, "accel": 220, "heat": true},
 	"010": {"dtype": "kinetic", "name": "rapid bolt", "warhead": 100, "fire_v": 0.70, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.80, "life": 3.2, "radius": 3, "look": "bolt"},
 	"011": {"dtype": "plasma", "name": "rapid plasma", "warhead": 400, "fire_v": 0.80, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.00, "life": 3.2, "radius": 5, "look": "plasma"},
 	"018": {"dtype": "kinetic", "name": "cannon shell", "recoil": 2.0, "pierce": 0.5, "warhead": 750, "fire_v": 0.40, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "shell"},
 	"020": {"dtype": "ion", "name": "disruptor bolt", "warhead": 220, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320, "sys": 1.8},
-	"021": {"dtype": "explosive", "name": "drone", "warhead": 90, "fire_v": 0.25, "guided": true, "trigger": "impact", "seek_range": 700, "max_v": 0.5, "life": 9.0, "radius": 4, "look": "drone", "turn": 4.5, "accel": 260},
+	"021": {"dtype": "explosive", "name": "drone", "shootable": true, "warhead": 90, "fire_v": 0.25, "guided": true, "trigger": "impact", "seek_range": 700, "max_v": 0.5, "life": 9.0, "radius": 4, "look": "drone", "turn": 4.5, "accel": 260},
 }
 
 ## Damage types: every weapon deals one, and shields and the hull take it

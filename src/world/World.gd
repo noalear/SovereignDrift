@@ -994,7 +994,11 @@ func _collide_missiles() -> void:
 		m.hit_point = hit["point"]
 		m.hit_normal = hit["normal"]
 		m.explode(target)
-	# proximity fuses: grenades and mines go off near any enemy hull
+	# guns shoot down missiles, drones, torpedoes and mines: a round whose
+	# path this step passes through an enemy munition takes it out
+	if not Net.is_client():
+		_shoot_down_munitions()
+	# proximity fuses: torpedoes and mines go off near any enemy hull
 	for m: Missile in missiles:
 		if not is_instance_valid(m) or m.exploded or m.data["trigger"] != "prox":
 			continue
@@ -1023,6 +1027,28 @@ func _collide_missiles() -> void:
 				else:
 					fx.spark(m.global_position, 3, m.color)
 					m._free()
+				break
+
+
+func _shoot_down_munitions() -> void:
+	var targets := []
+	for m: Missile in missiles:
+		if is_instance_valid(m) and not m.exploded and m.armed <= 0.0 and m.shootable():
+			targets.append(m)
+	if targets.is_empty():
+		return
+	for g: Missile in missiles:
+		if not is_instance_valid(g) or g.exploded or not g.is_gun_shot():
+			continue
+		var b: Vector2 = g.global_position
+		var a: Vector2 = b - g.velocity * get_physics_process_delta_time()
+		for t: Missile in targets:
+			if t.exploded or t.owner_team == g.owner_team:
+				continue
+			var reach: float = g.radius + t.radius + 2.0
+			if Geometry2D.get_closest_point_to_segment(t.global_position, a, b).distance_to(t.global_position) <= reach:
+				t.shoot_down()
+				g.shoot_down()
 				break
 
 
