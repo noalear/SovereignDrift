@@ -19,10 +19,10 @@ All were checked by measurement only (-16 LUFS, true peak under -4 dBTP, chroma 
 Kyle's ear feedback is still to come.
 
 ## Waiting on Kyle
-- **Black Shipyards v2** (`candidates/new06-black-shipyards-v2.ogg`, script `edm/new06_industrial.py` is
-  already v2): hammer about 8 dB quieter, on the grid, blended with machinery stamps and hydraulics.
-  Swap it into `assets/music/new/new06-black-shipyards.ogg` once Kyle approves.
 - Song 8: dubstep or darkwave.
+
+Black Shipyards v2 (hammer about 8 dB quieter, on beat 4 with the snare, blended with machinery stamps and
+hydraulics) replaced v1 on 2026-10-28 after Kyle approved it ("10/10, add it in").
 
 ## Rendering
 `python3 tools/music/edm/newNN_<genre>.py OUT.wav`, then master/encode as in the script's footer
