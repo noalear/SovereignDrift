@@ -466,7 +466,7 @@ func _act(delta: float) -> void:
 				fire_hold -= delta
 				i["fire_primary"] = aligned and dist < 820.0
 				i["fire_secondary"] = aligned and dist < 650.0 and randf() < 0.8
-				i["fire_beam"] = dist < 420.0 and absf(diff2) < 1.8
+				i["fire_beam"] = dist < ship.beam_reach() and absf(diff2) < 1.8
 				i["fire_missile"] = dist < 1200.0 and dist > 300.0 and fmod(Time.get_ticks_msec() / 1000.0, 3.0) < 0.2
 				i["fire_mine"] = _mine_ok(tgt, dist) and randf() < 0.02
 			else:

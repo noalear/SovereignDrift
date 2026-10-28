@@ -71,7 +71,7 @@ func _load_hull(name: String, fit: Dictionary, initial: bool) -> void:
 	hull = name
 	hardpoints = GameData.hull_hardpoints(name)
 	if fit.is_empty():
-		fit = GameData.stock_design(name)
+		fit = GameData.stock_design(name, ship.race_id)
 	mounts = []
 	for i in hardpoints.size():
 		mounts.append(null)

@@ -72,7 +72,7 @@ const MODULES := {
 	"4018": {"name": "Cannon", "vol": 200, "mass": 50, "power": -500, "hp": 100, "func": "tube", "p": [50, 30000, 25, "018"]},
 	# beam: [energy frames, energy per frame, range]
 	"4501": {"name": "Laser I", "vol": 3, "mass": 50, "power": -200, "hp": 200, "func": "beam", "p": [30, 242, 200]},
-	"4502": {"name": "Laser II", "vol": 300, "mass": 15000, "power": -200, "hp": 200, "func": "beam", "p": [30, 300, 250]},
+	"4502": {"name": "Laser II", "vol": 300, "mass": 1500, "power": -200, "hp": 200, "func": "beam", "p": [30, 300, 250]},
 	"4503": {"name": "Laser III", "vol": 4500, "mass": 20000, "power": -200, "hp": 200, "func": "beam", "p": [30, 800, 600]},
 	"5001": {"name": "Shield I", "vol": 50, "mass": 500, "power": -2, "hp": 75, "func": "shield", "p": [200]},
 	"5002": {"name": "Shield II", "vol": 100, "mass": 900, "power": -3, "hp": 100, "func": "shield", "p": [300]},
@@ -676,24 +676,27 @@ static func price(id: String) -> int:
 
 
 ## Weapon groups (1-4) the pilot selects with the number keys.  A new
-## weapon joins a group by what it is: guns and beams 1, launchers 2,
-## guided missiles 3, mines 4.  The shipyard lets the pilot change it.
+## weapon joins a group by what it is (Kyle: weapons grouped by type):
+## 1 guns (mass driver, rapid tube, cannon), 2 energy (lasers,
+## disruptor), 3 launchers (torpedo, missile, seeker, drone), 4 mines.
+## The PDC fires on its own, whatever its group.  The shipyard lets the
+## pilot change a group.
 const WEAPON_GROUPS := 4
 
 static func default_weapon_group(id: String) -> int:
 	var m: Dictionary = MODULES[id]
 	if m["func"] == "beam":
-		return 1
+		return 2
 	if m["func"] == "tube":
 		match str(m["p"][3]):
-			"001", "010":
+			"001", "010", "011", "018", "022":
 				return 1
+			"003", "020":
+				return 2
 			"002":
 				return 4
-			"008", "009", "021":
-				return 3
 			_:
-				return 2
+				return 3
 	return 1
 
 
@@ -740,16 +743,66 @@ static func hull_hardpoints(hull: String) -> Array:
 
 
 ## A fresh copy of a stock design as a buildable design dictionary.
-static func stock_design(hull: String) -> Dictionary:
+static func stock_design(hull: String, race_id: int = -1) -> Dictionary:
 	var d: Dictionary = SHIPS[hull]
 	var weapons := []
-	for w in d["weapons"]:
-		weapons.append(w.duplicate())
+	var fit: Array = STOCK_LOADOUTS.get(race_id, {}).get(hull, [])
+	for i in d["weapons"].size():
+		var w: Array = d["weapons"][i].duplicate()
+		if i < fit.size() and weapon_class(fit[i]) <= hull_hardpoints(hull)[i][5]:
+			w[0] = fit[i]      # the empire's own gun on the hull's mount
+		weapons.append(w)
 	return {
 		"name": hull, "rank": d["rank"], "speed": d["speed"], "turn": d["turn"], "size": d["size"],
 		"dock": d.get("dock", [180, 0]), "modules": d["modules"].duplicate(), "weapons": weapons,
 		"pirate": d.get("pirate", false), "aces": d.get("aces", false),
 	}
+
+
+## Each empire's stock guns, by hull: one module id per mount of the hull
+## in SHIPS (same order; the mount's place and arc stay the hull's).
+## Kyle (2026-10-28): stock fits vary by ship and race, no laser plus
+## mass driver mix.  Arceans fly beams and drones, Terrans guns and
+## missiles, Drengin disruptors, torpedoes and cannon, pirates whatever
+## throws metal.  Mounts: Scout turret/nose/mine; Destroyer and Raider
+## turret/port/starboard(/mine); Cruiser turret/nose/port/starboard/mine;
+## BattleCruiser and Battleship turret/nose/port/starboard/mine;
+## Dreadnought turret/port/starboard/centre/mine.
+const STOCK_LOADOUTS := {
+	0: {   # Arcean
+		"Scout": ["4501", "4021", "4002"],
+		"Destroyer": ["4501", "4021", "4021", "4002"],
+		"Cruiser": ["4022", "4021", "4501", "4501", "4002"],
+		"BattleCruiser": ["4501", "4021", "4501", "4501", "4002"],
+		"Battleship": ["4022", "4021", "4501", "4501", "4002"],
+		"Dreadnought": ["4022", "4502", "4502", "4021", "4002"],
+		"Freighter": ["4501"], "DropShip": ["4501"],
+	},
+	1: {   # Terran
+		"Scout": ["4001", "4009", "4002"],
+		"Destroyer": ["4008", "4001", "4001", "4002"],
+		"Cruiser": ["4022", "4008", "4010", "4010", "4002"],
+		"BattleCruiser": ["4022", "4010", "4008", "4008", "4002"],
+		"Battleship": ["4022", "4003", "4008", "4008", "4002"],
+		"Dreadnought": ["4022", "4018", "4018", "4008", "4002"],
+		"Freighter": ["4001"], "DropShip": ["4022"],
+	},
+	2: {   # Drengin
+		"Scout": ["4001", "4020", "4002"],
+		"Destroyer": ["4020", "4001", "4001", "4002"],
+		"Cruiser": ["4020", "4003", "4010", "4010", "4002"],
+		"BattleCruiser": ["4020", "4010", "4003", "4003", "4002"],
+		"Battleship": ["4020", "4003", "4010", "4010", "4002"],
+		"Dreadnought": ["4020", "4018", "4018", "4003", "4002"],
+		"Freighter": ["4020"], "DropShip": ["4001"],
+	},
+	3: {   # pirates
+		"Scout": ["4001", "4001", "4002"],
+		"Destroyer": ["4001", "4001", "4001", "4002"],
+		"Raider": ["4001", "4003", "4003"],
+		"Cruiser": ["4001", "4003", "4010", "4010", "4002"],
+	},
+}
 
 
 ## Mass of a hull's stock fit, the reference for turn and speed penalties.

@@ -245,7 +245,7 @@ func setup(p_world: Node, p_design: String, p_race: int, p_pilot: String, p_ship
 ## dictionary from the shipyard), keeping career and name.
 func refit(p_design: Variant) -> void:
 	if p_design is String:
-		design = GameData.stock_design(p_design)
+		design = GameData.stock_design(p_design, race_id)
 	else:
 		design = p_design
 	design_name = design["name"]
@@ -1282,6 +1282,15 @@ func _weapons(delta: float) -> void:
 			_fire_beam(w, delta)
 		elif w["cooldown"] <= 0.0:
 			_fire_tube(w)
+
+
+## How far this ship's longest laser reaches (the AI opens fire inside it).
+func beam_reach() -> float:
+	var r := 0.0
+	for w in weapons:
+		if w["kind"] == "beam":
+			r = maxf(r, w["range"])
+	return r * 0.95
 
 
 ## Does any launcher want reloading?

@@ -1027,7 +1027,7 @@ func _rpc_stations(rows: Array) -> void:
 			s.building = row[1]
 			var pos: Vector2 = s.global_position
 			var rot: float = s.rotation
-			s.refit(GameData.frame_design(s.design_name) if s.building else GameData.stock_design(s.design_name))
+			s.refit(GameData.frame_design(s.design_name) if s.building else GameData.stock_design(s.design_name, s.race_id))
 			s.global_position = pos
 			s.rotation = rot
 
