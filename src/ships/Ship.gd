@@ -1329,6 +1329,9 @@ func _fire_tube(w: Dictionary) -> void:
 	var v: Vector2 = velocity + dir * md["fire_v"] * GameData.LIGHT_SPEED
 	if w["missile"] == "002":
 		v = velocity * 0.6
+	# a heavy gun kicks the ship back, at the mount, so a side gun twists it
+	if md.has("recoil"):
+		apply_hit_impulse(-dir * md["warhead"] * World.IMPULSE_PER_DAMAGE * md["recoil"], mount)
 	if Net.is_client():
 		return   # the host fires it and tells everyone, us included
 	world.spawn_missile(self, w["missile"], mount + dir * size * 0.3, v, ang, target)

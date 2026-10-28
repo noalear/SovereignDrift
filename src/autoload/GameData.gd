@@ -65,7 +65,7 @@ const MODULES := {
 	"4009": {"name": "Seeker rack", "vol": 40, "mass": 50, "power": -300, "hp": 200, "func": "tube", "p": [40, 6000, 32, "009"]},
 	"4010": {"name": "Rapid tube", "vol": 80, "mass": 750, "power": -200, "hp": 200, "func": "tube", "p": [60, 1000, 1500, "010"]},
 	"4011": {"name": "Station battery", "vol": 4500, "mass": 20000, "power": -200, "hp": 200, "func": "tube", "p": [60, 1000, 1500, "011"]},
-	"4018": {"name": "Cannon", "vol": 100, "mass": 50, "power": -500, "hp": 100, "func": "tube", "p": [50, 30000, 100, "018"]},
+	"4018": {"name": "Cannon", "vol": 200, "mass": 50, "power": -500, "hp": 100, "func": "tube", "p": [50, 30000, 100, "018"]},
 	# beam: [energy frames, energy per frame, range]
 	"4501": {"name": "Laser I", "vol": 3, "mass": 50, "power": -200, "hp": 200, "func": "beam", "p": [30, 242, 200]},
 	"4502": {"name": "Laser II", "vol": 300, "mass": 15000, "power": -200, "hp": 200, "func": "beam", "p": [30, 300, 250]},
@@ -105,7 +105,7 @@ const MODULES := {
 const MODULE_RACE := {
 	"5005": 0, "5006": 0, "7003": 0, "5101": 0, "5102": 0, "4021": 0,
 	"5502": 1, "5503": 1, "4008": 1, "4009": 1, "5201": 1, "5202": 1,
-	"9101": 2, "9203": 2, "5601": 2, "4020": 2, "4018": 2,
+	"9101": 2, "9203": 2, "5601": 2,
 }
 
 ## Parts only a station carries.
@@ -163,7 +163,7 @@ const MISSILES := {
 	"009": {"dtype": "explosive", "name": "seeker", "warhead": 400, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 5, "look": "missile", "turn": 2.5, "accel": 220, "heat": true},
 	"010": {"dtype": "kinetic", "name": "rapid bolt", "warhead": 100, "fire_v": 0.70, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.80, "life": 3.2, "radius": 3, "look": "bolt"},
 	"011": {"dtype": "plasma", "name": "rapid plasma", "warhead": 400, "fire_v": 0.80, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.00, "life": 3.2, "radius": 5, "look": "plasma"},
-	"018": {"dtype": "kinetic", "name": "cannon shell", "warhead": 750, "fire_v": 0.40, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "shell"},
+	"018": {"dtype": "kinetic", "name": "cannon shell", "recoil": 2.0, "warhead": 750, "fire_v": 0.40, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "shell"},
 	"020": {"dtype": "ion", "name": "disruptor bolt", "warhead": 220, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320, "sys": 1.8},
 	"021": {"dtype": "explosive", "name": "drone", "warhead": 90, "fire_v": 0.25, "guided": true, "trigger": "impact", "seek_range": 700, "max_v": 0.5, "life": 9.0, "radius": 4, "look": "drone", "turn": 4.5, "accel": 260},
 }
