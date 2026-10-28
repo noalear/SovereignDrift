@@ -69,7 +69,8 @@ func _process(_delta: float) -> bool:
 			p.take_damage(1e6, w.ships[1])
 		if frames == 1500:
 			w.try_refit(p)
-			p.set_cloak(true)
+			p.set_silent(true)
+			p.ping()
 		if frames == 2000:
 			_exercise_shipyard(w, p)
 		if frames == 2500:

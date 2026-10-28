@@ -33,3 +33,4 @@ desktop.ini
 
 # Python caches (tools/sfx)
 __pycache__/
+build.json

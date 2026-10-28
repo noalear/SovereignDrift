@@ -66,8 +66,7 @@ func _process(_delta: float) -> bool:
 		_check(pr != null and pr.design_name == "Scout", "the opponent is a pirate Scout")
 		if pr != null:
 			var d := pr.global_position.distance_to(p.global_position)
-			# (it may already have cloaked to sneak up on you)
-			_check(d < p.sensor_range and (pr.visible_to(p) or pr.cloaked), "the pirate starts inside sensor range (%d of %d)" % [d, p.sensor_range])
+			_check(d < p.sensor_range and p.contact_quality(pr) >= 2, "the pirate starts inside sensor range (%d of %d)" % [d, p.sensor_range])
 	if frames == 240:
 		var pr := _pirate(w)
 		pr.take_damage(1e6, p)

@@ -114,9 +114,24 @@ func _free() -> void:
 	queue_free()
 
 
+## A guided shot keeps after a ship while its launcher holds a lock on
+## the shot's channel (heat for seekers, radar return for the rest) or
+## its own seeker head still sees it: seek range x signature / 100.
+func _lock_ok(t: Node2D) -> bool:
+	if not t is Ship:
+		return true
+	var ch := "heat" if data.get("heat", false) else "radar"
+	if is_instance_valid(owner_ship) and owner_ship is Ship and not owner_ship.dead and owner_ship.has_track(t, ch):
+		return true
+	var head: float = data["seek_range"] * 2.0 * t.signature(ch) / 100.0
+	return global_position.distance_to(t.global_position) <= head
+
+
 func _seek(delta: float) -> void:
-	if target == null or not is_instance_valid(target) or (target is Ship and (target.dead or target.cloaked)):
+	if target == null or not is_instance_valid(target) or (target is Ship and target.dead) or not _lock_ok(target):
 		target = world.nearest_enemy_ship(global_position, owner_team, data["seek_range"] * 2.0)
+		if target != null and not _lock_ok(target):
+			target = null
 	var accel: float = data.get("accel", 200.0)
 	var dir := Vector2.RIGHT.rotated(rotation)
 	if target != null:

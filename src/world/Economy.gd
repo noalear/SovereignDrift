@@ -43,6 +43,24 @@ func _init(p_world: Node = null) -> void:
 	world = p_world
 
 
+## The painted shipping container a resource travels in, as a crate
+## floating in space (assets/cargo/<resource>.png, mipmapped) or as the
+## cargo panels' small icon (assets/cargo/icons/).
+static func crate_texture(k: String, icon := false) -> Texture2D:
+	return ShipArt.texture("res://assets/cargo/%s%s.png" % ["icons/" if icon else "", k])
+
+
+## A resource's container as a small icon before its name: left edge at x,
+## centred on mid_y, h tall.  Returns the x where the name can start.
+static func draw_icon(ci: CanvasItem, k: String, x: float, mid_y: float, h := 16.0) -> float:
+	var tex := crate_texture(k, true)
+	if tex == null:
+		return x
+	var w := h * tex.get_width() / tex.get_height()
+	ci.draw_texture_rect(tex, Rect2(x, mid_y - h * 0.5, w, h), false)
+	return x + w + 6.0
+
+
 static func surface_of(look: String, habitable: int) -> String:
 	if SURFACE.has(look):
 		return SURFACE[look]

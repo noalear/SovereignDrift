@@ -85,10 +85,12 @@ var shield_regen := 0.0
 var hull := 100.0
 var hull_max := 100.0
 var armor := 0.0
-var sensor_range := 1200.0
-var can_cloak := false
-var cloaked := false
-var cloak_alpha := 1.0
+var sensor_range := 1200.0          # the longest lock range against a signature of 100 (see Sensors)
+var sensors := Sensors.new()       # signatures, contacts, ping, silent running, the jammer
+var can_jam := false
+var jamming := false               # the jammer is on (it works on the target; see Sensors._jam_tick)
+var boosting := false              # this frame, for the heat signature
+var engine_level := 0.0            # share of full thrust this frame, for the heat signature
 var has_boost := false
 var has_dock := false
 var qdrv := 0.0
@@ -264,7 +266,10 @@ func refit(p_design: Variant) -> void:
 	hull_max = stats["hull_max"]
 	armor = stats["armor"]
 	sensor_range = stats["sensor_range"]
-	can_cloak = stats["can_cloak"]
+	can_jam = stats["can_jam"]
+	if sensors.ship == null:
+		sensors.setup(self)
+	sensors.fit(stats)
 	has_boost = stats["has_boost"]
 	qdrv = stats["qdrv"]
 	brake_power = stats["brake_power"]
@@ -329,10 +334,11 @@ func apply_systems() -> void:
 	shield_regen = b["shield_regen"] * sh
 	shield = minf(shield, shield_max)
 	var sn := systems.efficiency("sensors")
-	sensor_range = b["sensor_range"] * lerpf(ShipSystems.BLIND_SENSORS, 1.0, sn)
-	can_cloak = b["can_cloak"] and not systems.is_offline("cloak")
-	if cloaked and not can_cloak:
-		set_cloak_forced_off()
+	sensors.efficiency = lerpf(ShipSystems.BLIND_SENSORS, 1.0, sn)
+	sensor_range = b["sensor_range"] * sensors.efficiency
+	can_jam = b["can_jam"] and not systems.is_offline("jammer")
+	if jamming and not can_jam:
+		set_jam(false)
 	qdrv = b["qdrv"] if not systems.is_offline("qdrv") else 0.0
 	if warping and (qdrv <= 0.0 or engines_out()):
 		end_warp()
@@ -372,11 +378,6 @@ func crew_fraction() -> float:
 
 func engines_out() -> bool:
 	return systems.is_offline("engines")
-
-
-func set_cloak_forced_off() -> void:
-	cloaked = false
-	Sfx.play("uncloak", global_position, 0.6)
 
 
 ## Dry mass plus the fuel on board.
@@ -527,20 +528,77 @@ func has_fuel() -> bool:
 	return fuel > 0.0
 
 
-func is_cloaked_to(viewer: Node) -> bool:
-	return cloaked and viewer != self and cloak_alpha < 0.35
+# ------------------------------------------------------------ sensors
 
-
+## Does the viewer hold a track (a lock) on this ship, with its own
+## sensors or its allies' data link?  Down on a surface nobody sees us.
 func visible_to(viewer: Ship) -> bool:
-	if viewer == self:
-		return true
-	if landing == Landing.LANDED:
-		return false                   # down on the surface, under the clouds
-	var d := global_position.distance_to(viewer.global_position)
-	if d > viewer.sensor_range * (0.25 if cloaked else 1.0):
-		# the empire's sensor stations see further than any ship
-		return world != null and world.sensor_sees(self, viewer.race_id)
-	return true
+	return Sensors.quality(viewer, self) >= 3
+
+
+## What this ship knows of a target: 0 nothing, 1 a bearing, 2 a contact
+## (no lock), 3 a track.
+func contact_quality(t: Node) -> int:
+	if not t is Ship:
+		return 3 if t != null else 0
+	return Sensors.quality(self, t)
+
+
+## A lock on the target with any sensor (channel ""), or with our own
+## sensors on one channel: "radar" or "heat" (a seeker needs heat).
+func has_track(t: Node, channel: String = "") -> bool:
+	if not t is Ship:
+		return t != null
+	return Sensors.track(self, t, channel)
+
+
+## How loud the ship is on a channel: "radar", "heat", "em" or "temporal";
+## 100 is seen at a sensor's rated range.
+func signature(channel: String) -> float:
+	return sensors.signature(channel)
+
+
+## A spike on a channel that dies away over `seconds` (a shot's flash, a
+## reactive tile firing, a ping).
+func add_signature(channel: String, amount: float, seconds: float) -> void:
+	sensors.add_spike(channel, amount, seconds)
+
+
+## The jammer: on the pilot's target, if it is locked and in reach.
+func set_jam(on: bool) -> void:
+	if on == jamming:
+		return
+	if on:
+		var why := sensors.jam_refusal()
+		if why == "" and not (target is Ship and is_instance_valid(target) and target.team() != team() and has_track(target)):
+			why = "Lock a target first: the jammer works on the ship you have targeted."
+		if why != "":
+			if is_player and world != null:
+				world.notify(self, why)
+			return
+	jamming = on
+	Sfx.play("cloak" if on else "uncloak", global_position, 0.6)
+
+
+## A disruptor hit knocks the jammer out for a while.
+func jam_off(seconds: float) -> void:
+	sensors.jam_out = maxf(sensors.jam_out, seconds)
+	if jamming:
+		set_jam(false)
+
+
+func ping() -> void:
+	var said := sensors.ping()
+	if is_player and world != null:
+		world.notify(self, said)
+
+
+## Silent running: radar and lidar off, shields stop recharging, the
+## reactor turned down (half the energy regen, no reactor heat).
+func set_silent(on: bool) -> void:
+	sensors.set_emcon(on)
+	if is_player and world != null:
+		world.notify(self, "Silent running: radar off, shields hold their charge, reactor at half." if on else "Silent running off: radar back in a second.")
 
 
 # ------------------------------------------------------------ simulation
@@ -593,7 +651,7 @@ func post_step(_delta: float) -> void:
 
 func _fly(delta: float) -> void:
 	var fwd := forward()
-	var boosting: bool = inputs["boost"] and has_boost and energy > 5.0 and inputs["thrust"] > 0.0 and fuel > 0.0
+	boosting = inputs["boost"] and has_boost and energy > 5.0 and inputs["thrust"] > 0.0 and fuel > 0.0
 	var vmax := max_speed * (BOOST_SPEED_MULT if boosting else 1.0)
 	# the rating is the speed the drive holds in open space; inside a
 	# gravity well the cap is on the energy, so a ship can always climb out:
@@ -647,7 +705,7 @@ func _fly(delta: float) -> void:
 		# retro burn, never past a stop
 		var brake_a := minf(maxf(accel * brake_power * 1.5, 170.0 * brake_power), sp / delta)
 		f -= lv.normalized() * brake_a * body.mass
-	var engine_level := f.length() / maxf(thrust_force, 1.0)
+	engine_level = f.length() / maxf(thrust_force, 1.0)
 	# the orbit guard: with assist on, a course that would end on a planet's
 	# surface is flown into a circular orbit on the ship's own engines
 	var hands_off: bool = t == 0.0 and st == 0.0 and not inputs["brake"]
@@ -755,7 +813,6 @@ func _puppet_step(delta: float) -> void:
 		invulnerable -= delta
 	if hit_flash > 0.0:
 		hit_flash -= delta
-	cloak_alpha = lerpf(cloak_alpha, 0.12 if cloaked else 1.0, 4.0 * delta)
 	if landing != Landing.NONE:
 		_landing_visual(delta)
 	if engine_sound != null:
@@ -827,8 +884,7 @@ func start_landing(p: Planet) -> void:
 	land_rot = rotation
 	autopilot = false
 	transfer = 0
-	if cloaked:
-		set_cloak(false)
+	set_jam(false)
 	body.enabled = false
 	Sfx.play("dock", global_position, 0.6, 0.85)
 
@@ -978,6 +1034,7 @@ func _warp(delta: float) -> void:
 		thrust_level = lerpf(thrust_level, 1.0, 5.0 * delta)
 		if warp_charge >= WARP_CHARGE_TIME:
 			Sfx.play(Sfx.leveled("warpout", module_levels.get("qdrv", 1)), global_position, 0.8)
+			_time_ripple()
 		return
 	var drain := 160.0 * delta
 	if energy < drain or inputs["brake"]:
@@ -1034,8 +1091,6 @@ func start_warp() -> void:
 		why = "Engines offline: no warp."
 	elif qdrv <= 0.0:
 		why = "No quantum drive fitted."
-	elif cloaked:
-		why = "Can't warp while cloaked."
 	elif energy < 200.0:
 		why = "Not enough energy to warp (needs 200)."
 	if not why.is_empty():
@@ -1050,10 +1105,21 @@ func start_warp() -> void:
 func end_warp() -> void:
 	if not warping:
 		return
+	var jumped := warp_charge >= WARP_CHARGE_TIME
 	warping = false
 	warp_charge = 0.0
 	velocity = forward() * max_speed * 0.8
 	Sfx.play("warpexit", global_position, 0.8)
+	if jumped:
+		_time_ripple()
+
+
+## A quantum jump tears time: a ripple spreads from where it starts and
+## where it ends, seen on screen and by every temporal sensor about.
+func _time_ripple() -> void:
+	add_signature("temporal", Sensors.JUMP_TEMPORAL, Sensors.RIPPLE_TIME)
+	if world != null and world.get("fx") != null and world.fx.has_method("time_ripple"):
+		world.fx.time_ripple(global_position, size)
 
 
 ## How far autopilot keeps from a body's centre: the Sun's whole heat
@@ -1206,22 +1272,17 @@ func _systems(delta: float) -> void:
 	if systems.is_offline("reactor"):
 		# the batteries run flat without a reactor behind them
 		energy = maxf(energy - energy_max * 0.25 * delta, 0.0)
-	energy = minf(energy + energy_regen * delta * 0.1, energy_max)
+	energy = minf(energy + energy_regen * delta * 0.1 * (Sensors.EMCON_REGEN if sensors.emcon else 1.0), energy_max)
 	# the reactor cracks a trickle of propellant, so nobody is stranded for good
 	if fuel < fuel_max and energy > energy_max * 0.3 and not refuelling:
 		fuel = minf(fuel + fuel_max * 0.0025 * delta, fuel_max)
-	if shield < shield_max and energy > 2.0:
+	if shield < shield_max and energy > 2.0 and not sensors.emcon:
 		var regen := minf(shield_regen * delta, shield_max - shield)
 		var cost := regen * 1.5
 		if energy >= cost:
 			shield += regen
 			energy -= cost
-	if cloaked:
-		var cost := 55.0 * delta
-		if energy < cost or warping:
-			set_cloak(false)
-		else:
-			energy -= cost
+	sensors.tick(delta)
 	# self-repair: regenerators work on their own once the shooting stops,
 	# repair bays always, for energy
 	if hull < hull_max:
@@ -1233,18 +1294,6 @@ func _systems(delta: float) -> void:
 			if energy > cost + 50.0:
 				energy -= cost
 				hull = minf(hull + repair_rate * delta, hull_max)
-	cloak_alpha = lerpf(cloak_alpha, 0.12 if cloaked else 1.0, 4.0 * delta)
-	if is_player and cloaked:
-		cloak_alpha = maxf(cloak_alpha, 0.3)
-
-
-func set_cloak(on: bool) -> void:
-	if on == cloaked or not can_cloak:
-		return
-	if on and (energy < 80.0 or warping):
-		return
-	cloaked = on
-	Sfx.play("cloak" if on else "uncloak", global_position, 0.6)
 
 
 func _weapons(delta: float) -> void:
@@ -1407,8 +1456,10 @@ func _fire_tube(w: Dictionary) -> void:
 	w["cooldown"] = w["rate"] / maxf(systems.weapon_efficiency(w["index"]), 0.1)
 	if w["ammo"] > 0:
 		w["ammo"] -= 1
-	if cloaked:
-		set_cloak(false)
+	# the launch flash gives the shooter away
+	var flash: Array = Sensors.SHOT_SIGNATURE.get(w["missile"], [40.0, 0.0])
+	add_signature("heat", flash[0], Sensors.SHOT_TIME)
+	add_signature("em", flash[1], Sensors.SHOT_TIME)
 	var md: Dictionary = GameData.MISSILES[w["missile"]]
 	var rel := _aim_angle(w)
 	if w["missile"] == "002":
@@ -1448,9 +1499,10 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 	var cost: float = w["cost"] * delta
 	if energy < cost:
 		return
-	if cloaked:
-		set_cloak(false)
 	energy -= cost
+	# a beam is quiet to infrared but loud to an EM receiver while it fires
+	add_signature("heat", Sensors.BEAM_SIGNATURE[0], 0.25)
+	add_signature("em", Sensors.BEAM_SIGNATURE[1], 0.25)
 	var rel := _aim_angle(w)
 	var ang := rotation + rel
 	var origin := global_position + Vector2.RIGHT.rotated(ang) * size * 0.6
@@ -1519,8 +1571,6 @@ func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_
 			target = attacker
 			if world != null:
 				world.notify(self, "Autopilot off: under fire from %s. Targeted." % attacker.pilot_name)
-	if cloaked:
-		set_cloak(false)
 	hit_flash = 0.15
 	if at != Vector2.ZERO:
 		last_hit_angle = (at - global_position).angle() - rotation
@@ -1590,7 +1640,7 @@ func _die(killer: Node) -> void:
 	if landing != Landing.NONE:
 		_end_landing()
 		body.enabled = false
-	set_cloak(false)
+	set_jam(false)
 	warping = false
 	if engine_sound != null:
 		engine_sound.silence()
@@ -1611,6 +1661,7 @@ func respawn(at: Vector2, vel: Vector2) -> void:
 	if landing != Landing.NONE:
 		_end_landing()
 	refit(design)
+	sensors.reset()
 	global_position = at
 	velocity = vel
 	rotation = randf() * TAU
@@ -1673,18 +1724,24 @@ func try_pickup(module_id: String) -> bool:
 			b["thrust_force"] *= 1.25
 			fuel = fuel_max
 		"sensor":
-			if level <= have:
+			var fam: String = m["fam"]
+			if float(m["p"][0]) <= sensors.suite.get(fam, 0.0):
 				return false
-			b["sensor_range"] = 600.0 + m["p"][0] * 40.0
+			sensors.suite[fam] = float(m["p"][0])
+			stats["sensors"][fam] = float(m["p"][0])
+			if GameData.SENSOR_FAMILIES[fam]["track"]:
+				b["sensor_range"] = maxf(b["sensor_range"], float(m["p"][0]))
 		"power":
 			if level <= have:
 				return false
 			energy_max += m["power"] * 2.0
 			b["energy_regen"] += m["power"] * 0.2 * GameData.ENERGY_REGEN_SCALE
-		"stealth":
-			if b["can_cloak"]:
+		"jammer":
+			if b["can_jam"]:
 				return false
-			b["can_cloak"] = true
+			b["can_jam"] = true
+			stats["can_jam"] = true
+			stats["jam_reach"] = float(m["p"][0])
 		"boost":
 			if b["has_boost"] and level <= have:
 				return false
@@ -1698,7 +1755,7 @@ func try_pickup(module_id: String) -> bool:
 		_:
 			return false
 	apply_systems()
-	module_levels[f] = level
+	module_levels[f] = maxi(level, have)
 	return true
 
 
@@ -1726,7 +1783,7 @@ func _draw_frame() -> void:
 
 
 func _draw_system_damage() -> void:
-	var a := cloak_alpha
+	var a := 1.0
 	if a < 0.1:
 		return
 	var now := Time.get_ticks_msec() / 1000.0
@@ -1766,12 +1823,12 @@ func _draw() -> void:
 	if art_model.is_empty():
 		art_model = ShipArt.build_model(design, hull_race, size)
 	var broken := systems.broken_map()
-	ShipArt.draw_model(self, art_model, base, thrust_level, cloak_alpha * (0.4 if building else 1.0), dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0), broken)
+	ShipArt.draw_model(self, art_model, base, thrust_level, (0.4 if building else 1.0), dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0), broken)
 	if building:
 		_draw_frame()
 	if not broken.is_empty():
 		_draw_system_damage()
-	if is_disabled() and cloak_alpha > 0.3:
+	if is_disabled():
 		# a dead ship's running light blinks red, so it can be found and boarded
 		var blink := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 1000.0 * 5.0)
 		draw_arc(Vector2.ZERO, size * 1.25, 0, TAU, 40, Color(1.0, 0.25, 0.15, 0.25 + 0.3 * blink), 1.5, true)
@@ -1781,6 +1838,19 @@ func _draw() -> void:
 		var c := Color(0.55, 0.9, 1.0, 0.35 + 0.25 * sin(Time.get_ticks_msec() / 90.0))
 		draw_line(Vector2.ZERO, to, c, 3.0, true)
 		draw_line(Vector2.ZERO, to, Color(1, 1, 1, 0.5), 1.0, true)
+	if sensors.jam_active():
+		# the jammer's beam: static crawling toward the target
+		var tj: Node2D = sensors.jam_target
+		var to := (tj.global_position - global_position).rotated(-rotation)
+		var n := 14
+		var prev := Vector2.ZERO
+		for k in range(1, n + 1):
+			var q := to * (float(k) / n)
+			if k < n:
+				q += to.orthogonal().normalized() * randf_range(-6.0, 6.0)
+			if k % 2 == 0:
+				draw_line(prev, q, Color(0.85, 0.55, 1.0, 0.35), 1.5, true)
+			prev = q
 	# the shield is drawn by shield_bubble
 	if is_player and landing == Landing.LANDED:
 		# where you are on the ground: a beacon round the speck

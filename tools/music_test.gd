@@ -1,6 +1,7 @@
 # Music switching test: feeds the music a jittery read of the fight (as the
 # game's combat check gives when enemies drift in and out of range) and
-# checks that tracks play through instead of flipping.  Usage:
+# checks that tracks play through instead of flipping.  Also checks that
+# every listed track loads.  Usage:
 #   godot --headless --path . -s tools/music_test.gd
 extends SceneTree
 
@@ -18,9 +19,16 @@ func _run() -> void:
 	settings.dynamic_music = true
 	settings.music_mode = "all"
 	music.start()
+	var failed := false
+	# every listed track must load
+	for t in music.REMIXES + music.NEW_TRACKS:
+		var path := "res://assets/music/%s/%s.ogg" % ["remix" if t[0].begins_with("remix") else "new", t[0]]
+		if load(path) == null:
+			print("FAIL: missing track ", path)
+			failed = true
+	print("tracks listed: ", music.REMIXES.size() + music.NEW_TRACKS.size())
 	var changes: Array = []
 	music.track_changed.connect(func(title, _style): changes.append([music.time, title]))
-	var failed := false
 	var C: int = music.Intensity.CRUISE
 	var T: int = music.Intensity.TENSION
 	var B: int = music.Intensity.BATTLE

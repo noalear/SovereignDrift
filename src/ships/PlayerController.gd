@@ -52,10 +52,22 @@ func _unhandled_input(event: InputEvent) -> void:
 	if ship.is_landing():
 		return                          # on the way down or on the ground: B lifts off
 	if event.is_action_pressed("cloak"):
+		# the jammer works on the target, so the target travels with the command
 		if Net.is_client():
-			Net.client_command("cloak")
+			Net.client_command("jam:%d" % (ship.target.net_id if ship.target is Ship and not ship.jamming else 0))
 		else:
-			ship.set_cloak(not ship.cloaked)
+			ship.set_jam(not ship.jamming)
+	elif event.is_action_pressed("ping"):
+		if Net.is_client():
+			Net.client_command("ping")
+			ship.sensors.ping()         # the host pings too; this is our own picture
+		else:
+			ship.ping()
+	elif event.is_action_pressed("silent_running"):
+		if Net.is_client():
+			Net.client_command("silent")
+		else:
+			ship.set_silent(not ship.sensors.emcon)
 	elif event.is_action_pressed("target_next"):
 		world.cycle_target(ship)
 	elif event.is_action_pressed("target_nearest"):

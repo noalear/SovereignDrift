@@ -270,14 +270,44 @@ func _think() -> void:
 			elif tgt != null and tgt.global_position.distance_to(ship.global_position) < 500.0 and hull_frac > 0.4:
 				# cornered: fight back
 				state = State.ATTACK
-	# cloak when sneaking up, uncloak to fight
-	if ship.can_cloak:
-		if state == State.ATTACK and tgt != null and tgt.global_position.distance_to(ship.global_position) > 700.0 and ship.energy > ship.energy_max * 0.5:
-			ship.set_cloak(true)
-		elif state == State.RETREAT and ship.energy > ship.energy_max * 0.4:
-			ship.set_cloak(true)
-		elif state != State.ATTACK or ship.energy < ship.energy_max * 0.25:
-			ship.set_cloak(false)
+	_think_sensors(tgt)
+
+
+## The jammer on whatever we fight, a ping when all we have is a contact,
+## and with nothing in sight, a look at the nearest contact (or at whoever
+## is jamming us).
+func _think_sensors(tgt: Node2D) -> void:
+	var fighting := state == State.ATTACK and tgt is Ship
+	if ship.can_jam:
+		if fighting and not ship.jamming and ship.energy > ship.energy_max * 0.3 and ship.has_track(tgt) \
+				and tgt.global_position.distance_to(ship.global_position) <= float(ship.stats.get("jam_reach", 2500.0)):
+			ship.set_jam(true)
+		elif ship.jamming and (not fighting or ship.energy < ship.energy_max * 0.15):
+			ship.set_jam(false)
+	var sv: Sensors = ship.sensors
+	if sv.has("pulse") and sv.ping_ready <= 0.0 and ship.energy > ship.energy_max * 0.4:
+		if (tgt is Ship and not ship.has_track(tgt)) or (tgt == null and _nearest_contact() != null):
+			ship.ping()
+	if tgt == null and state == State.PATROL and not hauler and escort == null:
+		var c := _nearest_contact()
+		if c != null:
+			patrol_point = Sensors.estimate(ship, c)
+		elif sv.is_jammed() and sv.jammed_by != null and is_instance_valid(sv.jammed_by) and not sv.jammed_by.dead:
+			patrol_point = sv.jammed_by.global_position   # turn on the jammer's heat
+
+
+## The nearest enemy we know is about but cannot lock: worth a look.
+func _nearest_contact() -> Ship:
+	var best: Ship = null
+	var best_d := ship.sensor_range * Sensors.CONTACT_REACH * 1.5
+	for s in world.ships:
+		if s.dead or s.team() == ship.team() or s.race_id == GameData.NEUTRAL or s.is_landing() or s.support:
+			continue
+		var d: float = s.global_position.distance_to(ship.global_position)
+		if d < best_d and ship.contact_quality(s) == 2:
+			best_d = d
+			best = s
+	return best
 
 
 ## A prize crew fights near its captor: the captor's own target first,

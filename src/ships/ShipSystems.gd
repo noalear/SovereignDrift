@@ -1,6 +1,6 @@
 ## ShipSystems -- the parts of a ship that can be shot out before the hull
 ## gives: engines, reactor, shield generators, sensors, quantum drive,
-## cloak and every weapon mount.  Each sits where it is drawn on the hull
+## jammer and every weapon mount.  Each sits where it is drawn on the hull
 ## painting, and a hit damages the systems near the impact, so shooting a
 ## ship in the stern knocks its engines out and a broadside takes the
 ## shield domes.  A system below DAMAGED_BELOW works at reduced strength;
@@ -18,7 +18,7 @@ extends RefCounted
 ## A system's hit points as a share of the ship's full hull.
 const HP_SHARE := {
 	"engines": 0.27, "reactor": 0.27, "shields": 0.25, "sensors": 0.16,
-	"qdrv": 0.14, "cloak": 0.12, "weapon": 0.15,
+	"qdrv": 0.14, "jammer": 0.12, "weapon": 0.15,
 }
 ## Damage to a system from a hit right on it, per point of hull damage.
 const DAMAGE_MULT := 1.2
@@ -54,10 +54,10 @@ const VITAL := ["engines", "reactor"]
 ## Display names and the short tags the HUD uses.
 const LABELS := {
 	"engines": ["Engines", "ENG"], "reactor": ["Reactor", "PWR"], "shields": ["Shields", "SHD"],
-	"sensors": ["Sensors", "SNS"], "qdrv": ["Quantum drive", "QD"], "cloak": ["Cloak", "CLK"],
+	"sensors": ["Sensors", "SNS"], "qdrv": ["Quantum drive", "QD"], "jammer": ["Jammer", "JAM"],
 }
 ## Which part overlay on the painting stands for which system.
-const ICONS := {"reactor": "reactor", "shields": "shield", "sensors": "sensor", "qdrv": "qdrv", "cloak": "cloak"}
+const ICONS := {"reactor": "reactor", "shields": "shield", "sensors": "sensor", "qdrv": "qdrv", "jammer": "cloak"}
 
 ## [{id, kind, label, tag, pts: [local Vector2], hp, max, offline, weapon}]
 var list: Array = []
@@ -75,7 +75,7 @@ func build(s: Node) -> void:
 	base = {
 		"thrust_force": s.thrust_force, "max_speed": s.max_speed, "energy_regen": s.energy_regen,
 		"shield_max": s.shield_max, "shield_regen": s.shield_regen, "sensor_range": s.sensor_range,
-		"can_cloak": s.can_cloak, "qdrv": s.qdrv, "has_boost": s.has_boost,
+		"can_jam": s.can_jam, "qdrv": s.qdrv, "has_boost": s.has_boost,
 	}
 	if s.is_station:
 		return
@@ -94,13 +94,13 @@ func build(s: Node) -> void:
 		if pts.is_empty():
 			pts.append(Vector2(rect.position.x + size * 0.3, 0))
 		_add("engines", pts, hull)
-	var want := {"reactor": "power", "shields": "shield", "sensors": "sensor", "qdrv": "qdrv", "cloak": "stealth"}
+	var want := {"reactor": "power", "shields": "shield", "sensors": "sensor", "qdrv": "qdrv", "jammer": "jammer"}
 	var fallback := {
 		"reactor": [Vector2(-size * 0.15, 0)],
 		"shields": [Vector2(0, -rect.size.y * 0.3), Vector2(0, rect.size.y * 0.3)],
 		"sensors": [Vector2(size * 0.4, 0)],
 		"qdrv": [Vector2(rect.position.x + size * 0.7, 0)],
-		"cloak": [Vector2(-size * 0.55, 0)],
+		"jammer": [Vector2(-size * 0.55, 0)],
 	}
 	for kind in want:
 		if not funcs.has(want[kind]):

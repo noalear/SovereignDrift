@@ -245,7 +245,7 @@ func _draw_mine(r: Rect2) -> void:
 		y += 30
 	for k in held:
 		var on := int(o.get("cargo", {}).get(k, 0))
-		draw_string(font, Vector2(x, y), "%s  %d  of %d" % [Economy.NAMES[k], on, int(cargo[k])], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Economy.COLORS[k])
+		draw_string(font, Vector2(Economy.draw_icon(self, k, x, y - 6, 15.0), y), "%s  %d  of %d" % [Economy.NAMES[k], on, int(cargo[k])], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Economy.COLORS[k])
 		var cx := x + 200
 		for step in [-10, 10]:
 			var can: bool = (step < 0 and on > 0) or (step > 0 and on < int(cargo[k]))

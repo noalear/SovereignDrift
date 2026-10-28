@@ -45,8 +45,9 @@ const LINES := [
 	["disable", "hale", "Now the mark of a good captain: don't just blow ships apart. Every hit damages the systems nearest to it. Hit the drone in the stern to knock out its engines, and it's dead in space."],
 	["drone_lost", "hale", "That one's scrap. Easy on the trigger, cadet. Here's another. Aim for the engines at the back."],
 	["board", "hale", "Its engines are out. Come alongside, slow down, and board it. Your crew fights theirs, and if you win, the ship is yours. A captured prize follows you as a wingman."],
-	["cloak", "hale", "Your scout also carries a cloaking device. Cloaked, you're invisible to enemy sensors, but it drains energy and you can't warp. Cloak, then uncloak."],
-	["spar", "hale", "Ready for a live opponent? A rookie pirate in a scout is coming in. This one shoots back. Destroy it, or disable and board it. If you lose your ship, you'll relaunch at the starbase."],
+	["stealth", "hale", "Every ship gives itself away. Your hull shows on radar, your engines and guns glow on infrared, and your own radar and shields broadcast for anyone listening. The bars by your radar show how loud you are. Enemy sensors lock on to whatever stands out. Silent running switches your radar off, holds your shields and turns the reactor down. You're much harder to find, but half blind too. Go silent, then come back up."],
+	["jammer", "hale", "Ready for a live opponent? A rookie pirate in a scout is coming in, and this one shoots back. Your scout carries a jammer. Lock the pirate as your target and switch the jammer on. Its sensors lose most of their range, so it struggles to keep a lock on you. Jamming burns energy and runs hot, so keep an eye on your meters."],
+	["spar", "hale", "Now finish the fight. Destroy the pirate, or disable and board it. If you lose your ship, you'll relaunch at the starbase."],
 	["spar_died", "hale", "You'll relaunch from the starbase in a moment. Happens to all of us. Get back out there."],
 	["loot", "hale", "Wrecks spill loot: credit chips, spare parts, and now and then a blueprint for enemy technology. Fly over the pickups to scoop them up."],
 	# --- the starbase

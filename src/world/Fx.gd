@@ -13,6 +13,7 @@ var shockwaves: Array = []
 var shards: Array = []       # pieces of a wrecked painting {tex, poly, uvs, pos, vel, angle, spin, age, life, burn}
 var droplets: Array = []     # Arcean coolant {pos, vel, age, wet, life, size}
 var gravel: Array = []       # bits of a broken asteroid {pos, vel, age, life, size, color}
+var ripples: Array = []      # time ripples from quantum jumps and sensor pings {pos, age, life, size, kind, color}
 var glow: Node2D             # additive layer
 const WRECK_LIFE := 3.2
 
@@ -194,6 +195,17 @@ func beam(a: Vector2, b: Vector2, color: Color) -> void:
 	beams.append({"a": a, "b": b, "color": color, "age": 0.0})
 
 
+## A quantum jump tears time: rings of warped light race out from the
+## spot like a sonic boom.
+func time_ripple(pos: Vector2, ship_size: float) -> void:
+	ripples.append({"pos": pos, "age": 0.0, "life": 1.8, "size": 900.0 + ship_size * 10.0, "kind": "time", "color": Color(0.65, 0.6, 1.0)})
+
+
+## A pulse radar's sweep: one thin ring out to its reach.
+func sensor_ping(pos: Vector2, reach: float, color: Color) -> void:
+	ripples.append({"pos": pos, "age": 0.0, "life": 0.9, "size": reach, "kind": "ping", "color": color.lerp(Color(0.7, 1.0, 0.9), 0.5)})
+
+
 func _process(delta: float) -> void:
 	for e in explosions:
 		e["age"] += delta
@@ -232,6 +244,9 @@ func _process(delta: float) -> void:
 		g["age"] += delta
 		g["pos"] += g["vel"] * delta
 	gravel = gravel.filter(func(g): return g["age"] < g["life"])
+	for r in ripples:
+		r["age"] += delta
+	ripples = ripples.filter(func(r): return r["age"] < r["life"])
 	queue_redraw()
 	glow.queue_redraw()
 
@@ -276,12 +291,37 @@ func _draw() -> void:
 		# a soft-edged ring of light: three widths, faint
 		for k in 3:
 			draw_arc(w["pos"], w["size"] * t, 0, TAU, 64, Color(1, 0.85, 0.6, (1.0 - t) * 0.07), (14.0 - k * 4.5) * (1.0 - t) + 2.0, true)
+	for r in ripples:
+		_draw_ripple(r)
 	for b in beams:
 		var c: Color = b["color"]
 		draw_line(b["a"], b["b"], Color(c.r, c.g, c.b, 0.35), 7.0)
 		draw_line(b["a"], b["b"], c, 3.0)
 		draw_line(b["a"], b["b"], Color.WHITE, 1.2)
 		draw_circle(b["b"], 5.0, Color.WHITE)
+
+
+func _draw_ripple(r: Dictionary) -> void:
+	var t: float = r["age"] / r["life"]
+	var c: Color = r["color"]
+	if r["kind"] == "ping":
+		draw_arc(r["pos"], r["size"] * t, 0, TAU, 96, Color(c, 0.35 * (1.0 - t)), 2.0, true)
+		return
+	# three wavefronts, each a wobbling ring, the first fastest
+	for k in 3:
+		var tk := clampf(t * (1.0 - k * 0.18) - k * 0.04, 0.0, 1.0)
+		if tk <= 0.0:
+			continue
+		var rad: float = r["size"] * (1.0 - pow(1.0 - tk, 2.2))
+		var pts := PackedVector2Array()
+		var n := 72
+		for i in n + 1:
+			var a := TAU * i / n
+			var wob := 1.0 + 0.025 * sin(a * 7.0 + r["age"] * 9.0 + k) + 0.015 * sin(a * 13.0 - r["age"] * 5.0)
+			pts.append(r["pos"] + Vector2(cos(a), sin(a)) * rad * wob)
+		var fade := (1.0 - tk) * (0.5 - k * 0.12)
+		draw_polyline(pts, Color(c, fade * 0.35), 10.0 * (1.0 - tk) + 2.0, true)
+		draw_polyline(pts, Color(1, 1, 1, fade * 0.5), 1.5, true)
 
 
 ## Light: fireballs, burning shards, embers and the coolant's glow.

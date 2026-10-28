@@ -85,10 +85,26 @@ const MODULES := {
 	"5502": {"name": "Armor II", "vol": 200, "mass": 5000, "power": 0, "hp": 500, "func": "armor", "p": [75]},
 	"5503": {"name": "Armor III", "vol": 300, "mass": 10000, "power": 0, "hp": 750, "func": "armor", "p": [100]},
 	"6001": {"name": "Brake", "vol": 500, "mass": 500, "power": -200, "hp": 100, "func": "brake", "p": [90]},
-	"7001": {"name": "Sensors I", "vol": 10, "mass": 4, "power": -10, "hp": 10, "func": "sensor", "p": [10]},
-	"7002": {"name": "Sensors II", "vol": 20, "mass": 8, "power": -100, "hp": 10, "func": "sensor", "p": [25]},
-	"7003": {"name": "Sensors III", "vol": 30, "mass": 12, "power": -100, "hp": 10, "func": "sensor", "p": [40]},
-	"9101": {"name": "Cloaking device", "vol": 50, "mass": 100, "power": -500, "hp": 100, "func": "stealth", "p": [500, 800]},
+	# sensors: one of each family counts (the best tier); p = [rated range
+	# against a signature of 100] (see SENSOR_FAMILIES and Sensors.gd)
+	"7001": {"name": "Radar I", "vol": 10, "mass": 4, "power": -10, "hp": 10, "func": "sensor", "fam": "radar", "p": [1400]},
+	"7002": {"name": "Radar II", "vol": 20, "mass": 8, "power": -100, "hp": 10, "func": "sensor", "fam": "radar", "p": [2000]},
+	"7003": {"name": "Radar III", "vol": 30, "mass": 12, "power": -100, "hp": 10, "func": "sensor", "fam": "radar", "p": [2600]},
+	"7101": {"name": "Pulse radar I", "vol": 25, "mass": 10, "power": -50, "hp": 10, "func": "sensor", "fam": "pulse", "p": [2600, 7.0]},
+	"7102": {"name": "Pulse radar II", "vol": 40, "mass": 16, "power": -50, "hp": 10, "func": "sensor", "fam": "pulse", "p": [3400, 5.0]},
+	"7201": {"name": "Lidar I", "vol": 30, "mass": 12, "power": -150, "hp": 10, "func": "sensor", "fam": "lidar", "p": [3200]},
+	"7202": {"name": "Lidar II", "vol": 50, "mass": 20, "power": -200, "hp": 10, "func": "sensor", "fam": "lidar", "p": [4200]},
+	"7301": {"name": "Infrared I", "vol": 20, "mass": 6, "power": -10, "hp": 10, "func": "sensor", "fam": "infrared", "p": [1200]},
+	"7302": {"name": "Infrared II", "vol": 30, "mass": 9, "power": -20, "hp": 10, "func": "sensor", "fam": "infrared", "p": [1700]},
+	"7303": {"name": "Infrared III", "vol": 40, "mass": 12, "power": -30, "hp": 10, "func": "sensor", "fam": "infrared", "p": [2300]},
+	"7401": {"name": "EM receiver I", "vol": 15, "mass": 5, "power": -10, "hp": 10, "func": "sensor", "fam": "em", "p": [1500]},
+	"7402": {"name": "EM receiver II", "vol": 25, "mass": 8, "power": -20, "hp": 10, "func": "sensor", "fam": "em", "p": [2100]},
+	"7501": {"name": "Temporal sensor I", "vol": 60, "mass": 40, "power": -150, "hp": 20, "func": "sensor", "fam": "temporal", "p": [1500]},
+	"7502": {"name": "Temporal sensor II", "vol": 90, "mass": 60, "power": -250, "hp": 20, "func": "sensor", "fam": "temporal", "p": [2400]},
+	# the jammer blinds the sensors of the pilot's target: p = [reach px]
+	"9101": {"name": "Jammer", "vol": 50, "mass": 100, "power": -500, "hp": 100, "func": "jammer", "p": [2500]},
+	# soaks most of the ship's heat until it is full, then vents in a flare
+	"9401": {"name": "Heat sink", "vol": 60, "mass": 600, "power": -50, "hp": 60, "func": "heatsink", "p": [1000]},
 	"9201": {"name": "Booster I", "vol": 100, "mass": 500, "power": -100, "hp": 100, "func": "boost", "p": [1000, 150, 30]},
 	"9202": {"name": "Booster II", "vol": 140, "mass": 700, "power": -150, "hp": 100, "func": "boost", "p": [1200, 200, 50]},
 	"9203": {"name": "Booster III", "vol": 160, "mass": 800, "power": -180, "hp": 100, "func": "boost", "p": [1400, 250, 70]},
@@ -106,12 +122,33 @@ const MODULES := {
 	"4021": {"name": "Drone bay", "vol": 50, "mass": 200, "power": -300, "hp": 150, "func": "tube", "p": [40, 4000, 40, "021"]},
 }
 
+## The sensor families (Kyle's sensors and stealth design, 2026-10-28).
+## Each reads one signature channel of the target (Ship.signature):
+## "radar" return, "heat", "em" emissions or "temporal" ripples from
+## quantum jumps.  A sensor sees a target out to rated x signature / 100.
+## track: can hold a lock (EM receivers and temporal sensors only give
+## contacts); active: gives the ship away (heard by EM receivers at twice
+## the range, and every target it tracks gets a paint warning); los:
+## planets block it; cone: half-angle in radians of a beam off the nose
+## (15 degrees for lidar; 0 = all round).
+const SENSOR_FAMILIES := {
+	"optics": {"label": "Optics", "channel": "radar", "track": true, "active": false, "los": true, "cone": 0.0, "rated": 700.0},
+	"radar": {"label": "Radar", "channel": "radar", "track": true, "active": true, "los": true, "cone": 0.0},
+	"pulse": {"label": "Pulse radar", "channel": "radar", "track": true, "active": true, "los": true, "cone": 0.0},
+	"lidar": {"label": "Lidar", "channel": "radar", "track": true, "active": true, "los": true, "cone": 0.2618},
+	"infrared": {"label": "Infrared", "channel": "heat", "track": true, "active": false, "los": true, "cone": 0.0},
+	"em": {"label": "EM receiver", "channel": "em", "track": false, "active": false, "los": true, "cone": 0.0},
+	"temporal": {"label": "Temporal", "channel": "temporal", "track": false, "active": false, "los": false, "cone": 0.0},
+}
+const SENSOR_ORDER := ["optics", "radar", "pulse", "lidar", "infrared", "em", "temporal"]
+
+
 ## Which empire's shipyard sells a part.  Parts not listed are common.
 ## Another empire's part needs a blueprint, salvaged from its wrecks.
 const MODULE_RACE := {
-	"5005": 0, "5006": 0, "7003": 0, "5101": 0, "5102": 0, "4021": 0,
-	"5502": 1, "5503": 1, "4009": 1, "5201": 1, "5202": 1,
-	"9101": 2, "9203": 2, "5601": 2,
+	"5005": 0, "5006": 0, "7003": 0, "7303": 0, "7502": 0, "5101": 0, "5102": 0, "4021": 0,
+	"5502": 1, "5503": 1, "4009": 1, "5201": 1, "5202": 1, "7102": 1, "7202": 1,
+	"9101": 2, "7402": 2, "9203": 2, "5601": 2,
 }
 
 ## Hulls a part will not fit (Kyle: missile racks on anything but a Scout).
@@ -227,7 +264,7 @@ const TUBE_COOLDOWN := {
 
 const SHIPS := {
 	"Scout": {"rank": 0, "speed": 0.25, "size": 22, "turn": 200.0,
-		"modules": ["1001", "5003", "2002", "3003", "7003", "9201", "9101"],
+		"modules": ["1001", "5003", "2002", "3003", "7003", "7301", "9201", "9101"],
 		"dock": [180, 0],
 		"weapons": [["4501", 0, 0, 0, -120, 120], ["4001", 0, 0, 0, -50, 50], ["4002", 180, 0, 180, 170, 190]]},
 	"Destroyer": {"rank": 2, "speed": 0.23, "size": 28, "turn": 170.0,
@@ -235,7 +272,7 @@ const SHIPS := {
 		"dock": [180, 0],
 		"weapons": [["4501", 0, 0, 0, -120, 120], ["4001", 40, 0, 0, -90, 90], ["4001", -40, 0, 0, -90, 90], ["4002", 180, 0, 180, 170, 190]]},
 	"Raider": {"rank": 2, "speed": 0.27, "size": 28, "turn": 180.0, "pirate": true,
-		"modules": ["1002", "5002", "2002", "3002", "7001", "9201", "9101"],
+		"modules": ["1002", "5002", "2002", "3002", "7001", "7301", "9201", "9101"],
 		"dock": [180, 0],
 		"weapons": [["4501", 0, 0, 0, -120, 120], ["4001", 40, 0, 0, -90, 90], ["4001", -40, 0, 0, -90, 90]]},
 	"Cruiser": {"rank": 6, "speed": 0.21, "size": 36, "turn": 130.0,
@@ -281,7 +318,7 @@ const SHIPS := {
 	"SupplyDepot": {"rank": 99, "speed": 0.0, "size": 56, "turn": 0.0,
 		"modules": ["1004", "5004", "7002"], "weapons": []},
 	"SensorStation": {"rank": 99, "speed": 0.0, "size": 40, "turn": 0.0,
-		"modules": ["1003", "5002", "7003"], "weapons": []},
+		"modules": ["1003", "5002", "7003", "7502"], "weapons": []},
 	"DefenseStation": {"rank": 99, "speed": 0.0, "size": 50, "turn": 30.0,
 		"modules": ["1006", "5005", "7002"],
 		"weapons": [["4003", 0, 0, 0, -180, 180], ["4010", 120, 0, 120, 0, 360], ["4010", 240, 0, 240, 0, 360]]},
@@ -850,7 +887,8 @@ static func catalogue(race_id: int, blueprints: Array, for_station: bool = false
 static func stats_for(design: Dictionary) -> Dictionary:
 	var st := {
 		"mass": 0.0, "energy_max": 0.0, "energy_regen": 0.0, "shield_max": 0.0, "shield_regen": 0.0,
-		"hull_max": 0.0, "armor": 0.0, "sensor_range": 800.0, "can_cloak": false, "has_boost": false,
+		"hull_max": 0.0, "armor": 0.0, "sensor_range": 0.0, "sensors": {}, "can_jam": false, "jam_reach": 0.0,
+		"heat_sink": 0.0, "has_boost": false,
 		"qdrv": 0.0, "brake_power": 0.6, "regen": 0.0, "repair": 0.0, "ram": 0.0,
 		"power_gen": 0.0, "power_draw": 0.0, "overload": 1.0, "module_levels": {}, "bay_used": 0,
 		"bay_cap": int(HULL_BAYS.get(design["name"], 2000)), "engines": 0, "eng": 0.0,
@@ -882,9 +920,15 @@ static func stats_for(design: Dictionary) -> Dictionary:
 				st["armor"] += m["p"][0]
 				st["hull_max"] += m["p"][0] * 4
 			"sensor":
-				st["sensor_range"] = maxf(st["sensor_range"], 600.0 + m["p"][0] * 40.0)
-			"stealth":
-				st["can_cloak"] = true
+				var fam: String = m["fam"]
+				st["sensors"][fam] = maxf(st["sensors"].get(fam, 0.0), float(m["p"][0]))
+				if fam == "pulse":
+					st["ping_cooldown"] = float(m["p"][1]) if not st.has("ping_cooldown") else minf(st["ping_cooldown"], float(m["p"][1]))
+			"jammer":
+				st["can_jam"] = true
+				st["jam_reach"] = float(m["p"][0])
+			"heatsink":
+				st["heat_sink"] = maxf(st["heat_sink"], float(m["p"][0]))
 			"boost":
 				st["has_boost"] = true
 			"qdrv":
@@ -908,7 +952,15 @@ static func stats_for(design: Dictionary) -> Dictionary:
 	if is_station:
 		st["hull_max"] *= 4.0
 		st["shield_max"] *= 2.5
-		st["sensor_range"] = 6000.0 if design["name"] == "SensorStation" and design["modules"].size() > 1 else 2600.0
+		# a station's big dishes: a sensor station sees right across the system
+		var dish := 6000.0 if design["name"] == "SensorStation" and design["modules"].size() > 1 else 2600.0
+		st["sensors"]["radar"] = maxf(st["sensors"].get("radar", 0.0), dish)
+	# every hull has eyes and a plain optical telescope
+	st["sensors"]["optics"] = SENSOR_FAMILIES["optics"]["rated"]
+	st["sensor_range"] = 0.0
+	for fam in st["sensors"]:
+		if SENSOR_FAMILIES[fam]["track"]:
+			st["sensor_range"] = maxf(st["sensor_range"], st["sensors"][fam])
 	# the reactor budget: drawing more than it makes slows everything down
 	if st["power_gen"] > 0.0 and st["power_draw"] > st["power_gen"]:
 		st["overload"] = st["power_draw"] / st["power_gen"]

@@ -9,9 +9,9 @@
 ## parts are drawn on top from the parts sheet (assets/parts/*.png): a
 ## turret model per weapon, seated in its socket, that turns with the
 ## pilot's aim, one nozzle per engine, armour plates, shield
-## domes, the sensor dish, the reactor core, cloak spine, booster pods,
+## domes, the sensor dish, the reactor core, jammer spine, booster pods,
 ## warp fins and so on, so a loadout can be read from the ship itself.
-## Engine flames, cloaking, hit flashes and battle damage are live effects
+## Engine flames, hit flashes and battle damage are live effects
 ## drawn around the model each frame.  Ships point along +X.
 class_name ShipArt
 extends RefCounted
@@ -76,10 +76,10 @@ static var _engines := {}
 ## places the model (Ship draws at identity; menus and the shipyard pass a
 ## position and scale).  `aims` holds a live angle per weapon for turrets
 ## that track a target; `flash` whitens the hull for a hit.
-static func draw_ship(c: CanvasItem, design: Variant, race_id: int, size: float, base: Color, thrusting: float, cloak_alpha: float, damage: float,
+static func draw_ship(c: CanvasItem, design: Variant, race_id: int, size: float, base: Color, thrusting: float, alpha: float, damage: float,
 		xform: Transform2D = Transform2D.IDENTITY, aims: Array = [], flash: float = 0.0) -> void:
 	var model := build_model(design, race_id, size)
-	draw_model(c, model, base, thrusting, cloak_alpha, damage, xform, aims, flash)
+	draw_model(c, model, base, thrusting, alpha, damage, xform, aims, flash)
 
 
 static func texture(path: String) -> Texture2D:
@@ -157,7 +157,7 @@ static func module_icon(id: String) -> String:
 		"armor": return "armor"
 		"eng": return "nozzle"
 		"sensor": return "sensor"
-		"stealth": return "cloak"
+		"jammer": return "cloak"
 		"repair": return "repair"
 		"regen": return "regen"
 		"ram": return "ram"
@@ -577,8 +577,8 @@ static func _system_overlays(m: Dictionary, size: float, counts: Dictionary) -> 
 	var st: int = counts.get("sensor_tier", 0)
 	if st > 0:
 		_overlay(m, "sensor", Vector2(s * 0.4, -hw * 0.35), s * (0.11 + 0.03 * st), 0.0, 0.95)
-	# cloaking spine down the middle
-	if counts.get("stealth", 0) > 0:
+	# the jammer's emitter spine down the middle
+	if counts.get("jammer", 0) > 0:
 		_overlay(m, "cloak", Vector2(-s * 0.55, 0), s * 0.18, PI * 0.5, 0.9)
 	# repair hatch, regenerator node, ram prow
 	if counts.get("repair", 0) > 0:
@@ -627,9 +627,9 @@ static func _turret_overlay(m: Dictionary, w: Array, index: int, mount: Vector2)
 
 ## `broken` maps a part icon, "engines" or "t<weapon index>" to how badly
 ## that system is damaged (0..1, 1 offline): those parts are drawn dark.
-static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: float, cloak_alpha: float, damage: float,
+static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: float, alpha: float, damage: float,
 		xform: Transform2D = Transform2D.IDENTITY, aims: Array = [], flash: float = 0.0, broken: Dictionary = {}) -> void:
-	var a := cloak_alpha
+	var a := alpha
 	var size: float = m["size"]
 	var rect: Rect2 = m["rect"]
 	c.draw_set_transform_matrix(xform)
