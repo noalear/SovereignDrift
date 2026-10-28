@@ -1,4 +1,5 @@
-## MainMenu -- title screen with pilot, settings and play.
+## MainMenu -- title screen with pilot, settings and play.  The pause menu
+## opens it in_game, on the Settings page over the running game.
 class_name MainMenu
 extends Control
 
@@ -11,6 +12,7 @@ signal host_pressed()
 signal duel_pressed()
 signal join_pressed(address: String)
 signal quit_pressed()
+signal closed()              # in_game: Back or Esc on the Settings page
 
 var font: Font
 var page := "main"      # main | pilot | settings | about
@@ -28,6 +30,8 @@ var capture_since := 0
 var controls_status := ""
 var campaign_note := ""      # the warning before a new campaign replaces the saved one
 var save_info := {}          # the saved campaign's summary, read once
+var in_game := false         # opened from the pause menu: Settings and Controls only
+var world: World = null      # in_game: the camera setting zooms it at once
 
 
 func _ready() -> void:
@@ -35,6 +39,9 @@ func _ready() -> void:
 	save_info = SaveGame.summary()
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	if in_game:
+		process_mode = Node.PROCESS_MODE_ALWAYS   # the game is paused behind it
+		page = "settings"
 	name_edit = LineEdit.new()
 	name_edit.max_length = 16
 	name_edit.text = Settings.pilot_name
@@ -134,10 +141,12 @@ func _action_label(action: String) -> String:
 	return action
 
 
+## Every key the menu uses stops here, so nothing behind it (the HUD, the
+## pause menu) acts on it too.
 func _unhandled_input(event: InputEvent) -> void:
 	if (event.is_action_pressed("pause_menu") or event.is_action_pressed("ui_cancel")) and page != "main":
 		Sfx.play_ui("ui_back", 0.6)
-		_set_page("settings" if page == "controls" else "main")
+		_back()
 	elif event.is_action_pressed("ui_accept"):
 		_activate_focus()
 	elif event.is_action_pressed("ui_down", true):
@@ -152,6 +161,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		Music.next_track()
 	elif event.is_action_pressed("fullscreen"):
 		Settings.toggle_fullscreen()
+	else:
+		return
+	get_viewport().set_input_as_handled()
+
+
+## One page up: Controls to Settings, then Settings to the title screen, or
+## in game back to the pause menu.
+func _back() -> void:
+	if page == "controls":
+		_set_page("settings")
+	elif in_game:
+		_set_page("settings")   # saves
+		closed.emit()
+	else:
+		_set_page("main")
 
 
 ## Keyboard and gamepad walk the buttons: up and down change row, left and
@@ -254,6 +278,15 @@ func _choice(y: float, label: String, options: Array, current: Variant, setter: 
 func _draw() -> void:
 	buttons.clear()
 	var vp := get_viewport_rect().size
+	if in_game:
+		draw_rect(Rect2(Vector2.ZERO, vp), Color(0.0, 0.02, 0.06, 0.82))
+		draw_string(font, Vector2(0, vp.y * 0.18), "SETTINGS" if page == "settings" else "CONTROLS AND KEYS", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 48, Color(0.85, 0.92, 1.0))
+		draw_string(font, Vector2(0, vp.y * 0.18 + 34), "Changes apply at once.  Esc goes back.", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 16, Color(0.6, 0.72, 0.9))
+		if page == "controls":
+			_draw_controls(vp)
+		else:
+			_draw_settings(vp)
+		return
 	# backdrop ships
 	for d in demo_ships:
 		ShipArt.draw_ship(self, d["design"], d["race"], d["size"], GameData.race(d["race"])["color"], 0.6, 0.35, 0.0, Transform2D(0.0, d["pos"]))
@@ -414,12 +447,22 @@ func _draw_settings(vp: Vector2) -> void:
 		func(v):
 			Settings.fullscreen = v
 			Settings.apply(), vp)
-	_choice(y + step * 6, "Camera", [[1.4, "Close"], [1.0, "Normal"], [0.7, "Wide"], [0.5, "Very wide"]], Settings.camera_zoom, func(v): Settings.camera_zoom = v, vp)
+	_choice(y + step * 6, "Camera", [[1.4, "Close"], [1.0, "Normal"], [0.7, "Wide"], [0.5, "Very wide"]], Settings.camera_zoom, _set_camera_zoom, vp)
 	_choice(y + step * 7, "Screen shake", [[0.0, "Off"], [0.5, "Light"], [1.0, "Full"]], Settings.screen_shake, func(v): Settings.screen_shake = v, vp)
 	_choice(y + step * 8, "Mouse-aimed turrets", [[true, "On"], [false, "Off"]], Settings.mouse_aim, func(v): Settings.mouse_aim = v, vp)
-	_choice(y + step * 9, "Round length", [[20, "20 min"], [30, "30 min"], [40, "40 min"], [0, "Until conquest"]], Settings.round_minutes, func(v): Settings.round_minutes = v, vp)
-	_button(Rect2(vp.x * 0.5 - 300, y + step * 10 + 20, 160, 48), "Back", func(): _set_page("main"))
-	_button(Rect2(vp.x * 0.5 - 130, y + step * 10 + 20, 260, 48), "Controls and keys", func(): _set_page("controls"))
+	var rows := 9
+	if not in_game:    # a round's length is set before it starts
+		_choice(y + step * 9, "Round length", [[20, "20 min"], [30, "30 min"], [40, "40 min"], [0, "Until conquest"]], Settings.round_minutes, func(v): Settings.round_minutes = v, vp)
+		rows = 10
+	_button(Rect2(vp.x * 0.5 - 300, y + step * rows + 20, 160, 48), "Back", _back)
+	_button(Rect2(vp.x * 0.5 - 130, y + step * rows + 20, 260, 48), "Controls and keys", func(): _set_page("controls"))
+
+
+func _set_camera_zoom(v: float) -> void:
+	Settings.camera_zoom = v
+	if world != null:
+		world.target_zoom = v
+		world.camera.zoom = Vector2.ONE * v * World.BASE_ZOOM   # seen even while paused
 
 
 ## Every action with two keyboard / mouse slots and a gamepad slot.  Click
@@ -461,7 +504,7 @@ func _draw_controls(vp: Vector2) -> void:
 		func(v): Settings.alt_fire_group = v, vp)
 	if not controls_status.is_empty():
 		draw_string(font, Vector2(vp.x * 0.5 + 300, by + 27), controls_status, HORIZONTAL_ALIGNMENT_LEFT, 520, 15, Color(1.0, 0.9, 0.6))
-	_button(Rect2(vp.x * 0.5 - 300, by + 54, 160, 46), "Back", func(): _set_page("settings"))
+	_button(Rect2(vp.x * 0.5 - 300, by + 54, 160, 46), "Back", _back)
 	_button(Rect2(vp.x * 0.5 - 130, by + 54, 260, 46), "Reset to defaults", func():
 		Keybinds.reset_all()
 		controls_status = "All controls are back to the defaults.")
