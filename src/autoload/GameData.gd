@@ -162,7 +162,7 @@ const HULL_MATERIALS := {
 # "heat" seekers home on the exhaust, so their hits go into the engines.
 
 const MISSILES := {
-	"001": {"dtype": "kinetic", "name": "bolt", "warhead": 150, "fire_v": 0.60, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.20, "life": 3.2, "radius": 4, "look": "bolt"},
+	"001": {"dtype": "kinetic", "name": "bolt", "warhead": 150, "fire_v": 0.75, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.20, "life": 28.0, "radius": 4, "look": "bolt"},
 	"002": {"dtype": "explosive", "name": "mine", "shootable": true, "blast": 127, "warhead": 2500, "fire_v": 0.05, "guided": false, "trigger": "prox", "prox": 58, "seek_range": 0, "max_v": 0.05, "life": 60.0, "radius": 9, "look": "mine"},
 	"003": {"dtype": "plasma", "name": "plasma", "warhead": 500, "fire_v": 0.35, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "plasma"},
 	"004": {"dtype": "explosive", "name": "torpedo", "shootable": true, "blast": 90, "warhead": 1500, "fire_v": 0.30, "guided": false, "trigger": "prox", "prox": 64, "seek_range": 0, "max_v": 0.95, "life": 3.2, "radius": 7, "look": "grenade"},
