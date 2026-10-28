@@ -546,7 +546,7 @@ func _draw_about(vp: Vector2) -> void:
 		"This remake is built from scratch on Godot 4.  Its rules (ships, modules, weapons, ranks,",
 		"the Sol scenario) come from the original game's data files.  The art is new.",
 		"",
-		"Soundtrack: genre remixes of the eight original songs, and ten new tracks built from",
+		"Soundtrack: genre remixes of the eight original songs, and eighteen new tracks built from",
 		"unused fragments of them.",
 		"",
 		"Non-commercial use only, under the Stardock Shared Source Stellar Frontier License.",
