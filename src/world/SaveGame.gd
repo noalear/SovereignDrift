@@ -220,6 +220,9 @@ static func _ship(world: Node, s: Ship, waiting: Dictionary) -> Dictionary:
 		"station_angle": s.get_meta("station_angle", 0.0),
 		"founder": s.founder, "orders": s.orders.duplicate(true), "ordered": s.has_meta("ordered"), "trojan": s.has_meta("trojan"),
 		"troops": s.troops.duplicate(),
+		# a pilot called up to someone's wing, and the order a leader's wing flies by
+		"wing_of": ai.escort.pilot_name if ai != null and ai.called and ai.escort != null and is_instance_valid(ai.escort) else "",
+		"wing_order": world.wing.order_of(s)["order"] if world.wing.orders.has(s) and world.wing.order_of(s)["order"] in ["form", "cover", "engage"] else "",
 	}
 
 
@@ -259,6 +262,7 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 	world.elapsed = float(d.get("elapsed", 0.0))
 	var by_pilot := {}
 	var prizes := []
+	var wings := []
 	for row in d.get("ships", []):
 		var s: Ship
 		if row["is_player"]:
@@ -347,6 +351,10 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 		if row["is_prize"]:
 			s.is_prize = true
 			prizes.append([s, row["prize_of"]])
+		if row.get("wing_of", "") != "":
+			wings.append([s, row["wing_of"]])
+		if row.get("wing_order", "") != "":
+			world.wing.order_of(s)["order"] = row["wing_order"]
 		if row["dead"]:
 			if row["is_player"]:
 				world._place_at_home(s)        # the player starts the session flying
@@ -358,6 +366,11 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 		var ai: AIPilot = e[0].get_node_or_null("AI")
 		if ai != null and owner != null:
 			ai.escort = owner
+	for e in wings:
+		var leader: Ship = by_pilot.get(e[1], null)
+		var ai: AIPilot = e[0].get_node_or_null("AI")
+		if ai != null and leader != null:
+			ai.join(leader, true)
 	if world.player == null:
 		# a save from before the player had a ship: start one at home
 		world._spawn_player()

@@ -1,5 +1,5 @@
 ## HUD -- the cockpit overlay: ship status, target readout, radar, message
-## log, rank, music notice and the help card.
+## log, rank, music notice, the wing and its orders wheel, and the help card.
 class_name HUD
 extends Control
 
@@ -12,6 +12,8 @@ var radar_range := 3000.0
 var show_help := false
 var time := 0.0
 var dead_time := 0.0
+var wheel: OrdersWheel = null
+var radio: AudioStreamPlayer = null   # wingmen's voices
 
 
 func _ready() -> void:
@@ -28,6 +30,26 @@ func attach(p_world: World) -> void:
 	world = p_world
 	world.message.connect(_on_message)
 	world.player_died.connect(func(): dead_time = 0.0)
+	world.radio_heard.connect(_on_radio)
+	wheel = OrdersWheel.new()
+	wheel.world = world
+	add_child(wheel)
+	radio = AudioStreamPlayer.new()
+	radio.bus = "Voice" if AudioServer.get_bus_index("Voice") >= 0 else "Master"
+	add_child(radio)
+
+
+## A wingman's voice, unless Commander Hale is talking (the words are in
+## the log either way).
+func _on_radio(path: String) -> void:
+	var tut: Node = get_parent().get_parent().get("tutorial") if get_parent() != null and get_parent().get_parent() != null else null
+	if tut != null and is_instance_valid(tut) and tut.speaking():
+		return
+	if not ResourceLoader.exists(path) or (radio.playing and radio.get_playback_position() < 0.6):
+		return
+	radio.stream = load(path)
+	radio.play()
+	Music.duck_for(0.3)
 
 
 func _on_track(title: String, style: String) -> void:
@@ -100,6 +122,7 @@ func _draw() -> void:
 	_draw_radar(p, vp)
 	_draw_messages(vp)
 	_draw_rank(p, vp)
+	_draw_wing(p, vp)
 	_draw_nav(p, vp)
 	_draw_planet_card(p, vp)
 	_draw_music(vp)
@@ -142,6 +165,7 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 			continue
 		placed.append(box)
 		_text(pos - Vector2(w * 0.5, 0), pl.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, size, col)
+	var my_wing: Array = world.wing.members(p) if world.wing != null else []
 	for sh in world.ships:
 		if sh == p or sh.dead or sh.docked or not sh.visible or not sh.visible_to(p):
 			continue
@@ -156,6 +180,9 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 		if sh.race_id == GameData.NEUTRAL:
 			col = sh.race_color()
 		var text: String = station_label(sh) if sh.is_station else sh.pilot_name
+		if friend and my_wing.has(sh):
+			col = WING_COLOR
+			text = "%s  [W%d]" % [sh.pilot_name, my_wing.find(sh) + 1]
 		var pos := at - Vector2(0, reach * cam.zoom.x + 8.0)
 		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
 		var box := Rect2(pos + Vector2(-w * 0.5, -13), Vector2(w, 17))
@@ -163,6 +190,45 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 			continue
 		placed.append(box)
 		_text(pos - Vector2(w * 0.5, 0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
+
+
+const WING_COLOR := Color(0.55, 0.95, 1.0)
+
+
+## The wing, over the radar: its order, the quick keys, and each wingman
+## with its hull and what it is doing.
+func _draw_wing(p: Ship, vp: Vector2) -> void:
+	if world.wing == null or world.duel_rules != null:
+		return
+	var wing: Array = world.wing.members(p)
+	if wing.is_empty():
+		return
+	var o: Dictionary = world.wing.order_of(p)
+	var order: String = o.get("order", Wing.DEFAULT)
+	var w := 300.0
+	var x := vp.x - w - 30.0
+	var rows := wing.size()
+	var h := 40.0 + rows * 20.0
+	var y := vp.y - 300.0 - h
+	draw_rect(Rect2(x - 10, y, w + 20, h), Color(0.02, 0.04, 0.08, 0.6))
+	var head := "WING  ·  %s" % Wing.LABELS.get(order, order)
+	var t: Node2D = o.get("target", null)
+	if order == "attack" and t != null and is_instance_valid(t):
+		head += ": " + (t.pilot_name if t is Ship else t.body_name)
+	draw_string(font, Vector2(x, y + 18), head, HORIZONTAL_ALIGNMENT_LEFT, w - 60, 15, WING_COLOR)
+	draw_string(font, Vector2(x, y + 18), "%s orders" % Keybinds.short_text("wing_menu"), HORIZONTAL_ALIGNMENT_RIGHT, w, 12, Color(0.7, 0.8, 0.95, 0.8))
+	var ly := y + 38.0
+	for i in wing.size():
+		var s: Ship = wing[i]
+		var frac: float = 0.0 if s.dead else s.hull / maxf(s.hull_max, 1.0)
+		var hc := Color(0.4, 0.9, 0.5) if frac > 0.5 else (Color(1.0, 0.75, 0.3) if frac > 0.25 else Color(1.0, 0.3, 0.25))
+		draw_rect(Rect2(x, ly - 10, 40, 6), Color(0, 0, 0, 0.5))
+		draw_rect(Rect2(x, ly - 10, 40 * frac, 6), hc)
+		var kind := "prize" if s.is_prize and not s.has_meta("ordered") else ("escort" if s.has_meta("ordered") else s.design_name)
+		var col := Color(0.92, 0.96, 1.0) if not s.dead else Color(0.55, 0.58, 0.65)
+		draw_string(font, Vector2(x + 48, ly - 2), "W%d %s  %s" % [i + 1, s.pilot_name, kind], HORIZONTAL_ALIGNMENT_LEFT, 150, 13, col)
+		draw_string(font, Vector2(x + 48, ly - 2), world.wing.status(s), HORIZONTAL_ALIGNMENT_RIGHT, w - 48, 12, Color(0.7, 0.85, 0.95, 0.9))
+		ly += 20.0
 
 
 ## A station's name; a frame says how far along it is.
@@ -1140,6 +1206,9 @@ func _draw_help(vp: Vector2) -> void:
 		[_keys("board"), "board a disabled ship or breached station"], [_keys("refit"), "shipyard, at your starbase"], [_keys("trade"), "trade with your target (online)"],
 		[_keys("cargo"), "cargo: colonies, stations, station kits"],
 	]
+	if InputMap.has_action("wing_menu"):
+		left.append_array([["", ""], ["WING", ""], [_keys("wing_menu"), "orders wheel (hold, point, let go)"],
+			[_keys("wing_attack"), "wing: attack my target"], [_keys("wing_form"), "wing: form up"]])
 	if InputMap.has_action("land"):
 		right.append_array([["", ""], ["COLONISTS", ""]])
 	for extra in [["land", "land on the world below / lift off"], ["colonists_board", "take colonists on (landed)"], ["colonists_unload", "put them down: join, settle, invade"]]:

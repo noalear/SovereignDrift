@@ -536,7 +536,7 @@ func _draw_controls(vp: Vector2) -> void:
 	draw_string(font, Vector2(0, top - 14), "Click a slot, then press a key, mouse button or gamepad control.   Backspace clears it,  Esc cancels.",
 		HORIZONTAL_ALIGNMENT_CENTER, vp.x, 15, Color(0.75, 0.82, 0.95))
 	var rows: Array = Keybinds.actions()
-	var cols := [["Flight", "Ship"], ["Weapons", "Interface"]]
+	var cols := [["Flight", "Ship", "Wing"], ["Weapons", "Interface"]]
 	var label_w := 220.0
 	var slot_w := 132.0
 	var col_w := label_w + 3.0 * (slot_w + 6.0)

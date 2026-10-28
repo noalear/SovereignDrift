@@ -19,6 +19,7 @@ const PING_EVERY := 1.0
 const STATS_EVERY := 2.0        # scores, ranks and the round clock
 const SYSTEMS_EVERY := 0.25     # damaged systems, crews and boardings (changes only)
 const SYSTEMS_FULL_EVERY := 8   # ...and everything every this many sends
+const WINGS_EVERY := 1.0        # wingmen, their orders and what they are doing (and at once after an order)
 
 enum Role { OFFLINE, HOST, CLIENT }
 
@@ -36,6 +37,7 @@ var snapshot_timer := 0.0
 var ping_timer := 0.0
 var stats_timer := 0.0
 var systems_timer := 0.0
+var wings_timer := 0.0
 var systems_sends := 0
 var _systems_sent := {}          # net_id -> the bytes last sent (host)
 var ping_ms := 0.0
@@ -212,6 +214,10 @@ func _seat_ai(s: Node, on: bool) -> void:
 		if c is AIPilot:
 			c.set_physics_process(on)
 			c.set_process(on)
+			if not on and c.escort != null:
+				c.leave_wing()           # a person flies it now: off anyone's wing
+	if on and world != null and world.wing != null:
+		world.wing.release_called(s)     # its person left: the pilots they called go back
 
 
 ## A joiner takes over a computer pilot of the host's empire (co-op), a
@@ -460,6 +466,13 @@ func _rpc_command(cmd: String) -> void:
 			world.troop_command(s, cmd.get_slice(":", 1), cmd.get_slice(":", 2))
 		_ when cmd.begins_with("job:"):
 			world.job_command(s, int(cmd.get_slice(":", 1)))
+		_ when cmd.begins_with("wing:"):
+			# the client's target travels with the order: a ship's id, or -1 - a planet's index
+			var tid := int(cmd.get_slice(":", 2))
+			var wt: Node2D = ships_by_id.get(tid, null) if tid > 0 else null
+			if tid < 0 and -1 - tid < world.planets.size():
+				wt = world.planets[-1 - tid]
+			world.wing.command(s, cmd.get_slice(":", 1), wt)
 
 
 func _apply_remote_inputs() -> void:
@@ -614,6 +627,15 @@ func relay_notify(s: Node, text: String) -> void:
 	for peer_id in seats:
 		if seats[peer_id] == s.net_id:
 			_rpc_message.rpc_id(peer_id, text, Color(0.85, 0.9, 1.0))
+
+
+## A wingman on a seated pilot's radio: the words and the voice.
+func relay_radio(s: Node, text: String, voice_path: String) -> void:
+	if not is_host() or s == null:
+		return
+	for peer_id in seats:
+		if seats[peer_id] == s.net_id:
+			_rpc_radio.rpc_id(peer_id, text, voice_path)
 
 
 func relay_notify_all(text: String, color: Color) -> void:
@@ -1226,6 +1248,20 @@ func _rpc_message(text: String, color: Color) -> void:
 		world.message.emit(text, color)
 
 
+@rpc("authority", "reliable")
+func _rpc_radio(text: String, voice_path: String) -> void:
+	if world != null:
+		world.message.emit(text, world.RADIO_COLOR)
+		world.radio_heard.emit(voice_path)
+
+
+## Every wing, its order and what each wingman is doing (Wing.pack rows).
+@rpc("authority", "reliable")
+func _rpc_wings(rows: Array) -> void:
+	if world != null and world.wing != null:
+		world.wing.unpack(rows)
+
+
 ## Runs on the client every physics tick instead of the host-only parts of World.
 func client_tick(delta: float) -> void:
 	if world == null or local_net_id == 0 or client == null:
@@ -1666,6 +1702,11 @@ func _physics_process(delta: float) -> void:
 	if snapshot_timer <= 0.0:
 		snapshot_timer += SNAPSHOT_INTERVAL
 		_send_snapshots()
+	wings_timer -= delta
+	if wings_timer <= 0.0 or world.wing.dirty:
+		wings_timer = WINGS_EVERY
+		world.wing.dirty = false
+		_rpc_wings.rpc(world.wing.pack())
 	systems_timer -= delta
 	if systems_timer <= 0.0:
 		systems_timer = SYSTEMS_EVERY

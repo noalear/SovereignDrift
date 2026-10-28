@@ -11,6 +11,9 @@
 ## pilots on raid duty (and the pirate) hunt enemy supply ships, lone ones
 ## first, and board them for their cargo.  Supply ships fly round enemy
 ## colonies' guns and run for shelter when an enemy warship comes near.
+## Wingmen (prizes, ordered escorts and pilots called to a leader's wing)
+## follow their leader's orders (Wing): form up, attack its target, cover
+## it, hold a spot, engage at will, or go home to repair and come back.
 class_name AIPilot
 extends Node
 
@@ -34,7 +37,10 @@ var evade_dir := 1.0
 var evade_timer := 0.0
 var fire_hold := 0.0
 var reaction := 0.0
-var escort: Ship = null            # prize crews fly with their captor
+var escort: Ship = null            # prize crews fly with their captor; wingmen with their leader (Wing)
+var called := false                # called up to `escort`'s wing from the empire's pilots: Dismiss sends it back
+var sent_home := false             # a wingman on its way home to repair; rejoins once mended
+var wing_slot := 0                 # its place in the leader's formation
 var board_rolls := {}              # target instance id -> whether we try to take it alive
 var ferry := false               # carries colonists for the empire
 var bombard := false             # knocks out enemy colonies' defences
@@ -114,6 +120,127 @@ func release() -> void:
 	patrol_point = _random_patrol_point()
 
 
+# ------------------------------------------------------------ wings
+
+## Fly on `leader`'s wing.  `p_called`: one of the empire's pilots, called up.
+func join(leader: Ship, p_called: bool) -> void:
+	escort = leader
+	called = p_called
+	convoy_guard = false
+	sent_home = false
+	job_planet = null
+	job = ""
+	if state != State.BOARD:
+		state = State.ESCORT
+		ship.target = null
+
+
+## Dismissed (or the leader is gone): back to the empire's patrols.
+func leave_wing() -> void:
+	escort = null
+	called = false
+	sent_home = false
+	if state in [State.ESCORT, State.RETREAT]:
+		state = State.PATROL
+	patrol_point = _random_patrol_point()
+
+
+## Home to repair and refuel; back on the wing once mended.
+func go_home() -> void:
+	if home == null:
+		return
+	sent_home = true
+	if state != State.BOARD:
+		state = State.RETREAT
+
+
+## A new order: think about it straight away (a little apart, so the
+## wing does not move as one machine), and come back from a trip home
+## unless the tanks are dry.
+func heard_order() -> void:
+	think_timer = randf() * 0.3
+	if sent_home and ship.fuel_fraction() > Wing.BINGO_FUEL and ship.hull > ship.hull_max * 0.3:
+		sent_home = false
+		if state == State.RETREAT:
+			state = State.ESCORT
+
+
+## The wing's standing order, or "" when we fly with no leader (or guard a convoy).
+func order() -> String:
+	if escort == null or convoy_guard or not is_instance_valid(escort) or world.get("wing") == null:
+		return ""
+	return world.wing.order_of(escort)["order"]
+
+
+## What a wingman fights, by its leader's order.
+func _wing_target(current: Node2D, lead: Ship) -> Node2D:
+	if convoy_guard:
+		return _escort_target(current)
+	if sent_home:
+		return _cornered()
+	var o: Dictionary = world.wing.order_of(lead)
+	match o["order"]:
+		"form":
+			return _threat(lead)
+		"attack":
+			var t: Node2D = o["target"]
+			if t is Ship and is_instance_valid(t) and not t.dead and t.team() != ship.team() and (t.visible_to(ship) or t.visible_to(lead)):
+				return t
+			if t is Planet and is_instance_valid(t) and t.is_colonised() and t.owner_race != ship.race_id and not t.is_defenceless():
+				return t
+		"hold":
+			var at: Vector2 = world.wing.hold_point(lead)
+			if current != null and current.global_position.distance_to(at) < Wing.HOLD_LEASH:
+				return current
+			var threat := _threat(lead)
+			if threat != null and threat.global_position.distance_to(at) < Wing.HOLD_LEASH * 1.5:
+				return threat
+			return world.nearest_enemy_ship(at, ship.team(), Wing.HOLD_LEASH, ship)
+		"engage":
+			if current != null and current.global_position.distance_to(lead.global_position) < Wing.ENGAGE_RANGE:
+				return current
+			var near: Ship = world.nearest_enemy_ship(lead.global_position, ship.team(), Wing.ENGAGE_RANGE, ship)
+			if near != null:
+				return near
+	return _escort_target(current)
+
+
+## Whoever just shot at us or at the leader, if it is still close: what a
+## wing in formation answers.
+func _threat(lead: Ship) -> Ship:
+	var now := Time.get_ticks_msec() / 1000.0
+	for s in [ship, lead]:
+		var a: Node = s.last_attacker
+		if a is Ship and is_instance_valid(a) and not a.dead and a.team() != ship.team() and now - s.last_attacked_at < 6.0 \
+				and a.global_position.distance_to(lead.global_position) < ESCORT_LEASH * 1.5:
+			return a
+	return null
+
+
+## On the way home: fight back only when jumped close.
+func _cornered() -> Ship:
+	var a: Node = ship.last_attacker
+	if a is Ship and is_instance_valid(a) and not a.dead and a.team() != ship.team() \
+			and Time.get_ticks_msec() / 1000.0 - ship.last_attacked_at < 4.0 and a.global_position.distance_to(ship.global_position) < 600.0:
+		return a
+	return null
+
+
+## Where to fly in the wing: a vee off the leader's quarters, tighter in
+## formation; round the spot on Hold.
+func _wing_spot() -> Vector2:
+	if order() == "hold":
+		var at: Vector2 = world.wing.hold_point(escort)
+		var n: int = maxi(world.wing.members(escort).size(), 1)
+		var ang := TAU * wing_slot / n + escort.get_instance_id() % 7
+		return at + Vector2.RIGHT.rotated(ang) * (ship.size + 160.0 + 40.0 * n)
+	var row := wing_slot / 2 + 1
+	var side := 1.0 if wing_slot % 2 == 0 else -1.0
+	var gap := escort.size + ship.size + (70.0 if order() == "form" else 140.0)
+	var off := Vector2(-row * gap * 0.75, side * row * gap * 0.7).rotated(escort.rotation)
+	return escort.global_position + off + escort.velocity * 0.8
+
+
 func _governor() -> Governor:
 	return world.governors.get(ship.race_id, null) if "governors" in world else null
 
@@ -173,10 +300,18 @@ func _think() -> void:
 		return
 	var shield_frac := ship.shield / maxf(ship.shield_max, 1.0)
 	var hull_frac := ship.hull / maxf(ship.hull_max, 1.0)
-	if escort != null and (not is_instance_valid(escort) or escort.dead or escort.race_id != ship.race_id):
-		escort = null              # the captor is gone: the prize joins its new empire's patrols
-		if state == State.ESCORT:
-			state = State.PATROL
+	if escort != null and (not is_instance_valid(escort) or escort.race_id != ship.race_id or (escort.dead and convoy_guard)):
+		leave_wing()               # the leader is gone for good: back to the empire's patrols
+	# a wing whose leader is down goes home and waits for it to relaunch
+	var lead: Ship = escort if escort != null and not escort.dead else null
+	var in_wing := escort != null and not convoy_guard
+	if in_wing and lead == null and not sent_home:
+		go_home()
+	if in_wing:
+		wing_slot = world.wing.slot_of(ship, escort)
+	if lead != null and in_wing and not sent_home and home != null and not duel and ship.fuel_fraction() < Wing.BINGO_FUEL:
+		go_home()
+		world.wing.report(ship, "bingo")
 	# acquire
 	var tgt := ship.target
 	if tgt == null or not is_instance_valid(tgt) or (tgt is Ship and (tgt.dead or not tgt.visible_to(ship) or tgt.team() == ship.team() or tgt.race_id == GameData.NEUTRAL)):
@@ -189,8 +324,10 @@ func _think() -> void:
 	# a friend is taking that one alive: leave it be
 	if tgt is Ship and tgt.boarded_by != ship and tgt.claimed_by != ship and tgt.spoken_for(ship.team()):
 		tgt = null
-	if escort != null:
-		tgt = _escort_target(tgt)
+	if lead != null:
+		tgt = _wing_target(tgt, lead)
+	elif in_wing:
+		tgt = _cornered()           # waiting at home for the leader
 	elif tgt == null or (randf() < 0.1 and state != State.BOARD):
 		var best: Ship = world.nearest_enemy_ship(ship.global_position, ship.team(), ship.sensor_range, ship)
 		# supply ships are the raiders' business: the rest fight warships,
@@ -213,14 +350,14 @@ func _think() -> void:
 	if tgt == null and raid and escort == null and state == State.PATROL:
 		tgt = _raid_target()
 	# attack duty: with no ship about, go after an enemy colony's defences
-	if tgt == null and bombard and state == State.PATROL:
+	if tgt == null and bombard and state == State.PATROL and escort == null:
 		tgt = _colony_to_bombard()
 	# the Accord: no first shot at another empire
 	if tgt != null and world.accord and not world.fair_game(ship.team(), tgt):
 		tgt = null
 	ship.target = tgt
 	var weak := shield_frac < 0.15 and hull_frac < 0.55
-	if escort != null and tgt == null and state != State.BOARD:
+	if lead != null and tgt == null and state != State.BOARD and not sent_home:
 		state = State.ESCORT
 	if state == State.ATTACK and _wants_to_board(tgt):
 		state = State.BOARD
@@ -236,7 +373,9 @@ func _think() -> void:
 			if tgt != null:
 				state = State.ATTACK
 				reaction = (1.0 - skill) * 1.2
-			elif ferry and _plan_ferry():
+			elif sent_home and home != null:
+				state = State.RETREAT
+			elif ferry and not in_wing and _plan_ferry():
 				state = State.FERRY
 			elif ship.global_position.distance_to(patrol_point) < 300.0:
 				patrol_point = _random_patrol_point()
@@ -267,9 +406,17 @@ func _think() -> void:
 		State.RETREAT:
 			if home == null:
 				state = State.PATROL
+				sent_home = false
 			elif hull_frac > 0.9 and shield_frac > 0.8 and ship.energy > ship.energy_max * 0.6 and ship.fuel_fraction() > 0.6 and ship.crew_fraction() > 0.8:
-				state = State.PATROL
-				patrol_point = _random_patrol_point()
+				if in_wing and lead == null:
+					pass                # mended: wait here for the leader to relaunch
+				elif sent_home:
+					sent_home = false
+					state = State.ESCORT
+					world.wing.report(ship, "back")
+				else:
+					state = State.PATROL
+					patrol_point = _random_patrol_point()
 			elif tgt != null and tgt.global_position.distance_to(ship.global_position) < 500.0 and hull_frac > 0.4:
 				# cornered: fight back
 				state = State.ATTACK
@@ -327,6 +474,10 @@ func _escort_target(current: Node2D) -> Node2D:
 	var lead: Node2D = escort.target
 	if lead is Ship and is_instance_valid(lead) and not lead.dead and lead.team() != ship.team() and lead.race_id != GameData.NEUTRAL and lead.visible_to(ship) \
 			and lead.global_position.distance_to(escort.global_position) < ESCORT_LEASH:
+		return lead
+	# the leader's going after a colony's guns: help
+	if lead is Planet and is_instance_valid(lead) and lead.is_colonised() and lead.owner_race != ship.race_id and not lead.is_defenceless() \
+			and lead.global_position.distance_to(escort.global_position) < ESCORT_LEASH + lead.radius:
 		return lead
 	if current != null and current.global_position.distance_to(escort.global_position) < ESCORT_LEASH:
 		return current
@@ -442,15 +593,21 @@ func _act(delta: float) -> void:
 	var tgt := ship.target
 	match state:
 		State.ESCORT:
-			if escort == null:
+			if escort == null or not is_instance_valid(escort) or escort.dead:
 				return
-			# hold station off the captor's quarter, a little ahead of its motion
-			var side := 1.0 if ship.get_instance_id() % 2 == 0 else -1.0
-			var off := Vector2(-1.0, side * 0.9).normalized().rotated(escort.rotation) * (escort.size + ship.size + 140.0)
-			var spot: Vector2 = escort.global_position + off + escort.velocity * 0.8
+			# hold our place in the wing, a little ahead of the leader's motion
+			var spot := _wing_spot() if not convoy_guard else escort.global_position \
+				+ Vector2(-1.0, (1.0 if ship.get_instance_id() % 2 == 0 else -1.0) * 0.9).normalized().rotated(escort.rotation) * (escort.size + ship.size + 140.0) + escort.velocity * 0.8
+			var far := ship.global_position.distance_to(spot)
+			if ship.warping and far < 2500.0:
+				ship.end_warp()
+			if order() == "hold" and far < 1500.0:
+				var hb: Node2D = world.wing.order_of(escort).get("body", null)
+				_close_on(spot, hb.velocity if hb != null and is_instance_valid(hb) else Vector2.ZERO)
+			else:
+				_steer_to(spot, delta, far < 900.0)
 			_avoid_planets(delta)
-			_steer_to(spot, delta, ship.global_position.distance_to(spot) < 900.0)
-			if ship.qdrv > 0.0 and ship.global_position.distance_to(spot) > 5000.0 and not ship.warping and absf(i["turn"]) < 0.1:
+			if ship.qdrv > 0.0 and far > 5000.0 and not ship.warping and absf(i["turn"]) < 0.1:
 				ship.start_warp()
 		State.BOARD:
 			if tgt == null or not is_instance_valid(tgt):

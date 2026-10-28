@@ -1,4 +1,5 @@
-## Writes every voiced line (TutorialLines, StoryLines) to JSON for tools/voice/generate.py.
+## Writes every voiced line (TutorialLines, StoryLines, and WingLines in
+## each wingman voice) to JSON for tools/voice/generate.py.
 ##   godot --headless --path . -s tools/voice/export_lines.gd -- <out.json>
 extends SceneTree
 
@@ -19,6 +20,10 @@ func _init() -> void:
 	for k in StoryLines.SPEAKERS:
 		var s: Dictionary = StoryLines.SPEAKERS[k]
 		speakers[StoryLines.SET + ":" + k] = {"voice": s["voice"], "speed": s["speed"], "fx": s["fx"]}
+	for v in WingLines.VOICES:
+		speakers[v] = WingLines.VOICES[v].duplicate()
+		for row in WingLines.LINES:
+			lines.append({"set": WingLines.SET, "id": "%s_%s" % [v, row[0]], "speaker": v, "text": row[1]})
 	var f := FileAccess.open(out, FileAccess.WRITE)
 	f.store_string(JSON.stringify({"speakers": speakers, "lines": lines}, "  "))
 	f.close()
