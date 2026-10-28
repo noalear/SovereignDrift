@@ -120,6 +120,7 @@ static func _ship(world: Node, s: Ship, waiting: Dictionary) -> Dictionary:
 		"kit": s.kit, "building": s.building, "build_t": s.build_t,
 		"station_body": s.station_body.body_name if s.station_body != null else "", "station_r": s.get_meta("station_r", 0.0),
 		"crew": s.crew, "fuel": s.fuel, "hull": s.hull, "shield": s.shield,
+		"shield_focus": s.shield_focus, "shields_raised": s.shields_raised, "ablative": s.ablative, "reactive_tiles": s.reactive_tiles,
 		"pos": pos, "vel": vel, "rot": s.rotation,
 		"dead": s.dead, "respawn_in": waiting.get(s, -1.0),
 		"home": ai.home.body_name if ai != null and ai.home != null else "",
@@ -241,7 +242,12 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 		s.crew = minf(float(row["crew"]), float(s.crew_max))
 		s.fuel = minf(float(row["fuel"]), s.fuel_max)
 		s.hull = clampf(float(row["hull"]), 1.0, s.hull_max)
+		s.set_shield_focus(int(row.get("shield_focus", 0)))
+		s.shield_share = GameData.SHIELD_FOCUS[s.shield_focus]
+		s.shields_raised = bool(row.get("shields_raised", true))
 		s.shield = minf(float(row["shield"]), s.shield_max)
+		s.ablative = minf(float(row.get("ablative", s.ablative_max)), s.ablative_max)
+		s.reactive_tiles = mini(int(row.get("reactive_tiles", s.reactive_max)), s.reactive_max)
 		s.set_meta("saved_round", [int(row["round_score"]), int(row["round_kills"])])
 		_place(s, row["pos"], row["vel"], row["rot"])
 		if row["is_prize"]:

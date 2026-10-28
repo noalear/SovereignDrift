@@ -191,6 +191,36 @@ func _bar(pos: Vector2, w: float, h: float, frac: float, color: Color, label: St
 	draw_string(font, pos + Vector2(0, h - 5), value, HORIZONTAL_ALIGNMENT_RIGHT, w - 6, 14, Color(1, 1, 1, 0.95))
 
 
+## The shield as its two halves side by side, fore on the left, each as
+## wide as its share of the shield.
+func _shield_bar(pos: Vector2, w: float, h: float, s: Ship, full: bool) -> void:
+	var col := Color(0.3, 0.6, 1.0, 0.85)
+	draw_rect(Rect2(pos, Vector2(w, h)), Color(0, 0, 0, 0.45))
+	var label := "Shields"
+	var value := "%d" % int(s.shield)
+	if s.shield_max <= 0.0:
+		value = "none"
+	elif not s.shields_raised:
+		label = "Shields lowered"
+		value = "%s to raise" % Keybinds.short_text("shields_toggle") if full else "down"
+	elif s.shield_boot > 0.0:
+		label = "Shields raising"
+		value = "%.1f s" % s.shield_boot
+	else:
+		var wf := w * s.shield_share
+		draw_rect(Rect2(pos, Vector2(wf * clampf(s.shield_front / maxf(s.shield_cap(true), 1.0), 0.0, 1.0), h)), col)
+		draw_rect(Rect2(pos + Vector2(wf, 0), Vector2((w - wf) * clampf(s.shield_rear / maxf(s.shield_cap(false), 1.0), 0.0, 1.0), h)), col.darkened(0.15))
+		draw_line(pos + Vector2(wf, -2), pos + Vector2(wf, h + 2), Color(1, 1, 1, 0.8), 2.0)
+		if full:
+			label = "Shields  %s" % GameData.SHIELD_FOCUS_NAMES[s.shield_focus]
+			value = "fore %d  aft %d" % [int(s.shield_front), int(s.shield_rear)]
+	draw_rect(Rect2(pos, Vector2(w, h)), Color(1, 1, 1, 0.35), false, 1.0)
+	draw_string_outline(font, pos + Vector2(6, h - 5), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, 4, Color(0, 0, 0, 0.85))
+	draw_string(font, pos + Vector2(6, h - 5), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 1, 1, 0.95))
+	draw_string_outline(font, pos + Vector2(0, h - 5), value, HORIZONTAL_ALIGNMENT_RIGHT, w - 6, 14, 4, Color(0, 0, 0, 0.85))
+	draw_string(font, pos + Vector2(0, h - 5), value, HORIZONTAL_ALIGNMENT_RIGHT, w - 6, 14, Color(1, 1, 1, 0.95))
+
+
 func _draw_status(p: Ship, vp: Vector2) -> void:
 	var x := 24.0
 	var y := vp.y - 144.0
@@ -200,7 +230,7 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 	if not p.systems.list.is_empty():
 		draw_rect(Rect2(x - 10, y - 66, w + 20, 30), Color(0.02, 0.04, 0.08, 0.6))
 		_draw_systems(p, Vector2(x, y - 60), w)
-	_bar(Vector2(x, y), w, 19, p.shield / maxf(p.shield_max, 1.0), Color(0.3, 0.6, 1.0, 0.85), "Shields", "%d / %d" % [int(p.shield), int(p.shield_max)])
+	_shield_bar(Vector2(x, y), w, 19, p, true)
 	_bar(Vector2(x, y + 22), w, 19, p.hull / maxf(p.hull_max, 1.0), Color(0.95, 0.55, 0.25, 0.85) if p.hull / p.hull_max > 0.3 else Color(1, 0.2, 0.2, 0.9), "Hull", "%d / %d" % [int(p.hull), int(p.hull_max)])
 	_bar(Vector2(x, y + 44), w, 19, p.energy / maxf(p.energy_max, 1.0), Color(0.95, 0.85, 0.3, 0.85), "Energy", "%d" % int(p.energy))
 	var fuel_col := Color(0.4, 0.9, 0.6, 0.85) if p.fuel_fraction() > 0.2 else Color(1, 0.35, 0.2, 0.9)
@@ -230,6 +260,10 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 		flags.append("BOARDERS!")
 	if p.inputs["boost"] and p.has_boost and p.inputs["thrust"] > 0.0:
 		flags.append("BOOST")
+	if p.ablative_max > 0.0:
+		flags.append("ABLATIVE %d%%" % int(100.0 * p.ablative / p.ablative_max))
+	if p.reactive_max > 0:
+		flags.append("REACTIVE %d/%d" % [p.reactive_tiles, p.reactive_max])
 	draw_string(font, Vector2(x, y + 106), "Speed %4d   Crew %d/%d   %s" % [int(p.local_velocity().length()), int(ceil(p.crew)), p.crew_max, "  ".join(flags)], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.95, 1.0))
 
 
@@ -355,7 +389,7 @@ func _draw_target(p: Ship, vp: Vector2) -> void:
 	if t is Ship:
 		draw_string(font, Vector2(x, y + 14), "%s   %s %s" % [t.pilot_name, GameData.race(t.race_id)["adj"], t.design_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, col)
 		draw_string(font, Vector2(x, y + 34), "%s   range %d" % [GameData.rank_name(t.rank), int(t.global_position.distance_to(p.global_position))], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.9, 0.9))
-		_bar(Vector2(x, y + 44), 300, 18, t.shield / maxf(t.shield_max, 1.0), Color(0.3, 0.6, 1.0, 0.85), "Shields", "%d" % int(t.shield))
+		_shield_bar(Vector2(x, y + 44), 300, 18, t, false)
 		_bar(Vector2(x, y + 66), 300, 18, t.hull / maxf(t.hull_max, 1.0), Color(0.95, 0.55, 0.25, 0.85), "Hull", "%d" % int(t.hull))
 		if not vis:
 			var q := p.contact_quality(t)

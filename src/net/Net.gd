@@ -414,6 +414,10 @@ func _rpc_command(cmd: String) -> void:
 			s.ping()
 		"silent":
 			s.set_silent(not s.sensors.emcon)
+		"shield_focus":
+			s.cycle_shield_focus()
+		"shields":
+			s.set_shields_raised(not s.shields_raised)
 		"refit":
 			var base: Node = world.nearest_base(s)
 			if base == null:
@@ -854,7 +858,8 @@ func _rpc_snapshot(data: PackedByteArray) -> void:
 		var was_dead: bool = s.dead
 		var dead: bool = (e["flags"] & NetCodec.FLAG_DEAD) != 0
 		s.hull = e["hull"] * s.hull_max
-		s.shield = e["shield"] * s.shield_max
+		s.shields_raised = (e["flags"] & NetCodec.FLAG_SHIELDS_DOWN) == 0
+		s.set_shield_split(e["shield"] * s.shield_max, e["front"])
 		s.energy = e["energy"] * s.energy_max
 		if e["net_id"] == local_net_id:
 			if not s.dead:

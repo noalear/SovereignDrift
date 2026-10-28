@@ -8,6 +8,8 @@ shader_type canvas_item;
 // land and ripple across it, and it shatters when it fails.
 
 uniform float strength = 1.0;       // shield / shield_max
+uniform float strength_front = 1.0; // the front half's charge / its size
+uniform float strength_rear = 1.0;  // the rear half's
 uniform float alpha = 1.0;          // cloak and fades
 uniform vec2 aspect = vec2(1.0, 0.5);   // bubble half size, normalised to the longer side
 uniform vec4 hits[4];               // xy: point on the bubble (-1..1), z: age (s), w: weight
@@ -32,6 +34,8 @@ vec3 hex(vec2 p) {
 
 void fragment() {
 	vec2 p = UV * 2.0 - 1.0;            // ellipse is the unit circle here
+	// the front and rear halves (the ship points along +x) blend across the middle
+	float s_here = mix(strength_rear, strength_front, smoothstep(-0.25, 0.25, p.x));
 	float r = length(p);
 	if (r > 1.0) {
 		discard;
@@ -47,12 +51,12 @@ void fragment() {
 	float line = 1.0 - smoothstep(0.0, 0.07, h.x);
 	// weaker shields thin out and lose cells; nearly gone, the rest flicker
 	float cell = hash(h.yz);
-	float intact = step(cell, strength * 1.15 - 0.05);
-	float flick = strength < 0.25 ? 0.5 + 0.5 * step(0.4, hash(h.yz + floor(TIME * 18.0))) : 1.0;
-	float charge = 0.45 + 0.55 * strength;
+	float intact = step(cell, s_here * 1.15 - 0.05);
+	float flick = s_here < 0.25 ? 0.5 + 0.5 * step(0.4, hash(h.yz + floor(TIME * 18.0))) : 1.0;
+	float charge = 0.45 + 0.55 * s_here;
 	vec3 col = vec3(0.82, 0.9, 1.0);
 	float body = (0.07 * soft + 0.13 * rim) * (0.5 + 0.5 * intact) + 0.08 * line * intact * (0.4 + rim) * soft;
-	float a = strength > 0.0 ? body * charge * flick : 0.0;
+	float a = s_here > 0.0 ? body * charge * flick : 0.0;
 	// hits: a flash where it landed and a ring running out across the bubble
 	float hit = 0.0;
 	for (int i = 0; i < 4; i++) {

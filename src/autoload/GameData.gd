@@ -81,9 +81,24 @@ const MODULES := {
 	"5005": {"name": "Shield V", "vol": 1000, "mass": 2000, "power": -6, "hp": 200, "func": "shield", "p": [800]},
 	"5006": {"name": "Shield VI", "vol": 3500, "mass": 2400, "power": -6, "hp": 250, "func": "shield", "p": [1600]},
 	"5007": {"name": "Station shield", "vol": 5000, "mass": 3000, "power": -12, "hp": 250, "func": "shield", "p": [1000]},
-	"5501": {"name": "Armor I", "vol": 100, "mass": 2000, "power": 0, "hp": 300, "func": "armor", "p": [50]},
-	"5502": {"name": "Armor II", "vol": 200, "mass": 5000, "power": 0, "hp": 500, "func": "armor", "p": [75]},
-	"5503": {"name": "Armor III", "vol": 300, "mass": 10000, "power": 0, "hp": 750, "func": "armor", "p": [100]},
+	# shield families (SHIELD_FAMILIES): Barrier holds more and recharges
+	# slowly, Flicker holds less, recovers fast and lets some hits through
+	"5011": {"name": "Barrier I", "vol": 250, "mass": 1800, "power": -6, "hp": 125, "func": "shield", "p": [640], "fam": "barrier"},
+	"5012": {"name": "Barrier II", "vol": 400, "mass": 2400, "power": -8, "hp": 175, "func": "shield", "p": [800], "fam": "barrier"},
+	"5013": {"name": "Barrier III", "vol": 1000, "mass": 3000, "power": -9, "hp": 200, "func": "shield", "p": [1280], "fam": "barrier"},
+	"5021": {"name": "Flicker I", "vol": 250, "mass": 960, "power": -4, "hp": 125, "func": "shield", "p": [240], "fam": "flicker"},
+	"5022": {"name": "Flicker II", "vol": 400, "mass": 1280, "power": -5, "hp": 175, "func": "shield", "p": [300], "fam": "flicker"},
+	"5023": {"name": "Flicker III", "vol": 1000, "mass": 1600, "power": -6, "hp": 200, "func": "shield", "p": [480], "fam": "flicker"},
+	# armor coats: one per ship, each resisting damage types its own way
+	# (see ARMOR); hp is the hull it adds
+	"5501": {"name": "Plate armor I", "vol": 100, "mass": 2000, "power": 0, "hp": 300, "func": "armor", "p": [1]},
+	"5502": {"name": "Plate armor II", "vol": 200, "mass": 4000, "power": 0, "hp": 500, "func": "armor", "p": [2]},
+	"5503": {"name": "Plate armor III", "vol": 300, "mass": 7000, "power": 0, "hp": 750, "func": "armor", "p": [3]},
+	"5504": {"name": "Reflective coat", "vol": 100, "mass": 900, "power": 0, "hp": 150, "func": "armor", "p": [1]},
+	"5505": {"name": "Ablative armor", "vol": 150, "mass": 1800, "power": 0, "hp": 0, "func": "armor", "p": [1]},
+	"5506": {"name": "Reactive armor", "vol": 200, "mass": 3000, "power": 0, "hp": 200, "func": "armor", "p": [1]},
+	"5507": {"name": "Shroud coating", "vol": 100, "mass": 600, "power": 0, "hp": 100, "func": "armor", "p": [1]},
+	"5508": {"name": "Bulkheads", "vol": 200, "mass": 2500, "power": 0, "hp": 250, "func": "armor", "p": [1]},
 	"6001": {"name": "Brake", "vol": 500, "mass": 500, "power": -200, "hp": 100, "func": "brake", "p": [90]},
 	# sensors: one of each family counts (the best tier); p = [rated range
 	# against a signature of 100] (see SENSOR_FAMILIES and Sensors.gd)
@@ -147,7 +162,9 @@ const SENSOR_ORDER := ["optics", "radar", "pulse", "lidar", "infrared", "em", "t
 ## Another empire's part needs a blueprint, salvaged from its wrecks.
 const MODULE_RACE := {
 	"5005": 0, "5006": 0, "7003": 0, "7303": 0, "7502": 0, "5101": 0, "5102": 0, "4021": 0,
-	"5502": 1, "5503": 1, "4009": 1, "5201": 1, "5202": 1, "7102": 1, "7202": 1,
+	"5504": 0, "5021": 0, "5022": 0, "5023": 0,
+	"4009": 1, "5201": 1, "5202": 1, "7102": 1, "7202": 1,
+	"5011": 1, "5012": 1, "5013": 1, "5506": 2,
 	"9101": 2, "7402": 2, "9203": 2, "5601": 2,
 }
 
@@ -250,6 +267,85 @@ static func module_dtype(id: String) -> String:
 ## falls to BEAM_FALLOFF of that at the beam's full reach.
 const BEAM_DPS := {"4501": 300.0, "4502": 380.0, "4503": 650.0}
 const BEAM_FALLOFF := 0.7
+
+
+## A coat's short name for tables ("none" without one).
+static func coat_label(coat_id: String) -> String:
+	if coat_id == "":
+		return "none"
+	var c: String = ARMOR[coat_id]["coat"]
+	return "Plate %s" % ["", "I", "II", "III"][tier(coat_id)] if c == "plate" else c.capitalize()
+
+
+## Armor coats by module id (Kyle's picks, 2026-10-28).  A ship wears one.
+## "resist": the share of hull damage the coat stops, per damage type,
+## after the type's hull multiplier; a weapon's "pierce" ignores that share
+## of it.  "radar": the coat's multiplier on the ship's radar signature.
+## Special rules, by "coat":
+##   reflective  half the resistance once the hull is below half
+##   ablative    resists only while its layer (ABLATIVE_LAYER of the hull)
+##               lasts, and the layer loses what it stops
+##   reactive    tiles fire on a single hit of REACTIVE_TRIGGER or more,
+##               cutting that hit by the resist; nothing below it
+##   bulkheads   systems take BULKHEAD_SYSTEMS of their damage, crew losses
+##               BULKHEAD_CREW, boarding defenders fight BULKHEAD_BOARD harder
+const ARMOR := {
+	"5501": {"coat": "plate", "resist": {"beam": 0.0, "plasma": 0.15, "kinetic": 0.25, "explosive": 0.25, "ion": 0.0}, "radar": 1.0},
+	"5502": {"coat": "plate", "resist": {"beam": 0.0, "plasma": 0.20, "kinetic": 0.30, "explosive": 0.30, "ion": 0.0}, "radar": 1.0},
+	"5503": {"coat": "plate", "resist": {"beam": 0.0, "plasma": 0.25, "kinetic": 0.35, "explosive": 0.35, "ion": 0.0}, "radar": 1.0},
+	"5504": {"coat": "reflective", "resist": {"beam": 0.60, "plasma": 0.25, "kinetic": 0.0, "explosive": 0.0, "ion": 0.0}, "radar": 1.3},
+	"5505": {"coat": "ablative", "resist": {"beam": 0.45, "plasma": 0.60, "kinetic": 0.20, "explosive": 0.30, "ion": 0.0}, "radar": 1.0},
+	"5506": {"coat": "reactive", "resist": {"beam": 0.0, "plasma": 0.40, "kinetic": 0.70, "explosive": 0.70, "ion": 0.0}, "radar": 1.0},
+	"5507": {"coat": "shroud", "resist": {"beam": 0.10, "plasma": 0.10, "kinetic": 0.10, "explosive": 0.10, "ion": 0.0}, "radar": 0.4},
+	"5508": {"coat": "bulkheads", "resist": {"beam": 0.10, "plasma": 0.10, "kinetic": 0.15, "explosive": 0.15, "ion": 0.0}, "radar": 1.0},
+}
+const ABLATIVE_LAYER := 0.35        # of the ship's hull
+const REFLECTIVE_SCORCHED := 0.5    # hull fraction below which the mirror finish is half as good
+const REACTIVE_TRIGGER := 250.0     # damage a single hit must bring to the hull to fire a tile
+const REACTIVE_REARM := 20.0        # seconds out of combat per tile
+const BULKHEAD_SYSTEMS := 0.6
+const BULKHEAD_CREW := 0.5
+const BULKHEAD_BOARD := 1.25
+
+## Reactive tiles a hull carries: 3 on a Scout up to 10 on a Dreadnought.
+static func reactive_tiles(ship_size: float) -> int:
+	return clampi(int(round(3.0 + (ship_size - 22.0) * 7.0 / 34.0)), 3, 10)
+
+
+## The share of hull damage of type `dtype` a coat stops before its
+## special rules (0 with no coat).
+static func armor_resist(coat_id: String, dtype: String) -> float:
+	if coat_id == "" or not ARMOR.has(coat_id):
+		return 0.0
+	return float(ARMOR[coat_id]["resist"].get(dtype, 0.0))
+
+
+## Shield families.  Every hit pauses the recharge of the shield half it
+## lands on for "pause" seconds ("zero_pause" if it empties it), then the
+## half recharges "rate" of its size a second.  On "leak_chance" of hits,
+## "leak" of the damage goes past the shield to the hull.
+const SHIELD_FAMILIES := {
+	"deflector": {"label": "Deflector", "pause": 2.5, "zero_pause": 5.0, "rate": 0.10, "leak": 0.0, "leak_chance": 0.0},
+	"barrier": {"label": "Barrier", "pause": 6.0, "zero_pause": 10.0, "rate": 0.05, "leak": 0.0, "leak_chance": 0.0},
+	"flicker": {"label": "Flicker", "pause": 0.8, "zero_pause": 2.0, "rate": 0.20, "leak": 0.30, "leak_chance": 0.5},
+}
+## Shield focus: the share of the shield in the front half, by setting.
+const SHIELD_FOCUS := [0.5, 0.75, 0.25]
+const SHIELD_FOCUS_NAMES := ["Balanced", "Forward", "Aft"]
+const SHIELD_FOCUS_TIME := 2.0      # seconds for the charge to move to a new focus
+const SHIELD_BOOT := 2.0            # seconds to raise lowered shields...
+const SHIELD_BOOT_CHARGE := 0.2     # ...which come up at this share of full
+
+static func shield_family(id: String) -> String:
+	return str(MODULES[id].get("fam", "deflector"))
+
+
+## Parts a ship may carry more than one of; of every other kind it takes one.
+const STACKING := ["eng", "shield", "boost"]
+
+static func stacks(id: String) -> bool:
+	return MODULES[id]["func"] in STACKING
+
 
 ## Seconds between shots for each tube missile.
 const TUBE_COOLDOWN := {
@@ -693,6 +789,8 @@ static func rank_name(level: int) -> String:
 ## Tier of a part (I..V) for pricing and pickups.
 static func tier(id: String) -> int:
 	var m: Dictionary = MODULES[id]
+	if m["func"] == "armor":
+		return int(m["p"][0])          # plate comes in marks; the other coats are one model each
 	if m["func"] in ["power", "eng", "shield", "armor", "sensor", "boost", "qdrv", "regen", "repair", "beam"]:
 		return maxi(int(id.substr(3, 1)), 1)
 	return 1
@@ -845,6 +943,29 @@ const STOCK_LOADOUTS := {
 	},
 }
 
+## The armor coat each empire's computer pilots fly (Kyle's pick): the
+## Arceans mirror their hulls, Terrans plate them, the Drengin go reactive
+## and pirates hide under a shroud.
+const RACE_COAT := {0: "5504", 1: "5501", 2: "5506", 3: "5507"}
+
+## A hull's stock fit with its empire's armor coat bolted on, for computer
+## pilots: only on warships with no coat yet and room in the bays.
+static func race_fit(hull: String, race_id: int) -> Dictionary:
+	var d := stock_design(hull, race_id)
+	var coat_id: String = RACE_COAT.get(race_id, "")
+	if coat_id == "" or is_station_hull(hull) or not SHIPS[hull].has("weapons") or SHIPS[hull]["weapons"].is_empty():
+		return d
+	if hull in ["Freighter", "Trader", "DropShip"]:
+		return d
+	var used := 0
+	for id in d["modules"]:
+		if MODULES[id]["func"] == "armor":
+			return d
+		used += int(MODULES[id]["vol"])
+	if used + int(MODULES[coat_id]["vol"]) <= int(HULL_BAYS.get(hull, 2000)):
+		d["modules"].append(coat_id)
+	return d
+
 
 ## Mass of a hull's stock fit, the reference for turn and speed penalties.
 static func stock_mass(hull: String) -> float:
@@ -891,9 +1012,11 @@ static func stats_for(design: Dictionary) -> Dictionary:
 		"heat_sink": 0.0, "has_boost": false,
 		"qdrv": 0.0, "brake_power": 0.6, "regen": 0.0, "repair": 0.0, "ram": 0.0,
 		"power_gen": 0.0, "power_draw": 0.0, "overload": 1.0, "module_levels": {}, "bay_used": 0,
+		"coat": "", "armor_mass": 0.0, "armor_sig": 1.0, "thermal_lag": 1.0, "shield_family": "deflector", "shield_draw": 0.0,
 		"bay_cap": int(HULL_BAYS.get(design["name"], 2000)), "engines": 0, "eng": 0.0,
 	}
 	var is_station: bool = is_station_hull(design["name"])
+	var biggest_shield := 0.0
 	for id in design["modules"]:
 		var m: Dictionary = MODULES[id]
 		st["mass"] += m["mass"]
@@ -914,11 +1037,17 @@ static func stats_for(design: Dictionary) -> Dictionary:
 				st["eng"] += m["p"][0]
 				st["engines"] += 1
 			"shield":
+				# the biggest generator sets how the whole shield behaves
+				if m["p"][0] > biggest_shield:
+					biggest_shield = m["p"][0]
+					st["shield_family"] = shield_family(id)
 				st["shield_max"] += m["p"][0]
-				st["shield_regen"] += m["p"][0] * 0.06
+				st["shield_draw"] += -m["power"] * 0.35
 			"armor":
-				st["armor"] += m["p"][0]
-				st["hull_max"] += m["p"][0] * 4
+				st["coat"] = id
+				st["armor"] = 1.0
+				st["armor_mass"] += m["mass"]
+				st["armor_sig"] = float(ARMOR.get(id, {}).get("radar", 1.0))
 			"sensor":
 				var fam: String = m["fam"]
 				st["sensors"][fam] = maxf(st["sensors"].get(fam, 0.0), float(m["p"][0]))
@@ -949,9 +1078,13 @@ static func stats_for(design: Dictionary) -> Dictionary:
 		st["mass"] += m["mass"]
 		st["hull_max"] += m["hp"] * 0.5
 		st["power_draw"] += absf(m["power"]) * 0.25
+	st["shield_regen"] = st["shield_max"] * SHIELD_FAMILIES[st["shield_family"]]["rate"]
+	# armor mass is thermal mass: the hull's heat moves this many seconds behind the burn
+	st["thermal_lag"] = 1.0 + st["armor_mass"] / 2000.0
 	if is_station:
 		st["hull_max"] *= 4.0
 		st["shield_max"] *= 2.5
+		st["shield_regen"] *= 2.5
 		# a station's big dishes: a sensor station sees right across the system
 		var dish := 6000.0 if design["name"] == "SensorStation" and design["modules"].size() > 1 else 2600.0
 		st["sensors"]["radar"] = maxf(st["sensors"].get("radar", 0.0), dish)

@@ -112,6 +112,9 @@ func _process(delta: float) -> void:
 			packed.append(Vector4(0, 0, 9.0, 0.0))
 	mat.set_shader_parameter("hits", packed)
 	mat.set_shader_parameter("strength", s)
+	var down := not ship.shields_raised or ship.shield_boot > 0.0
+	mat.set_shader_parameter("strength_front", 0.0 if down else ship.shield_front / maxf(ship.shield_cap(true), 1.0))
+	mat.set_shader_parameter("strength_rear", 0.0 if down else ship.shield_rear / maxf(ship.shield_cap(false), 1.0))
 	mat.set_shader_parameter("collapse", collapse)
 	mat.set_shader_parameter("guard", clampf(ship.invulnerable, 0.0, 1.0))
 	mat.set_shader_parameter("alpha", 1.0)

@@ -191,6 +191,7 @@ func _mount(id: String) -> void:
 		hold.erase(id)
 	else:
 		credits -= cost
+	var swapped: Array = []
 	if sel_kind == "hp":
 		var group := GameData.default_weapon_group(id)
 		var old = mounts[sel_index]
@@ -205,8 +206,33 @@ func _mount(id: String) -> void:
 		else:
 			modules.append({"id": id, "stock": false})
 			sel_index = modules.size() - 1
+		swapped = _one_of_a_kind(sel_index)
 	Sfx.play_ui("click", 0.5)
-	_say("%s fitted%s." % [GameData.MODULES[id]["name"], " from the hold" if from_hold else " for %d credits" % cost])
+	_say("%s fitted%s%s." % [GameData.MODULES[id]["name"], " from the hold" if from_hold else " for %d credits" % cost,
+		(", in place of " + ", ".join(swapped)) if not swapped.is_empty() else ""])
+
+
+## A ship carries one part of each kind except engines, shields and
+## boosters (GameData.STACKING), and shields of one family: the part just
+## fitted at `keep` pushes out the others to the hold.
+func _one_of_a_kind(keep: int) -> Array:
+	var id: String = modules[keep]["id"]
+	var f: String = GameData.MODULES[id]["func"]
+	var out := []
+	var i := modules.size() - 1
+	while i >= 0:
+		var other: String = modules[i]["id"]
+		var clash := false
+		if i != keep and GameData.MODULES[other]["func"] == f:
+			clash = not GameData.stacks(id) or (f == "shield" and GameData.shield_family(other) != GameData.shield_family(id))
+		if clash:
+			out.append(GameData.MODULES[other]["name"])
+			_unmount_bay(i)
+			if i < keep:
+				keep -= 1
+		i -= 1
+	sel_index = keep
+	return out
 
 
 func _unmount_hp(i: int) -> void:
@@ -673,9 +699,10 @@ func _draw_right(r: Rect2) -> void:
 		["Turn rate", "%d°/s" % was["turn"], "%d°/s" % st["turn"], st["turn"] >= was["turn"]],
 		["Energy", "%d" % was["energy_max"], "%d" % st["energy_max"], st["energy_max"] >= was["energy_max"]],
 		["Energy regen", "%.0f/s" % (was["energy_regen"] * 0.1), "%.0f/s" % (st["energy_regen"] * 0.1), st["energy_regen"] >= was["energy_regen"]],
-		["Shields", "%d" % was["shield_max"], "%d" % st["shield_max"], st["shield_max"] >= was["shield_max"]],
+		["Shields", _shield_text(was), _shield_text(st), st["shield_max"] >= was["shield_max"]],
 		["Hull", "%d" % was["hull_max"], "%d" % st["hull_max"], st["hull_max"] >= was["hull_max"]],
-		["Armor", "%d" % was["armor"], "%d" % st["armor"], st["armor"] >= was["armor"]],
+		["Armor", GameData.coat_label(was["coat"]), GameData.coat_label(st["coat"]), st["coat"] != ""],
+		["Radar signature", "%.1fx" % was["armor_sig"], "%.1fx" % st["armor_sig"], st["armor_sig"] <= was["armor_sig"]],
 		["Lock range", "%d" % was["sensor_range"], "%d" % st["sensor_range"], st["sensor_range"] >= was["sensor_range"]],
 	]
 	# how loud the build is: lower is stealthier
@@ -841,6 +868,13 @@ func _selected_part() -> String:
 	return ""
 
 
+func _shield_text(st: Dictionary) -> String:
+	if st["shield_max"] <= 0.0:
+		return "0"
+	var fam: String = st["shield_family"]
+	return "%d" % st["shield_max"] if fam == "deflector" else "%d %s" % [st["shield_max"], fam.capitalize()]
+
+
 func _part_info(id: String) -> String:
 	var mod: Dictionary = GameData.MODULES[id]
 	var p: Array = mod["p"]
@@ -850,9 +884,15 @@ func _part_info(id: String) -> String:
 		"eng":
 			return "thrust %d   vol %d" % [p[0], mod["vol"]]
 		"shield":
-			return "shield %d   vol %d" % [p[0], mod["vol"]]
+			var fam: Dictionary = GameData.SHIELD_FAMILIES[GameData.shield_family(id)]
+			var leak := "  leaks %d%% of half the hits" % int(fam["leak"] * 100.0) if fam["leak"] > 0.0 else ""
+			return "%s %d  %d%%/s after %.1f s%s" % [fam["label"].to_lower(), p[0], int(fam["rate"] * 100.0), fam["pause"], leak]
 		"armor":
-			return "armor %d  hull +%d  mass %d" % [p[0], p[0] * 4, mod["mass"]]
+			var res: Dictionary = GameData.ARMOR[id]["resist"]
+			var parts := []
+			for t in ["beam", "plasma", "kinetic", "explosive"]:
+				parts.append("%s %d" % [t.left(3), int(res[t] * 100.0)])
+			return "%s  hull +%d  mass %d" % ["/".join(parts), mod["hp"], mod["mass"]]
 		"sensor":
 			var fam: Dictionary = GameData.SENSOR_FAMILIES[mod["fam"]]
 			return "%s %s   %s   range %d" % [fam["channel"], "lock" if fam["track"] else "contacts", "active" if fam["active"] else "passive", p[0]]

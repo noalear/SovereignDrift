@@ -40,12 +40,16 @@ const STEPS := [
 	{"id": "groups", "chapter": 3, "goal": "Press {weapon_group_4} for the mine layer, then {weapon_group_1} for the guns again", "mark": "drone"},
 	{"id": "disable", "chapter": 3, "goal": "Shoot the drone's stern until its engines go offline", "mark": "drone"},
 	{"id": "board", "chapter": 3, "goal": "Close in, slow down and press {board} to board the drone", "mark": "drone"},
+	{"id": "shield_focus", "chapter": 3, "goal": "Press {shield_focus} to swing your shield forward, then press it until it's Balanced again", "focus": "status"},
+	{"id": "shields_down", "chapter": 3, "goal": "Press {shields_toggle} to lower your shields, then {shields_toggle} to raise them", "focus": "status"},
 	{"id": "stealth", "chapter": 3, "goal": "Press {silent_running} for silent running, then {silent_running} again", "focus": "signature"},
 	{"id": "jammer", "chapter": 3, "goal": "Target the pirate ({target_nearest}) and press {cloak} to jam it", "mark": "pirate"},
 	{"id": "spar", "chapter": 3, "goal": "Destroy or capture the pirate", "mark": "pirate"},
 	{"id": "loot", "chapter": 3, "goal": "Fly over a pickup to collect it", "mark": "loot"},
 	{"id": "dock", "chapter": 4, "goal": "Fly back to the Terran starbase at Earth", "mark": "starbase"},
 	{"id": "shipyard", "chapter": 4, "goal": "Brake ({brake}), then press {refit} for the shipyard", "mark": "starbase"},
+	{"id": "armor", "chapter": 4},
+	{"id": "shield_types", "chapter": 4},
 	{"id": "shipyard_tour", "chapter": 4, "goal": "Look around, then launch or close the shipyard"},
 	{"id": "base_cargo", "chapter": 4, "goal": "Press {cargo} at the starbase for station kits and ship orders", "mark": "starbase"},
 	{"id": "land", "chapter": 5, "goal": "Get low over Earth, slow down and press {land}", "mark": "Earth"},
@@ -283,6 +287,10 @@ func _track(p: Ship, delta: float) -> void:
 		seen["silent"] = true
 	if p.sensors.jam_active():
 		seen["jamming"] = true
+	if p.shield_focus == 1:
+		seen["focus_forward"] = true
+	if not p.shields_raised:
+		seen["shields_down"] = true
 	if main != null and main.get("tactical") != null:
 		seen["map"] = true
 
@@ -485,6 +493,14 @@ func _done_board() -> bool:
 
 func _done_stealth() -> bool:
 	return seen.has("silent") and not _player().sensors.emcon
+
+
+func _done_shield_focus() -> bool:
+	return seen.has("focus_forward") and _player().shield_focus == 0
+
+
+func _done_shields_down() -> bool:
+	return seen.has("shields_down") and _player().shields_raised
 
 
 # --- the sparring pirate

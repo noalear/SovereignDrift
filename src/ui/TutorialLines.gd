@@ -45,6 +45,8 @@ const LINES := [
 	["disable", "hale", "Now the mark of a good captain: don't just blow ships apart. Every hit damages the systems nearest to it. Hit the drone in the stern to knock out its engines, and it's dead in space."],
 	["drone_lost", "hale", "That one's scrap. Easy on the trigger, cadet. Here's another. Aim for the engines at the back."],
 	["board", "hale", "Its engines are out. Come alongside, slow down, and board it. Your crew fights theirs, and if you win, the ship is yours. A captured prize follows you as a wingman."],
+	["shield_focus", "hale", "Your shield has a front half and a rear half, and a hit only drains the half it lands on. After a hit, that half waits a moment before it recharges. You can swing the charge forward when you attack, or aft when you run. Swing it forward, then back to balanced."],
+	["shields_down", "hale", "You can also lower your shields. Lowered, they hold nothing, but they stop drawing power and your ship runs quieter. Raising them takes a couple of seconds, and they come back weak, so pick your moment. Lower them, then raise them again."],
 	["stealth", "hale", "Every ship gives itself away. Your hull shows on radar, your engines and guns glow on infrared, and your own radar and shields broadcast for anyone listening. The bars by your radar show how loud you are. Enemy sensors lock on to whatever stands out. Silent running switches your radar off, holds your shields and turns the reactor down. You're much harder to find, but half blind too. Go silent, then come back up."],
 	["jammer", "hale", "Ready for a live opponent? A rookie pirate in a scout is coming in, and this one shoots back. Your scout carries a jammer. Lock the pirate as your target and switch the jammer on. Its sensors lose most of their range, so it struggles to keep a lock on you. Jamming burns energy and runs hot, so keep an eye on your meters."],
 	["spar", "hale", "Now finish the fight. Destroy the pirate, or disable and board it. If you lose your ship, you'll relaunch at the starbase."],
@@ -53,6 +55,8 @@ const LINES := [
 	# --- the starbase
 	["dock", "hale", "Head back to the starbase at Earth. Near a friendly starbase or colony, your fuel, crew and hull are topped up, and your launchers and mine layer are reloaded. Follow the green arrow."],
 	["shipyard", "hale", "Slow down and open the shipyard. This is where you change hulls, fit engines, shields and weapons, and set your weapon groups. Better hulls open up as you rise in rank."],
+	["armor", "hale", "Your hull takes one coat of armour. Plate is solid all round, but heavy. Ablative burns away under fire, Reflective turns lasers, Reactive breaks the biggest hits, a Shroud hides you from radar, and Bulkheads shelter your crew and systems. Reflective is Arcean work and Reactive is Drengin, so those take a blueprint from their wrecks."],
+	["shield_types", "hale", "Shields come in families too. Deflectors are the steady all rounder. Barriers are big and slow to recharge. Flickers are small and recharge in a blink, but let some hits slip through. Weigh it all against your power and your mass."],
 	["shipyard_tour", "hale", "Click a part to swap it, and watch your speed, power and firepower change. Credits and salvaged parts pay for it. Launch when you're happy, or close the yard to keep your ship as it is."],
 	["base_cargo", "hale", "The starbase also sells station kits and takes orders for new ships. Open the cargo panel here to see them. Kits and orders unlock at Lieutenant Commander."],
 	# --- worlds, colonists and cargo
