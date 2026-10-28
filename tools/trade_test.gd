@@ -150,7 +150,8 @@ func _process(_delta: float) -> bool:
 			market.invulnerable = 1e9
 			_check(Economy.is_market(market) and market.cargo_max == 2000.0, "a finished trade station is a market")
 			for s in w.ships:
-				if s.race_id == 2 and not s.is_station and not s.support and s.design_name != "Starbase" and s.landing == Ship.Landing.NONE:
+				if s.race_id == 2 and not s.is_station and not s.support and s.design_name != "Starbase" and s.landing == Ship.Landing.NONE \
+						and s.get_node_or_null("AI") != null:
 					foreigner = s
 					break
 			foreigner.get_node("AI").set_physics_process(false)
