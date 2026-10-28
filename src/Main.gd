@@ -22,6 +22,8 @@ var story_layer: CanvasLayer = null   # the story campaign's call window and obj
 var comms: Comms = null
 var story_panel: StoryPanel = null
 var briefing: Briefing = null
+var story_choice: StoryChoice = null   # a story choice waiting on the player
+var choice_wait := 0.0                 # seconds the choice has waited for its lines to finish
 var story_saves: StorySaves = null   # the story's save slots, over the pause menu or the title screen
 var pause_shot: Image = null         # the war as the pause menu opened, for a save slot's picture
 var font: Font
@@ -193,6 +195,13 @@ func _show_menu() -> void:
 func _process(delta: float) -> void:
 	if menu_camera != null and is_instance_valid(menu_camera):
 		menu_camera.global_position += Vector2(30.0, 6.0) * delta
+	# a story choice comes up once the lines that lead to it are spoken
+	if world != null and world.story != null and not world.story.choice.is_empty() and story_choice == null:
+		choice_wait += delta
+		if (not world.story.speaking() or choice_wait > 25.0) and briefing == null and pause_panel == null and builder == null:
+			open_choice()
+	else:
+		choice_wait = 0.0
 
 
 func _start_practice() -> void:
@@ -337,7 +346,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("pause_menu") and cargo_panel != null:
 		_close_cargo()
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("briefing") and world != null and world.story != null and builder == null and pause_panel == null and scoreboard == null and briefing == null:
+	elif event.is_action_pressed("briefing") and world != null and world.story != null and builder == null and pause_panel == null and scoreboard == null and briefing == null and story_choice == null:
 		_story_key()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("quick_save") and world != null and world.campaign and scoreboard == null:
@@ -353,7 +362,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("pause_menu") and tactical != null:
 		_close_tactical()
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("pause_menu") and world != null and builder == null and scoreboard == null and briefing == null:
+	elif event.is_action_pressed("pause_menu") and world != null and builder == null and scoreboard == null and briefing == null and story_choice == null:
 		if pause_panel == null:
 			_open_pause()
 		else:
@@ -666,6 +675,7 @@ func _open_story() -> void:
 
 func _close_story() -> void:
 	_close_briefing()
+	_close_choice()
 	if story_panel != null:
 		story_panel.queue_free()
 		story_panel = null
@@ -710,6 +720,34 @@ func open_briefing() -> void:
 		_close_briefing()
 		st.start_op())
 	briefing.closed.connect(_close_briefing)
+
+
+func open_choice() -> void:
+	if story_choice != null or world == null or world.story == null or world.story.choice.is_empty():
+		return
+	_close_tactical()
+	_close_ledger()
+	_close_cargo()
+	if not Net.is_active():
+		world.set_paused(true)
+	world.menu_open = true
+	story_choice = StoryChoice.new()
+	story_choice.setup(world.story)
+	ui_layer.add_child(story_choice)
+	story_choice.chosen.connect(func(key: String):
+		var st: Story = world.story
+		_close_choice()
+		st.choose(key))
+
+
+func _close_choice() -> void:
+	if story_choice == null:
+		return
+	story_choice.queue_free()
+	story_choice = null
+	if world != null:
+		world.set_paused(false)
+		world.menu_open = false
 
 
 func _close_briefing() -> void:

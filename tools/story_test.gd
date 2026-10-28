@@ -106,6 +106,9 @@ func _start() -> void:
 	await _slots_check()
 	await _retry_check()
 	await _dark_convoy()
+	await _free_port()
+	await _picket_line()
+	await _accord_breaks()
 	_end()
 
 
@@ -339,6 +342,179 @@ func _dark_convoy() -> void:
 	_put(p, base.global_position + Vector2(300, 0), base.velocity)
 	await _frames(10)
 	_check(st.op == null and st.index == 2 and st.flags.get("drengin_log", false), "Dark Convoy is won: the Drengin log")
+
+
+## Offer the next operation now and launch it from its briefing.
+func _launch(id: String) -> StoryOp:
+	var w: World = main.world
+	var st: Story = w.story
+	st.unlock_at = w.elapsed
+	await _frames(3)
+	main.open_briefing()
+	await process_frame
+	_check(main.briefing != null and st.current()["id"] == id, "the %s briefing" % id)
+	if main.briefing != null:
+		main.briefing.launch.emit()
+	await process_frame
+	_check(st.op != null and st.op.spec["id"] == id, "%s is under way" % id)
+	return st.op
+
+
+## Wait for the choice card, then answer it.
+func _answer(key: String) -> void:
+	for i in 120:
+		await process_frame
+		if main.story_choice != null:
+			break
+		var w: World = main.world
+		if w != null and w.story != null:
+			w.story.line_left = minf(w.story.line_left, 0.02)
+	_check(main.story_choice != null and main.world.paused, "the choice comes up and the war waits on it")
+	if main.story_choice != null:
+		main.story_choice.chosen.emit(key)
+	await process_frame
+
+
+func _free_port() -> void:
+	var w: World = main.world
+	var op := await _launch("free_port")
+	var p := w.player
+	var port: Ship = op.get("port")
+	_put(p, port.global_position + Vector2(900, 0), port.velocity)
+	await _frames(5)
+	_check(op.done("port") and op.stage == "choose" and not w.story.choice.is_empty(), "at the port Marrow names her price")
+	await _answer("steal")
+	_check(op.stage == "steal" and op.get("cutters").size() == 2 and op.get("relay") != null, "copying: port security circles the port, the relay behind it")
+	await _frames(60)
+	_check(w.story.op != null and w.story.failed == "", "being seen at the port itself is fine")
+	# loud at the relay: seen
+	var relay: Node2D = op.get("relay")
+	for i in 30:
+		_put(p, relay.global_position, port.velocity)
+		await _frames(1)
+		if w.story.op == null:
+			break
+	_check(w.story.op == null and w.story.failed != "", "running loud past port security fails the operation")
+	main.retry_operation()
+	for i in 4:
+		await process_frame
+	w = main.world
+	_check(main.briefing != null and w.story.current()["id"] == "free_port", "the retry opens the Free Port briefing")
+	main.briefing.launch.emit()
+	await process_frame
+	op = w.story.op
+	p = w.player
+	port = op.get("port")
+	_put(p, port.global_position + Vector2(900, 0), port.velocity)
+	await _frames(5)
+	await _answer("steal")
+	p.set_silent(true)
+	for i in 60 * 6:
+		_put(p, port.global_position + Vector2(900, 0), port.velocity)
+		await _frames(1)
+	relay = op.get("relay")
+	var seen := false
+	for i in 60 * 7:
+		_put(p, relay.global_position, port.velocity)
+		await _frames(1)
+		if w.story.op == null or op.done("steal"):
+			break
+	for c in op.get("cutters"):
+		if is_instance_valid(c):
+			seen = seen or Sensors.quality(c, p) >= 2
+	_check(op.done("steal") and w.story.failed == "", "silent on the relay, the copy goes through unseen (failed: %s)" % w.story.failed)
+	_check(w.story.flags.get("port_fees", "") == "high" and Economy.markup(port, p) > 0.0, "and the port charges Terrans more from now on")
+	_check(op.stage == "home", "then home with the records")
+	var base := w.starbase_of(1)
+	_put(p, base.global_position + Vector2(300, 0), base.velocity)
+	await _frames(10)
+	_check(w.story.op == null and w.story.index == 3 and w.story.flags.get("choice_free_port", "") == "steal", "Free Port is won the quiet way")
+	# and the other way: pay her
+	w.story.index = 2
+	op = await _launch("free_port")
+	p.set_silent(false)
+	_put(p, port.global_position + Vector2(900, 0), port.velocity)
+	await _frames(5)
+	await _answer("pay")
+	_check(op.stage == "pay", "paying: buy Exotics at the port")
+	p.cargo["exotics"] = 8.0
+	_put(p, port.global_position + Vector2(port.size + 200.0, 0), port.velocity)
+	await _frames(5)
+	_check(op.done("pay") and p.cargo.get("exotics", 0.0) < 0.5 and op.stage == "home", "Marrow takes the Exotics and hands over the records")
+	_put(p, base.global_position + Vector2(300, 0), base.velocity)
+	await _frames(10)
+	_check(w.story.op == null and w.story.index == 3 and w.story.flags.get("choice_free_port", "") == "pay", "Free Port is won by paying")
+
+
+func _picket_line() -> void:
+	var w: World = main.world
+	var op := await _launch("picket_line")
+	var p := w.player
+	var frame: Ship = op.get("frame")
+	_check(frame != null and frame.building and frame.station_body == w.planet_by_name["Luna"], "a station frame waits over Luna")
+	_check(w.planet_by_name["Earth"].stock.get("alloys", 0.0) >= 8.0, "with the Alloys waiting on Earth")
+	p.cargo["alloys"] = 8.0
+	await _frames(3)
+	_check(op.stage == "deliver", "Alloys aboard: on to the frame")
+	_put(p, frame.global_position + Vector2(frame.size + 120.0, 0), frame.velocity)
+	await _frames(2)
+	w.cargo_command(p, "alloys", -8.0)
+	for i in 600:
+		_put(p, frame.global_position + Vector2(frame.size + 120.0, 0), frame.velocity)
+		await _frames(1)
+		if op.stage == "build":
+			break
+	_check(op.stage == "build" and frame.cargo.get("alloys", 0.0) >= 7.99, "unloading the Alloys into the frame starts the build (%s)" % frame.cargo)
+	op.stage_time = 21.0
+	await _frames(3)
+	var raiders: Array = op.get("raiders")
+	_check(raiders.size() == 3 and raiders[0].race_id == 3, "\"pirates\" come for the frame")
+	for r in raiders:
+		r.take_damage(1e6, p)
+	await _frames(60 * 10)
+	_check(not frame.building and not frame.dead and op.stage == "home", "the raid beaten, the station is finished")
+	var base := w.starbase_of(1)
+	_put(p, base.global_position + Vector2(300, 0), base.velocity)
+	await _frames(10)
+	_check(w.story.op == null and w.story.index == 4 and w.ships.has(frame) and not frame.has_meta("story"), "Picket Line is won, and Luna keeps its station")
+
+
+func _accord_breaks() -> void:
+	var w: World = main.world
+	var heard := []
+	w.story.line_started.connect(func(id): heard.append(id))
+	var op := await _launch("accord_breaks")
+	var p := w.player
+	var luna: Planet = w.planet_by_name["Luna"]
+	_check(w.accord, "the Accord holds while Kesh Varr speaks")
+	await _frames(60 * 5)
+	_check(not w.accord and heard.has("ab_kesh_1"), "then it is over")
+	op.stage_time = 360.0 - 1.0
+	await _frames(3)
+	_check(op.get("fleet").size() == 11, "every wave of the assault came (%d ships)" % op.get("fleet").size())
+	await _frames(70)
+	_check(op.stage == "home" and w.story.flags.get("luna", "") == "held", "six minutes held: the fleet arrives")
+	var base := w.starbase_of(1)
+	_put(p, base.global_position + Vector2(300, 0), base.velocity)
+	await _frames(10)
+	_check(w.story.op == null and w.story.index == 5, "The Accord Breaks is won")
+	var d := SaveGame.read(SAVE)
+	_check(not bool(d.get("story", {}).get("accord", true)), "the save remembers the war is hot")
+	# fail forward: Luna falls and the story goes on
+	w.story.index = 4
+	op = await _launch("accord_breaks")
+	await _frames(60 * 5)
+	op.stage_time = 10.0
+	await _frames(3)
+	var drengin: Ship = op.get("fleet")[0]
+	_put(drengin, luna.global_position + Vector2(luna.radius + 300.0, 0), luna.velocity)
+	luna.silenced = 999.0
+	op.set("down_t", 34.5)
+	await _frames(60)
+	_check(luna.owner_race == 2 and w.story.flags.get("luna", "") == "lost" and op.stage == "home", "Luna falls: the story carries on without it (owner %d, luna %s, stage %s, down %.1f, defenceless %s)" % [luna.owner_race, w.story.flags.get("luna", ""), op.stage, op.get("down_t"), luna.is_defenceless()])
+	_put(p, base.global_position + Vector2(300, 0), base.velocity)
+	await _frames(10)
+	_check(w.story.op == null and w.story.index == 5, "and The Accord Breaks still ends")
 
 
 func _end() -> void:
