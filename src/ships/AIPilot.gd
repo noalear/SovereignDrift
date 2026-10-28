@@ -183,11 +183,11 @@ func _wing_target(current: Node2D, lead: Ship) -> Node2D:
 		"form":
 			return _threat(lead)
 		"attack":
-			var t: Node2D = o["target"]
-			if t is Ship and is_instance_valid(t) and not t.dead and t.team() != ship.team() \
+			var t: Variant = o["target"]
+			if is_instance_valid(t) and t is Ship and not t.dead and t.team() != ship.team() \
 					and (t.visible_to(ship) or t.visible_to(lead) or float(o.get("lost", 0.0)) < Wing.TRACK_GRACE):
 				return t
-			if t is Planet and is_instance_valid(t) and t.is_colonised() and t.owner_race != ship.race_id and not t.is_defenceless():
+			if is_instance_valid(t) and t is Planet and t.is_colonised() and t.owner_race != ship.race_id and not t.is_defenceless():
 				return t
 		"hold":
 			var at: Vector2 = world.wing.hold_point(lead)
@@ -211,8 +211,8 @@ func _wing_target(current: Node2D, lead: Ship) -> Node2D:
 func _threat(lead: Ship) -> Ship:
 	var now := Time.get_ticks_msec() / 1000.0
 	for s in [ship, lead]:
-		var a: Node = s.last_attacker
-		if a is Ship and is_instance_valid(a) and not a.dead and a.team() != ship.team() and now - s.last_attacked_at < 6.0 \
+		var a: Variant = s.last_attacker
+		if is_instance_valid(a) and a is Ship and not a.dead and a.team() != ship.team() and now - s.last_attacked_at < 6.0 \
 				and a.global_position.distance_to(lead.global_position) < ESCORT_LEASH * 1.5:
 			return a
 	return null
@@ -220,8 +220,8 @@ func _threat(lead: Ship) -> Ship:
 
 ## On the way home: fight back only when jumped close.
 func _cornered() -> Ship:
-	var a: Node = ship.last_attacker
-	if a is Ship and is_instance_valid(a) and not a.dead and a.team() != ship.team() \
+	var a: Variant = ship.last_attacker
+	if is_instance_valid(a) and a is Ship and not a.dead and a.team() != ship.team() \
 			and Time.get_ticks_msec() / 1000.0 - ship.last_attacked_at < 4.0 and a.global_position.distance_to(ship.global_position) < 600.0:
 		return a
 	return null
@@ -472,12 +472,12 @@ func _nearest_contact() -> Ship:
 ## A prize crew fights near its captor: the captor's own target first,
 ## else whatever comes within the leash.
 func _escort_target(current: Node2D) -> Node2D:
-	var lead: Node2D = escort.target
-	if lead is Ship and is_instance_valid(lead) and not lead.dead and lead.team() != ship.team() and lead.race_id != GameData.NEUTRAL and lead.visible_to(ship) \
+	var lead: Variant = escort.target
+	if is_instance_valid(lead) and lead is Ship and not lead.dead and lead.team() != ship.team() and lead.race_id != GameData.NEUTRAL and lead.visible_to(ship) \
 			and lead.global_position.distance_to(escort.global_position) < ESCORT_LEASH:
 		return lead
 	# the leader's going after a colony's guns: help
-	if lead is Planet and is_instance_valid(lead) and lead.is_colonised() and lead.owner_race != ship.race_id and not lead.is_defenceless() \
+	if is_instance_valid(lead) and lead is Planet and lead.is_colonised() and lead.owner_race != ship.race_id and not lead.is_defenceless() \
 			and lead.global_position.distance_to(escort.global_position) < ESCORT_LEASH + lead.radius:
 		return lead
 	if current != null and current.global_position.distance_to(escort.global_position) < ESCORT_LEASH:

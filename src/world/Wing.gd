@@ -154,10 +154,12 @@ func status(s: Ship) -> String:
 		return "home for repairs %d%%" % int(s.hull / maxf(s.hull_max, 1.0) * 100.0)
 	if s.is_disabled():
 		return "disabled!"
-	var t: Node2D = s.target
+	var t: Variant = s.target
+	if not is_instance_valid(t):
+		t = null
 	if ai.state == AIPilot.State.BOARD and t is Ship:
 		return "boarding " + t.pilot_name
-	if ai.state in [AIPilot.State.ATTACK, AIPilot.State.EVADE] and t != null and is_instance_valid(t):
+	if ai.state in [AIPilot.State.ATTACK, AIPilot.State.EVADE] and t != null:
 		return "fighting " + (t.pilot_name if t is Ship else t.body_name)
 	var lead: Ship = ai.escort
 	if lead != null and not lead.dead and s.global_position.distance_to(lead.global_position) > 3000.0 and ai.order() != "hold":
@@ -350,8 +352,8 @@ func tick(delta: float) -> void:
 
 ## Is the attack order's target still there to fight?
 func _target_good(leader: Ship, o: Dictionary, dt: float) -> bool:
-	var t: Node2D = o["target"]
-	if t == null or not is_instance_valid(t):
+	var t: Variant = o["target"]
+	if not is_instance_valid(t):
 		return false
 	if t is Planet:
 		if not t.is_colonised() or t.owner_race == leader.race_id or t.is_defenceless():
@@ -423,11 +425,11 @@ func pack() -> Array:
 	var rows := []
 	for leader in leaders:
 		var o := order_of(leader)
-		var t: Node2D = o.get("target", null)
+		var t: Variant = o.get("target", null)
 		var tid := 0
-		if t is Ship and is_instance_valid(t):
+		if is_instance_valid(t) and t is Ship:
 			tid = t.net_id
-		elif t is Planet and is_instance_valid(t):
+		elif is_instance_valid(t) and t is Planet:
 			tid = -1 - world.planets.find(t)
 		var ms := []
 		for m in members(leader):
@@ -456,7 +458,7 @@ func member_lost(s: Ship, killer: Node) -> void:
 	var leader: Ship = ai.escort
 	var back := not s.is_prize and not s.has_meta("ordered")
 	_tell(leader, "Wingman down: %s%s." % [s.pilot_name, " (relaunches at home and rejoins you)" if back else " is lost"])
-	if killer is Ship and is_instance_valid(killer) and not killer.dead and killer.team() != leader.team():
+	if is_instance_valid(killer) and killer is Ship and not killer.dead and killer.team() != leader.team():
 		for m in members(leader):
 			if m != s and not m.dead and m.global_position.distance_to(killer.global_position) < AIPilot.ESCORT_LEASH * 1.5:
 				m.last_attacker = killer
