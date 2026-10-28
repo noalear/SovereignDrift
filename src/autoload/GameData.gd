@@ -15,7 +15,7 @@ const ENERGY_REGEN_SCALE := 1.15
 ## Every weapon's damage (warheads and beams) is scaled by this, the one
 ## knob for how long fights last (Kyle, 2026-10-28: a Scout duel should
 ## take 6-7 s).
-const DAMAGE_SCALE := 0.55
+const DAMAGE_SCALE := 0.65
 
 # ---------------------------------------------------------------- races
 
@@ -61,7 +61,7 @@ const MODULES := {
 	"3002": {"name": "Quantum drive II", "vol": 200, "mass": 200, "power": -200, "hp": 150, "func": "qdrv", "p": [2, 35000]},
 	"3003": {"name": "Quantum drive III", "vol": 300, "mass": 300, "power": -1000, "hp": 200, "func": "qdrv", "p": [3, 35000]},
 	# tube: [energy frames, energy per shot, ammo, missile id]
-	"4001": {"name": "Mass driver", "vol": 30, "mass": 50, "power": -200, "hp": 100, "func": "tube", "p": [60, 8000, 800, "001"]},
+	"4001": {"name": "Mass driver", "vol": 30, "mass": 50, "power": -200, "hp": 100, "func": "tube", "p": [60, 4000, 800, "001"]},
 	"4002": {"name": "Mine layer", "vol": 10, "mass": 50, "power": -500, "hp": 100, "func": "tube", "p": [15, 20000, 10, "002"]},
 	"4003": {"name": "Torpedo launcher", "vol": 45, "mass": 50, "power": -400, "hp": 100, "func": "tube", "p": [15, 6000, 16, "004"]},
 	"4004": {"name": "Mine layer", "vol": 100, "mass": 50, "power": -1000, "hp": 100, "func": "tube", "p": [100, 99999, 4, "002"]},
@@ -103,7 +103,7 @@ const MODULES := {
 	# point defence: a light auto-turret that shoots down incoming munitions
 	"4022": {"name": "PDC", "vol": 25, "mass": 60, "power": -150, "hp": 80, "func": "tube", "p": [10, 600, 800, "022"]},
 	"4020": {"name": "Disruptor", "vol": 45, "mass": 120, "power": -400, "hp": 120, "func": "tube", "p": [40, 5000, 600, "020"]},
-	"4021": {"name": "Drone bay", "vol": 50, "mass": 200, "power": -300, "hp": 150, "func": "tube", "p": [40, 6000, 40, "021"]},
+	"4021": {"name": "Drone bay", "vol": 50, "mass": 200, "power": -300, "hp": 150, "func": "tube", "p": [40, 4000, 40, "021"]},
 }
 
 ## Which empire's shipyard sells a part.  Parts not listed are common.
@@ -188,7 +188,7 @@ const MISSILES := {
 ## colony batteries and the Sun's heat; rams and collisions are kinetic.
 const DAMAGE_TYPES := {
 	"kinetic": {"shield": 1.0, "hull": 1.0},
-	"beam": {"shield": 0.6, "hull": 1.0},
+	"beam": {"shield": 0.7, "hull": 1.2},
 	"explosive": {"shield": 0.75, "hull": 1.0},
 	"plasma": {"shield": 1.4, "hull": 1.0},
 	"ion": {"shield": 2.0, "hull": 0.5},
@@ -211,13 +211,13 @@ static func module_dtype(id: String) -> String:
 
 ## Each laser's damage per second at point blank, before DAMAGE_SCALE; it
 ## falls to BEAM_FALLOFF of that at the beam's full reach.
-const BEAM_DPS := {"4501": 220.0, "4502": 280.0, "4503": 500.0}
-const BEAM_FALLOFF := 0.5
+const BEAM_DPS := {"4501": 300.0, "4502": 380.0, "4503": 650.0}
+const BEAM_FALLOFF := 0.7
 
 ## Seconds between shots for each tube missile.
 const TUBE_COOLDOWN := {
 	"001": 0.45, "002": 1.0, "003": 0.5, "004": 0.9, "008": 1.0, "009": 0.9,
-	"010": 0.09, "011": 0.09, "018": 1.2, "020": 0.4, "021": 0.5, "022": 0.07,
+	"010": 0.09, "011": 0.09, "018": 1.2, "020": 0.4, "021": 1.0, "022": 0.07,
 }
 
 # ------------------------------------------------------- ship designs
