@@ -74,11 +74,13 @@ func _process(_delta: float) -> bool:
 		foe = w.spawn_ship("Augustus", 2, "Cruiser", "Ruthless", p.global_position + Vector2(0, -1300), p.velocity, 3)
 		foe.invulnerable = 1e9
 		p.target = foe
+		for m in w.wing.members(p):
+			m.invulnerable = 1e9   # the picture shows the run in, not the cost of it
 		w.wing_command(p, "attack")
-	if frames == 560:
+	if frames == 470:
 		_shot("wing_attack")
 		main._unhandled_input(_tab())
-	if frames == 600:
+	if frames == 510:
 		_shot("wing_map")
 		print("done")
 		quit(0)

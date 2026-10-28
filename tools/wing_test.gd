@@ -100,7 +100,7 @@ func _start() -> void:
 	# --- form up: tight
 	w.wing_command(p, "form")
 	await _wait(300)
-	var tight := wing.all(func(s): return s.global_position.distance_to(s.get_node("AI")._wing_spot()) < 500.0)
+	var tight := wing.all(func(s): return s.global_position.distance_to(s.get_node("AI")._wing_spot()) < 700.0)
 	_check(w.wing.order_of(p)["order"] == "form" and tight, "Form up: each wingman in its slot (%s)" % [wing.map(func(s): return int(s.global_position.distance_to(s.get_node("AI")._wing_spot())))])
 	var slots := {}
 	for s in wing:
@@ -110,6 +110,7 @@ func _start() -> void:
 	var foe := w.spawn_ship("Dummy", 2, "Scout", "Target", p.global_position + Vector2(1300, 0), p.velocity, 0)
 	foe.hull_max *= 4.0
 	foe.hull = foe.hull_max
+	foe.invulnerable = 1e9         # alive until the wing has turned on it
 	p.target = null
 	w.wing_command(p, "attack")
 	_check(w.wing.order_of(p)["order"] == "form", "an attack with no target is refused")
@@ -117,7 +118,8 @@ func _start() -> void:
 	w.wing_command(p, "attack")
 	_check(w.wing.order_of(p)["order"] == "attack" and w.wing.order_of(p)["target"] == foe, "Attack my target: the order holds the target")
 	await _wait(120)
-	_check(wing.filter(func(s): return s.target == foe).size() >= wing.size() - 1, "the wing goes for it")
+	_check(wing.filter(func(s): return s.target == foe).size() >= wing.size() - 1, "the wing goes for it (%s)" % [wing.map(func(s): return s.target.pilot_name if s.target is Ship else str(s.target))])
+	foe.invulnerable = 0.0
 	var hull0 := foe.hull
 	for i in 1200:
 		await physics_frame

@@ -184,7 +184,8 @@ func _wing_target(current: Node2D, lead: Ship) -> Node2D:
 			return _threat(lead)
 		"attack":
 			var t: Node2D = o["target"]
-			if t is Ship and is_instance_valid(t) and not t.dead and t.team() != ship.team() and (t.visible_to(ship) or t.visible_to(lead)):
+			if t is Ship and is_instance_valid(t) and not t.dead and t.team() != ship.team() \
+					and (t.visible_to(ship) or t.visible_to(lead) or float(o.get("lost", 0.0)) < Wing.TRACK_GRACE):
 				return t
 			if t is Planet and is_instance_valid(t) and t.is_colonised() and t.owner_race != ship.race_id and not t.is_defenceless():
 				return t

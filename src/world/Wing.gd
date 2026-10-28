@@ -47,6 +47,7 @@ const ENGAGE_RANGE := 5000.0
 const BINGO_FUEL := 0.12
 ## An attack order lapses when nobody in the wing has seen its target for this long.
 const LOST_AFTER := 10.0
+const TRACK_GRACE := 4.0       # seconds the wing keeps after a target nobody sees, on its last track
 ## Computer leaders: from this rank one wingman, from ADMIRAL_RANK two.
 const COMMODORE_RANK := 9
 const ADMIRAL_RANK := 12
@@ -233,7 +234,7 @@ func command(leader: Ship, order: String, target: Node2D) -> void:
 ## nearest first, up to `want` called seats.  How many came.
 func call_up(leader: Ship, want: int) -> int:
 	var human := _human(leader)
-	if world.duel_rules != null or (world.practice and not world.tutorial):
+	if world.is_arena() or (world.practice and not world.tutorial):
 		if human:
 			_tell(leader, "Nobody to call here: wings fly in Conquest rounds, campaigns and online co-op.")
 		return 0
@@ -372,7 +373,7 @@ func _target_good(leader: Ship, o: Dictionary, dt: float) -> bool:
 
 ## The empires' senior computer pilots call up wings of their own.
 func _admirals() -> void:
-	if world.duel_rules != null or world.practice:
+	if world.is_arena() or world.practice:
 		return
 	for s in world.ships:
 		if s.dead or s.is_player or s.support or s.is_station or s.is_prize or s.race_id > 2 or s.rank < COMMODORE_RANK:

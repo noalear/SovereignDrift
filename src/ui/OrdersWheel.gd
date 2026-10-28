@@ -144,7 +144,7 @@ func _idle(order: String, wing: Array) -> bool:
 	var p := _ship()
 	match order:
 		"call":
-			return world.duel_rules != null or (world.practice and not world.tutorial) or world.wing.called(p).size() >= Wing.seats(p.rank)
+			return world.is_arena() or (world.practice and not world.tutorial) or world.wing.called(p).size() >= Wing.seats(p.rank)
 		"dismiss":
 			return world.wing.called(p).is_empty()
 		"attack":
