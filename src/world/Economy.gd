@@ -102,10 +102,12 @@ static func richness(look: String, body_class: String, temperature: float, habit
 		r["ice"] = 1
 	elif surf == "rock" and t < 320.0:
 		r["ice"] = 1
-	# fuel: methane seas and nitrogen ice
+	# fuel: methane seas and nitrogen ice, and hydrogen split from an ocean
 	if surf == "haze" and t < 200.0:
 		r["fuel"] = 3
 	elif surf == "ice" and t <= 100.0:
+		r["fuel"] = 1
+	elif surf == "wet":
 		r["fuel"] = 1
 	# food: oceans feed the most; elsewhere farms under domes, as far as
 	# the water goes.  The owner's climate scales it again in production.
