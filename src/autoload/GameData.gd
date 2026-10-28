@@ -65,7 +65,7 @@ const MODULES := {
 	"4009": {"name": "Seeker rack", "vol": 40, "mass": 50, "power": -300, "hp": 200, "func": "tube", "p": [40, 6000, 32, "009"]},
 	"4010": {"name": "Rapid tube", "vol": 80, "mass": 750, "power": -200, "hp": 200, "func": "tube", "p": [60, 1000, 1500, "010"]},
 	"4011": {"name": "Station battery", "vol": 4500, "mass": 20000, "power": -200, "hp": 200, "func": "tube", "p": [60, 1000, 1500, "011"]},
-	"4018": {"name": "Cannon", "vol": 200, "mass": 50, "power": -500, "hp": 100, "func": "tube", "p": [50, 30000, 100, "018"]},
+	"4018": {"name": "Cannon", "vol": 200, "mass": 50, "power": -500, "hp": 100, "func": "tube", "p": [50, 30000, 25, "018"]},
 	# beam: [energy frames, energy per frame, range]
 	"4501": {"name": "Laser I", "vol": 3, "mass": 50, "power": -200, "hp": 200, "func": "beam", "p": [30, 242, 200]},
 	"4502": {"name": "Laser II", "vol": 300, "mass": 15000, "power": -200, "hp": 200, "func": "beam", "p": [30, 300, 250]},
