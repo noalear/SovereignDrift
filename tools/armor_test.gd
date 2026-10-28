@@ -133,8 +133,10 @@ func _run(w) -> void:
 		guard += 1
 	abl.hull = abl.hull_max
 	_check(_near(_hull_hit(abl, 100.0, "plasma"), 100.0 * gd.damage_mult("plasma", "hull")), "a burnt-off layer stops nothing")
+	_check(abl._coat_wear() == 0.0, "and its tiles are gone from the hull")
 	abl.restock_armor()
 	_check(abl.ablative == abl.ablative_max, "a base refills the layer")
+	_check(abl._coat_wear() == 1.0, "and they are back on")
 	_drop(w, abl)
 	# reactive: only big hits, one tile each, re-armed out of combat
 	var rx := _dummy(w, "5506")
@@ -262,6 +264,29 @@ func _run(w) -> void:
 				_check(_near(hb2 - fl.hull, 50.0 * 0.3 * gd.damage_mult("kinetic", "hull"), 0.6), "a leak lets 30% through")
 	_check(leaks > hits * 0.4 and leaks < hits * 0.6, "Flicker leaks on about half the hits (%d of %d)" % [leaks, hits])
 	_drop(w, fl)
+
+	# ---------------------------------------------------------- looks
+	print("looks:")
+	var tex := ShipArt.hull_texture("Cruiser", 1)
+	var img := tex.get_image()
+	if img.is_compressed():
+		img.decompress()
+	img.convert(Image.FORMAT_RGBA8)
+	var mask := ShipArt.hull_mask(tex)
+	var baked := {}
+	for coat in ["5501", "5503", "5504", "5505", "5506", "5507", "5508"]:
+		var out: Image = ShipArt.bake_coat(img, gd.ARMOR[coat]["coat"], gd.tier(coat), 1, mask)
+		baked[coat] = out
+		_check(out.get_size() == img.get_size() and out.get_data() != img.get_data(), "%s repaints the hull" % gd.coat_label(coat))
+	_check(baked["5501"].get_data() != baked["5503"].get_data(), "Plate I and Plate III look different")
+	var other: Image = ShipArt.bake_coat(img, "reflective", 0, 0, mask)
+	_check(other.get_data() != baked["5504"].get_data(), "each empire lays a coat out its own way")
+	var same_alpha := true
+	for p in [Vector2i(5, 5), Vector2i(img.get_width() / 2, img.get_height() / 2), Vector2i(img.get_width() - 3, 2)]:
+		if absf(baked["5507"].get_pixelv(p).a - img.get_pixelv(p).a) > 0.002:
+			same_alpha = false
+	_check(same_alpha, "a coat keeps the painting's outline")
+	_check(ShipArt.build_model(_design_with("5506"), 1, 40.0)["coat"] == "5506", "a ship's model knows its coat")
 
 	# ---------------------------------------------------------- shipyard
 	print("shipyard and fits:")

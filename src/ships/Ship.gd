@@ -1850,6 +1850,19 @@ func armor_spent() -> bool:
 	return ablative < ablative_max or reactive_tiles < reactive_max
 
 
+## How much of the armor coat still shows on the hull: an ablative layer
+## burns away, spent reactive tiles leave gaps, scorched mirror dulls.
+func _coat_wear() -> float:
+	match coat_kind:
+		"ablative":
+			return ablative / maxf(ablative_max, 1.0)
+		"reactive":
+			return 0.35 + 0.65 * float(reactive_tiles) / maxi(reactive_max, 1)
+		"reflective":
+			return 0.55 if hull < hull_max * GameData.REFLECTIVE_SCORCHED else 1.0
+	return 1.0
+
+
 ## How much harder defenders fight off boarders (Bulkheads).
 func board_defence() -> float:
 	return GameData.BULKHEAD_BOARD if coat_kind == "bulkheads" else 1.0
@@ -2060,7 +2073,7 @@ func _draw() -> void:
 	if art_model.is_empty():
 		art_model = ShipArt.build_model(design, hull_race, size)
 	var broken := systems.broken_map()
-	ShipArt.draw_model(self, art_model, base, thrust_level, (0.4 if building else 1.0), dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0), broken)
+	ShipArt.draw_model(self, art_model, base, thrust_level, (0.4 if building else 1.0), dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0), broken, _coat_wear())
 	if building:
 		_draw_frame()
 	if not broken.is_empty():
