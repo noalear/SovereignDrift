@@ -4,10 +4,10 @@
 #     tools/publish_update.sh [--new-base]
 # The installer's game data is the base.  Each later build ships as one patch
 # pack of the files changed since that base, so players download only that.
-# A new base (and so a new installer) is cut on the first run, with
-# --new-base, when Updater.gd, the autoload list, the display or rendering
-# settings or the engine changed (they load before any patch), or when the
-# patch grows past 60 MB.  BASES keeps the base pack the patches are made against.
+# A new base (and so a new installer) is cut on the first run or with
+# --new-base.  Without it the script stops (exit 2) when Updater.gd, the
+# autoload list, the display or rendering settings or the engine changed
+# (they load before any patch), or when the patch grows past 60 MB.  BASES keeps the base pack the patches are made against.
 # Prints NEW_INSTALLER=build/StellarFrontierRemake-Setup.exe when the
 # installer has to be handed out again.
 set -euo pipefail
@@ -27,8 +27,13 @@ FP=$( (cat src/autoload/Updater.gd; awk '/^\[/{keep = ($0 ~ /^\[(autoload|displa
 mkdir -p "$BASES" "$UPDATES/patches"
 BASE=$(cat "$BASES/current" 2>/dev/null || true)
 NEW_BASE=0
-if [[ "${1:-}" == "--new-base" || -z "$BASE" || ! -f "$BASES/$BASE.pck" || "$(cat "$BASES/$BASE.fp" 2>/dev/null)" != "$FP" ]]; then
+if [[ "${1:-}" == "--new-base" || -z "$BASE" ]]; then
 	NEW_BASE=1
+elif [[ ! -f "$BASES/$BASE.pck" || "$(cat "$BASES/$BASE.fp" 2>/dev/null)" != "$FP" ]]; then
+	# a new base means every player reinstalls: only on purpose
+	echo "This build can't be a patch over $BASE (Updater.gd, the autoload, display or rendering settings, or the engine changed, or the base pack is missing)."
+	echo "Run again with --new-base to cut a new installer."
+	exit 2
 fi
 
 printf '{"build": "%s", "version": "%s"}\n' "$BUILD" "$VERSION" > build.json
@@ -40,9 +45,9 @@ if [[ $NEW_BASE == 0 ]]; then
 	PATCH="$UPDATES/patches/$BUILD.pck"
 	"$GODOT" --headless --path . --export-patch "Windows Desktop" "$PATCH" --patches "$BASES/$BASE.pck" >/dev/null 2>&1
 	if (( $(stat -c %s "$PATCH") > MAX_PATCH )); then
-		echo "The patch is over 60 MB: cutting a new base instead."
 		rm -f "$PATCH"
-		NEW_BASE=1
+		echo "The patch is over 60 MB, too big for GitHub. Run again with --new-base to cut a new installer."
+		exit 2
 	fi
 fi
 
