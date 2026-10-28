@@ -152,7 +152,7 @@ func _world_check(w: World, p: Ship) -> void:
 func _lesson(w: World, t: Tutorial, p: Ship, id: String, f: int) -> void:
 	var earth: Planet = w.planet_by_name["Earth"]
 	var luna: Planet = w.planet_by_name["Luna"]
-	if f != 3 and not id in ["warp", "map", "board", "land", "to_luna", "colonists", "unload", "stealth", "pdc", "jammer", "shield_focus", "shields_down", "shipyard_tour", "loot", "ground_tabs", "assist", "groups"]:
+	if f != 3 and not id in ["warp", "map", "board", "land", "to_luna", "colonists", "unload", "stealth", "pdc", "jammer", "shield_focus", "shields_down", "shipyard_tour", "loot", "ground_tabs", "assist", "groups", "wing"]:
 		return
 	match id:
 		"thrust":
@@ -238,6 +238,32 @@ func _lesson(w: World, t: Tutorial, p: Ship, id: String, f: int) -> void:
 				_action("board", false)
 			elif f == 2000:
 				_check(false, "boarding the drone finishes (progress %d%%)" % int(p.board_progress * 100.0))
+		"wing":
+			if f == 3:
+				var wm: Array = w.wing.members(p).filter(func(s): return not s.dead)
+				_check(wm.size() == 1 and wm[0].is_prize, "the boarded drone flies on the cadet's wing")
+				_action("wing_menu")
+			elif f == 4:
+				_action("wing_menu", false)
+			elif f == 6:
+				_check(main.hud.wheel.open, "a tap on the wheel key leaves the orders wheel open")
+				var at: Vector2 = root.get_viewport().get_visible_rect().size * 0.5 + Vector2(0, -120)
+				var mv := InputEventMouseMotion.new()
+				mv.position = at
+				root.push_input(mv, true)
+				var click := InputEventMouseButton.new()
+				click.button_index = MOUSE_BUTTON_LEFT
+				click.pressed = true
+				click.position = at
+				root.push_input(click, true)
+			elif f == 10:
+				_check(w.wing.order_of(p)["order"] == "form", "a click on Form up orders the wing to form up")
+		"wing_attack":
+			var pr := t.pirate
+			_check(pr != null and not pr.dead, "the pirate is out for the wing's attack")
+			p.target = pr
+			_action("wing_attack")
+			_action("wing_attack", false)
 		"stealth":
 			if f == 3:
 				_action("silent_running")

@@ -1,6 +1,8 @@
 ## TacticalMap -- the whole system on one screen (Tab).  Planets in their
 ## owners' colours, friendly ships always, enemies where a friendly sensor
 ## can see them, the round clock, the planet tally and the pilot roster.
+## Your wing is drawn in its own colour, tied to you, with its order: a
+## line to the target it attacks, a ring round the spot it holds.
 ## Click a planet to make it the nav target.
 class_name TacticalMap
 extends Control
@@ -200,6 +202,7 @@ func _draw() -> void:
 			draw_arc(pos, 9.0, 0, TAU, 24, Color.WHITE, 1.5, true)
 		elif sh == (player.target if player != null else null):
 			draw_arc(pos, 8.0, 0, TAU, 16, Color(1, 0.9, 0.5), 1.2, true)
+	_draw_wing(player)
 	_draw_labels(labels, ship_marks)
 	_draw_world_card()
 	# nav line
@@ -208,6 +211,39 @@ func _draw() -> void:
 	# the right column
 	_draw_side(Rect2(mr.end.x + 20.0, mr.position.y, vp.x - mr.end.x - 50.0, mr.size.y))
 	draw_string(font, Vector2(mr.position.x, mr.end.y + 24.0), "TACTICAL MAP   ships show inside your sensor range   click a planet to set the nav target   Tab closes", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DIM)
+
+
+## The player's wing: a tie from each wingman to the player, and the order.
+func _draw_wing(player: Ship) -> void:
+	if player == null or player.dead or world.wing == null:
+		return
+	var wing: Array = world.wing.members(player)
+	if wing.is_empty():
+		return
+	var col := Color(0.55, 0.95, 1.0)
+	var me := to_map(player.global_position)
+	var o: Dictionary = world.wing.order_of(player)
+	for s in wing:
+		if s.dead:
+			continue
+		var at := to_map(s.global_position)
+		draw_line(at, me, Color(col.r, col.g, col.b, 0.4), 1.0, true)
+		draw_arc(at, 7.0, 0, TAU, 14, Color(col.r, col.g, col.b, 0.9), 1.2, true)
+	match o.get("order", ""):
+		"attack":
+			var t: Node2D = o.get("target", null)
+			if t != null and is_instance_valid(t):
+				var tp := to_map(t.global_position)
+				_dashed(me, tp, Color(1.0, 0.45, 0.35, 0.85))
+				draw_arc(tp, 11.0 + sin(time * 6.0), 0, TAU, 20, Color(1.0, 0.45, 0.35, 0.9), 1.5, true)
+		"hold":
+			var hp := to_map(world.wing.hold_point(player))
+			draw_arc(hp, Wing.HOLD_LEASH * _scale(), 0, TAU, 32, Color(col.r, col.g, col.b, 0.5), 1.0, true)
+			draw_string(font, hp + Vector2(8, -8), "hold", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
+		"engage":
+			draw_arc(me, Wing.ENGAGE_RANGE * _scale(), 0, TAU, 40, Color(col.r, col.g, col.b, 0.3), 1.0, true)
+	var label := "wing: %s" % Wing.LABELS.get(o.get("order", ""), "").to_lower()
+	draw_string(font, me + Vector2(12, 18), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
 
 
 ## Planet names: planets first, then moons, each tried right, left, below

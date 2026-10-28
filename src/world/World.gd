@@ -10,6 +10,7 @@ signal player_respawned()
 signal planet_owner_changed(planet: Planet)
 signal shipyard_requested(ship: Ship, base: Ship)
 signal round_over(result: Dictionary)
+signal radio_heard(voice_path: String)
 
 const MISSILE_SCRIPT := preload("res://src/weapons/Missile.gd")
 const RESPAWN_DELAY := 4.0
@@ -66,6 +67,7 @@ var last_player_fire := -100.0
 var income_timer := 60.0         # planets pay their empire every minute
 var round_rules: Round = null     # the Conquest rules; the host runs them
 var capture: Capture = null       # boarding and prizes; the host runs them
+var wing: Wing = null             # wingmen and their orders; the host runs them, a client mirrors them
 var economy: Economy = null       # resources and stockpiles; the host runs them
 var ground: Ground = null         # planetary buildings, troops and ground battles; the host runs them
 var governors := {}               # race -> Governor: each empire's economy, convoys and job board (host)
@@ -97,6 +99,7 @@ var duel_score := [0, 0]         # practice: [your kills, their kills]
 const START_CREDITS := 250
 const SUN_HEAT_RADII := 4.0       # the heat zone reaches this many Sun radii above the surface
 const BASE_ZOOM := 1.3            # "Normal" camera: ships read clearly at 1080p and 4K
+const RADIO_COLOR := Color(0.55, 1.0, 0.75)   # wingmen on the radio
 var sun_heat := 0.0              # 0..1, how close the player is to burning in the Sun
 var _heat_alarm := 0.0
 
@@ -134,6 +137,7 @@ func _ready() -> void:
 	space = PhysicsSpace.new()
 	space.filter = Callable(self, "_can_collide")
 	capture = Capture.new(self)
+	wing = Wing.new(self)
 	economy = Economy.new(self)
 	ground = Ground.new(self)
 	_build_system()
@@ -722,6 +726,7 @@ func _physics_process(delta: float) -> void:
 	_yards(delta)
 	_refuel(delta)
 	capture.tick(delta)
+	wing.tick(delta)
 	if duel_rules != null:
 		duel_rules.tick(delta)
 	elif mode_rules != null:
@@ -1465,6 +1470,7 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 		return   # drops, score and respawn are the host's
 	Net.host_ship_died(s, killer)
 	s.orders.clear()
+	wing.member_lost(s, killer)
 	if duel_rules != null:
 		# a duel leaves no loot: nothing to spend it on, and a computer
 		# pilot that fitted it would outgun the rest
@@ -1605,6 +1611,35 @@ func _on_system_failed(s: Ship, e: Dictionary, attacker: Node) -> void:
 			notify(attacker, "%s's %s is disabled: %s out. Close in and press K to board." % [s.pilot_name, s.design_name, e["label"].to_lower()])
 		else:
 			notify(attacker, "Hit: %s's %s is out." % [s.pilot_name, e["label"].to_lower()])
+
+
+## The player (or a seated online pilot) orders its wing (Wing.WHEEL ids).
+## The target goes with an order: what to attack, or the world to hold over.
+func wing_command(s: Ship, order: String) -> void:
+	if s == null or s.dead:
+		return
+	if Net.is_client():
+		var t: Node2D = s.target
+		var tid := 0
+		if t is Ship and is_instance_valid(t):
+			tid = t.net_id
+		elif t is Planet and is_instance_valid(t):
+			tid = -1 - planets.find(t)
+		Net.client_command("wing:%s:%d" % [order, tid])
+		return
+	wing.command(s, order, s.target)
+
+
+## A wingman on the radio to its leader: words in the log, and the voice
+## (WingLines) on the leader's own machine.
+func radio(leader: Ship, speaker: Ship, line: String) -> void:
+	var text := "%s: %s" % [speaker.pilot_name, WingLines.text(line)]
+	var voice := WingLines.voice_for(speaker.pilot_name)
+	if leader.is_player:
+		message.emit(text, RADIO_COLOR)
+		radio_heard.emit(WingLines.audio_path(voice, line))
+	else:
+		Net.relay_radio(leader, text, WingLines.audio_path(voice, line))
 
 
 ## The player (or a seated online pilot) asks to board its target.
