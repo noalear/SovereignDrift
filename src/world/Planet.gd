@@ -239,7 +239,7 @@ func set_colony(race: int, design: String, pop: float) -> void:
 			e["rate"] = GameData.TUBE_COOLDOWN.get(e["missile"], 0.4) * 1.6
 		else:
 			e["range"] = float(m["p"][2]) * 2.2
-			e["dps"] = 30.0 + float(m["p"][1]) * 0.1
+			e["dps"] = (30.0 + float(m["p"][1]) * 0.1) * GameData.DAMAGE_SCALE
 			e["rate"] = 0.0
 		weapons.append(e)
 	fit_batteries()
@@ -417,14 +417,17 @@ func _defend(delta: float) -> void:
 			var origin := global_position + to.normalized() * radius
 			var hit: Dictionary = world.raycast_beam(self, origin, to.normalized(), w["range"])
 			if hit["body"] != null:
-				hit["body"].take_damage(w["dps"] * delta, self, hit["point"])
+				if hit["body"] is Ship:
+					hit["body"].take_damage(w["dps"] * delta, self, hit["point"], 1.0, "", 0.1, "beam")
+				else:
+					hit["body"].take_damage(w["dps"] * delta, self, hit["point"], "beam")
 			world.add_beam(origin, hit["point"], GameData.race(owner_race)["color"])
 			if w["cooldown"] <= 0.0:
 				w["cooldown"] = 0.25
 				Sfx.play("beam", global_position, 0.3)
 
 
-func take_damage(amount: float, attacker: Node, _at: Vector2 = Vector2.ZERO) -> void:
+func take_damage(amount: float, attacker: Node, _at: Vector2 = Vector2.ZERO, dtype: String = "kinetic") -> void:
 	if not is_colonised():
 		return
 	if attacker is Ship and attacker.race_id == owner_race:
@@ -434,9 +437,10 @@ func take_damage(amount: float, attacker: Node, _at: Vector2 = Vector2.ZERO) -> 
 	if attacker is Ship:
 		last_attacker = attacker
 	var remaining := amount
+	var ms := maxf(GameData.damage_mult(dtype, "shield"), 0.001)
 	if pshield_up():
 		# the planetary shield takes it all until it collapses
-		pshield -= remaining
+		pshield -= remaining * ms
 		if pshield > 0.0:
 			return
 		pshield = 0.0
@@ -445,9 +449,10 @@ func take_damage(amount: float, attacker: Node, _at: Vector2 = Vector2.ZERO) -> 
 			world.planetary_shield_down(self, attacker)
 		return
 	if shield > 0.0:
-		var absorbed := minf(shield, remaining)
+		var absorbed := minf(shield, remaining * ms)
 		shield -= absorbed
-		remaining -= absorbed
+		remaining -= absorbed / ms
+	remaining *= GameData.damage_mult(dtype, "hull")
 	if remaining <= 0.0:
 		return
 	var winner: int = attacker.race_id if attacker is Ship else -1

@@ -950,7 +950,7 @@ func _sun_hazard(delta: float) -> void:
 		# that turning away in a few seconds always saves you
 		if heat > 0.35:
 			var t := (heat - 0.35) / 0.65
-			a.take_damage((15.0 + 320.0 * t * t) * delta, sun)
+			a.take_damage((15.0 + 320.0 * t * t) * delta, sun, Vector2.ZERO, 1.0, "", 1.0, "plasma")
 		var min_d := sun.radius + a.size * 0.7
 		if d < min_d:
 			var n := (a.global_position - sun.global_position).normalized() if d > 0.001 else Vector2.RIGHT
@@ -958,7 +958,7 @@ func _sun_hazard(delta: float) -> void:
 			var vn := a.velocity.dot(n)
 			if vn < 0.0:
 				a.velocity -= n * vn * 1.6
-			a.take_damage(400.0 * delta, sun)
+			a.take_damage(400.0 * delta, sun, Vector2.ZERO, 1.0, "", 1.0, "plasma")
 	for d in debris.duplicate():
 		if d.global_position.distance_to(sun.global_position) < sun.radius:
 			remove_debris(d)
@@ -992,7 +992,11 @@ func _collide_missiles() -> void:
 		m.hit_point = hit["point"]
 		m.hit_normal = hit["normal"]
 		m.explode(target)
-	# proximity fuses: grenades and mines go off near any enemy hull
+	# guns shoot down missiles, drones, torpedoes and mines: a round whose
+	# path this step passes through an enemy munition takes it out
+	if not Net.is_client():
+		_shoot_down_munitions()
+	# proximity fuses: torpedoes and mines go off near any enemy hull
 	for m: Missile in missiles:
 		if not is_instance_valid(m) or m.exploded or m.data["trigger"] != "prox":
 			continue
@@ -1021,6 +1025,28 @@ func _collide_missiles() -> void:
 				else:
 					fx.spark(m.global_position, 3, m.color)
 					m._free()
+				break
+
+
+func _shoot_down_munitions() -> void:
+	var targets := []
+	for m: Missile in missiles:
+		if is_instance_valid(m) and not m.exploded and m.armed <= 0.0 and m.shootable():
+			targets.append(m)
+	if targets.is_empty():
+		return
+	for g: Missile in missiles:
+		if not is_instance_valid(g) or g.exploded or not g.is_gun_shot():
+			continue
+		var b: Vector2 = g.global_position
+		var a: Vector2 = b - g.velocity * get_physics_process_delta_time()
+		for t: Missile in targets:
+			if t.exploded or t.owner_team == g.owner_team:
+				continue
+			var reach: float = g.radius + t.radius + 2.0
+			if Geometry2D.get_closest_point_to_segment(t.global_position, a, b).distance_to(t.global_position) <= reach:
+				t.shoot_down()
+				g.shoot_down()
 				break
 
 
@@ -1107,9 +1133,9 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		if hit != null:
 			var at := m.hit_point if m.hit_point != Vector2.INF else pos
 			if hit is Ship:
-				hit.take_damage(m.warhead, attacker if attacker is Ship else m.owner_ship, at, m.data.get("sys", 1.0), "engines" if m.data.get("heat", false) else "")
+				hit.take_damage(m.warhead, attacker if attacker is Ship else m.owner_ship, at, m.data.get("sys", 1.0), "engines" if m.data.get("heat", false) else "", 1.0, m.data.get("dtype", "kinetic"))
 			else:
-				hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else m.owner_ship, at)
+				hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else m.owner_ship, at, m.data.get("dtype", "kinetic"))
 			if hit is Ship and m.data.has("drain"):
 				hit.energy = maxf(hit.energy - m.data["drain"], 0.0)
 				hit.jam_off(3.0)              # a disruptor knocks the jammer out
@@ -1126,12 +1152,12 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		if d < splash:
 			var f := 1.0 - maxf(d, 0.0) / splash
 			# the blast hits the side of the hull that faces it
-			s.take_damage(m.warhead * f, attacker if attacker is Ship else null, s.body.closest_surface_point(pos), m.data.get("sys", 1.0))
+			s.take_damage(m.warhead * f, attacker if attacker is Ship else null, s.body.closest_surface_point(pos), m.data.get("sys", 1.0), "", 1.0, m.data.get("dtype", "kinetic"))
 	for p in planets:
 		var d := pos.distance_to(p.global_position) - p.radius
 		if d < splash and p.is_colonised():
 			var f := 1.0 - maxf(d, 0.0) / splash
-			p.take_damage(m.warhead * f * 0.5, attacker if attacker is Ship else null)
+			p.take_damage(m.warhead * f * 0.5, attacker if attacker is Ship else null, Vector2.ZERO, m.data.get("dtype", "kinetic"))
 	for d: Debris in debris:
 		var dd: float = pos.distance_to(d.global_position) - d.rock_radius
 		if dd < splash:
@@ -1203,7 +1229,7 @@ const CREW_FROM_COLONY := 0.5     # hands a second from a colony
 func _refuel(delta: float) -> void:
 	for s in ships:
 		s.refuelling = false
-		if s.dead or (s.fuel >= s.fuel_max and s.crew >= s.crew_max):
+		if s.dead or (s.fuel >= s.fuel_max and s.crew >= s.crew_max and not s.needs_rearm()):
 			continue
 		var rate := 0.0
 		var hands := 0.0
@@ -1224,6 +1250,8 @@ func _refuel(delta: float) -> void:
 			rate = maxf(rate, 0.15)       # the colony's spaceport fills the tanks
 		if duel_rules != null:
 			rate = maxf(rate, 0.02)       # a duel has no bases: tanks top up slowly anywhere
+		if rate > 0.0 and s.needs_rearm():
+			s.rearm(rate * delta)           # magazines refill at the same rate as the tanks
 		if rate > 0.0 and s.fuel < s.fuel_max:
 			s.refuelling = true
 			var was := s.fuel

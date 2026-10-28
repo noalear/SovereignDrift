@@ -40,8 +40,8 @@ const LINES := [
 	["zoom", "hale", "The mouse wheel zooms the camera, and the radar has its own zoom. Zoom out when you want to see trouble coming."],
 	# --- combat
 	["target", "hale", "Time for target practice. I've put an unmanned drone off your bow. Lock it as your target. You can cycle targets, pick the nearest enemy, or shift click the ship itself."],
-	["fire", "hale", "Your laser turret follows the mouse, and the mass driver fires where your nose points. Open fire on the drone. Shields absorb the first hits. Once they're down, you're hitting hull and systems."],
-	["groups", "hale", "Your weapons are sorted into four groups. On your scout, the laser and mass driver fire together as group one, and the mine layer is group four. The number keys pick what your trigger fires, and alternate fire shoots a second group without switching. Pick group four, then back to group one."],
+	["fire", "hale", "Your mass driver turret follows the mouse, and its bolts fly a long way, so lead your target. Open fire on the drone. Shields absorb the first hits. Once they're down, you're hitting hull and systems."],
+	["groups", "hale", "Your weapons are sorted into four groups by type. Guns are group one, lasers and disruptors two, launchers three, and mines four. On your scout, the mass driver is group one, the seeker rack is group three, and the mine layer is group four. The number keys pick what your trigger fires, and alternate fire shoots a second group without switching. Pick group four, then back to group one."],
 	["disable", "hale", "Now the mark of a good captain: don't just blow ships apart. Every hit damages the systems nearest to it. Hit the drone in the stern to knock out its engines, and it's dead in space."],
 	["drone_lost", "hale", "That one's scrap. Easy on the trigger, cadet. Here's another. Aim for the engines at the back."],
 	["board", "hale", "Its engines are out. Come alongside, slow down, and board it. Your crew fights theirs, and if you win, the ship is yours. A captured prize follows you as a wingman."],
@@ -51,7 +51,7 @@ const LINES := [
 	["spar_died", "hale", "You'll relaunch from the starbase in a moment. Happens to all of us. Get back out there."],
 	["loot", "hale", "Wrecks spill loot: credit chips, spare parts, and now and then a blueprint for enemy technology. Fly over the pickups to scoop them up."],
 	# --- the starbase
-	["dock", "hale", "Head back to the starbase at Earth. Near a friendly starbase or colony, your fuel, crew and hull are topped up. Follow the green arrow."],
+	["dock", "hale", "Head back to the starbase at Earth. Near a friendly starbase or colony, your fuel, crew and hull are topped up, and your launchers and mine layer are reloaded. Follow the green arrow."],
 	["shipyard", "hale", "Slow down and open the shipyard. This is where you change hulls, fit engines, shields and weapons, and set your weapon groups. Better hulls open up as you rise in rank."],
 	["shipyard_tour", "hale", "Click a part to swap it, and watch your speed, power and firepower change. Credits and salvaged parts pay for it. Launch when you're happy, or close the yard to keep your ship as it is."],
 	["base_cargo", "hale", "The starbase also sells station kits and takes orders for new ships. Open the cargo panel here to see them. Kits and orders unlock at Lieutenant Commander."],

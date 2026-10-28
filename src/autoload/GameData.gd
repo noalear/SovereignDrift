@@ -12,6 +12,10 @@ const UNIVERSE_RADIUS := 24000.0
 ## Every ship's energy regeneration is scaled by this (Kyle, 2026-10-28:
 ## about 15% faster overall).
 const ENERGY_REGEN_SCALE := 1.15
+## Every weapon's damage (warheads and beams) is scaled by this, the one
+## knob for how long fights last (Kyle, 2026-10-28: a Scout duel should
+## take 6-7 s).
+const DAMAGE_SCALE := 0.65
 
 # ---------------------------------------------------------------- races
 
@@ -57,18 +61,18 @@ const MODULES := {
 	"3002": {"name": "Quantum drive II", "vol": 200, "mass": 200, "power": -200, "hp": 150, "func": "qdrv", "p": [2, 35000]},
 	"3003": {"name": "Quantum drive III", "vol": 300, "mass": 300, "power": -1000, "hp": 200, "func": "qdrv", "p": [3, 35000]},
 	# tube: [energy frames, energy per shot, ammo, missile id]
-	"4001": {"name": "Torpedo tube", "vol": 30, "mass": 50, "power": -200, "hp": 100, "func": "tube", "p": [60, 4000, 800, "001"]},
+	"4001": {"name": "Mass driver", "vol": 30, "mass": 50, "power": -200, "hp": 100, "func": "tube", "p": [60, 4000, 800, "001"]},
 	"4002": {"name": "Mine layer", "vol": 10, "mass": 50, "power": -500, "hp": 100, "func": "tube", "p": [15, 20000, 10, "002"]},
-	"4003": {"name": "Grenade launcher", "vol": 45, "mass": 50, "power": -400, "hp": 100, "func": "tube", "p": [15, 6000, 800, "004"]},
+	"4003": {"name": "Torpedo launcher", "vol": 45, "mass": 50, "power": -400, "hp": 100, "func": "tube", "p": [15, 6000, 16, "004"]},
 	"4004": {"name": "Mine layer", "vol": 100, "mass": 50, "power": -1000, "hp": 100, "func": "tube", "p": [100, 99999, 4, "002"]},
-	"4008": {"name": "Smart missile rack", "vol": 40, "mass": 50, "power": -300, "hp": 200, "func": "tube", "p": [40, 6000, 300, "008"]},
+	"4008": {"name": "Missile rack", "vol": 40, "mass": 50, "power": -300, "hp": 200, "func": "tube", "p": [40, 6000, 300, "008"]},
 	"4009": {"name": "Seeker rack", "vol": 40, "mass": 50, "power": -300, "hp": 200, "func": "tube", "p": [40, 6000, 32, "009"]},
 	"4010": {"name": "Rapid tube", "vol": 80, "mass": 750, "power": -200, "hp": 200, "func": "tube", "p": [60, 1000, 1500, "010"]},
 	"4011": {"name": "Station battery", "vol": 4500, "mass": 20000, "power": -200, "hp": 200, "func": "tube", "p": [60, 1000, 1500, "011"]},
-	"4018": {"name": "Cannon", "vol": 100, "mass": 50, "power": -500, "hp": 100, "func": "tube", "p": [50, 30000, 100, "018"]},
+	"4018": {"name": "Cannon", "vol": 200, "mass": 50, "power": -500, "hp": 100, "func": "tube", "p": [50, 30000, 25, "018"]},
 	# beam: [energy frames, energy per frame, range]
-	"4501": {"name": "Laser I", "vol": 3, "mass": 50, "power": -200, "hp": 200, "func": "beam", "p": [30, 242, 200]},
-	"4502": {"name": "Laser II", "vol": 300, "mass": 15000, "power": -200, "hp": 200, "func": "beam", "p": [30, 300, 250]},
+	"4501": {"name": "Laser I", "vol": 3, "mass": 50, "power": -200, "hp": 200, "func": "beam", "p": [30, 242, 227]},
+	"4502": {"name": "Laser II", "vol": 300, "mass": 1500, "power": -200, "hp": 200, "func": "beam", "p": [30, 300, 295]},
 	"4503": {"name": "Laser III", "vol": 4500, "mass": 20000, "power": -200, "hp": 200, "func": "beam", "p": [30, 800, 600]},
 	"5001": {"name": "Shield I", "vol": 50, "mass": 500, "power": -2, "hp": 75, "func": "shield", "p": [200]},
 	"5002": {"name": "Shield II", "vol": 100, "mass": 900, "power": -3, "hp": 100, "func": "shield", "p": [300]},
@@ -112,8 +116,10 @@ const MODULES := {
 	"5201": {"name": "Repair bay I", "vol": 80, "mass": 900, "power": -100, "hp": 150, "func": "repair", "p": [10]},
 	"5202": {"name": "Repair bay II", "vol": 160, "mass": 1500, "power": -150, "hp": 250, "func": "repair", "p": [22]},
 	"5601": {"name": "Ram prow", "vol": 120, "mass": 2500, "power": 0, "hp": 400, "func": "ram", "p": [3]},
+	# point defence: a light auto-turret that shoots down incoming munitions
+	"4022": {"name": "PDC", "vol": 25, "mass": 60, "power": -150, "hp": 80, "func": "tube", "p": [10, 600, 800, "022"]},
 	"4020": {"name": "Disruptor", "vol": 45, "mass": 120, "power": -400, "hp": 120, "func": "tube", "p": [40, 5000, 600, "020"]},
-	"4021": {"name": "Drone bay", "vol": 50, "mass": 200, "power": -300, "hp": 150, "func": "tube", "p": [40, 6000, 40, "021"]},
+	"4021": {"name": "Drone bay", "vol": 50, "mass": 200, "power": -300, "hp": 150, "func": "tube", "p": [40, 4000, 40, "021"]},
 }
 
 ## The sensor families (Kyle's sensors and stealth design, 2026-10-28).
@@ -141,9 +147,16 @@ const SENSOR_ORDER := ["optics", "radar", "pulse", "lidar", "infrared", "em", "t
 ## Another empire's part needs a blueprint, salvaged from its wrecks.
 const MODULE_RACE := {
 	"5005": 0, "5006": 0, "7003": 0, "7303": 0, "7502": 0, "5101": 0, "5102": 0, "4021": 0,
-	"5502": 1, "5503": 1, "4008": 1, "4009": 1, "5201": 1, "5202": 1, "7102": 1, "7202": 1,
-	"9101": 2, "7402": 2, "9203": 2, "5601": 2, "4020": 2, "4018": 2,
+	"5502": 1, "5503": 1, "4009": 1, "5201": 1, "5202": 1, "7102": 1, "7202": 1,
+	"9101": 2, "7402": 2, "9203": 2, "5601": 2,
 }
+
+## Hulls a part will not fit (Kyle: missile racks on anything but a Scout).
+const PART_HULL_BAN := {"4008": ["Scout"]}
+
+static func fits_hull(id: String, hull: String) -> bool:
+	return not PART_HULL_BAN.get(id, []).has(hull)
+
 
 ## Parts only a station carries.
 const STATION_ONLY := ["0001", "1006", "4011", "4503", "5007", "9301", "2004"]
@@ -192,23 +205,56 @@ const HULL_MATERIALS := {
 # "heat" seekers home on the exhaust, so their hits go into the engines.
 
 const MISSILES := {
-	"001": {"name": "torpedo", "warhead": 150, "fire_v": 0.60, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.20, "life": 3.2, "radius": 4, "look": "bolt"},
-	"002": {"name": "mine", "warhead": 2500, "fire_v": 0.05, "guided": false, "trigger": "prox", "prox": 50, "seek_range": 0, "max_v": 0.05, "life": 32.0, "radius": 9, "look": "mine"},
-	"003": {"name": "plasma", "warhead": 500, "fire_v": 0.35, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "plasma"},
-	"004": {"name": "grenade", "warhead": 1500, "fire_v": 0.30, "guided": false, "trigger": "prox", "prox": 64, "seek_range": 0, "max_v": 0.95, "life": 3.2, "radius": 7, "look": "grenade"},
-	"008": {"name": "smart missile", "warhead": 180, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 4, "look": "missile", "turn": 3.5, "accel": 220},
-	"009": {"name": "seeker", "warhead": 400, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 5, "look": "missile", "turn": 2.5, "accel": 220, "heat": true},
-	"010": {"name": "rapid torpedo", "warhead": 100, "fire_v": 0.70, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.80, "life": 3.2, "radius": 3, "look": "bolt"},
-	"011": {"name": "rapid plasma", "warhead": 400, "fire_v": 0.80, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.00, "life": 3.2, "radius": 5, "look": "plasma"},
-	"018": {"name": "cannon shell", "warhead": 750, "fire_v": 0.40, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "shell"},
-	"020": {"name": "disruptor bolt", "warhead": 220, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320, "sys": 1.8},
-	"021": {"name": "drone", "warhead": 90, "fire_v": 0.25, "guided": true, "trigger": "impact", "seek_range": 700, "max_v": 0.5, "life": 9.0, "radius": 4, "look": "drone", "turn": 4.5, "accel": 260},
+	"001": {"dtype": "kinetic", "name": "bolt", "warhead": 150, "fire_v": 0.75, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.20, "life": 14.0, "radius": 4, "look": "bolt"},
+	"002": {"dtype": "explosive", "name": "mine", "shootable": true, "blast": 127, "warhead": 2500, "fire_v": 0.05, "guided": false, "trigger": "prox", "prox": 58, "seek_range": 0, "max_v": 0.05, "life": 60.0, "radius": 9, "look": "mine"},
+	"003": {"dtype": "plasma", "name": "plasma", "warhead": 500, "fire_v": 0.35, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "plasma"},
+	"004": {"dtype": "explosive", "name": "torpedo", "shootable": true, "blast": 90, "warhead": 700, "fire_v": 0.30, "guided": true, "trigger": "prox", "prox": 64, "seek_range": 600, "max_v": 0.90, "life": 4.5, "radius": 7, "look": "grenade", "turn": 0.6, "accel": 240},
+	"008": {"dtype": "explosive", "name": "missile", "shootable": true, "warhead": 300, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 8.0, "radius": 4, "look": "missile", "turn": 3.5, "accel": 220},
+	"009": {"dtype": "explosive", "name": "seeker", "shootable": true, "warhead": 400, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 5, "look": "missile", "turn": 2.5, "accel": 220, "heat": true},
+	"010": {"dtype": "kinetic", "name": "rapid bolt", "spread": 4.0, "warhead": 45, "fire_v": 0.70, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.80, "life": 3.2, "radius": 3, "look": "bolt"},
+	"011": {"dtype": "plasma", "name": "rapid plasma", "warhead": 150, "fire_v": 0.80, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.00, "life": 3.2, "radius": 5, "look": "plasma"},
+	"018": {"dtype": "kinetic", "name": "cannon shell", "recoil": 2.0, "pierce": 0.5, "warhead": 750, "fire_v": 0.40, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "shell"},
+	"020": {"dtype": "ion", "name": "disruptor bolt", "warhead": 160, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320, "sys": 2.5},
+	"022": {"dtype": "kinetic", "name": "point defence round", "pdc": true, "warhead": 12, "fire_v": 1.2, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.4, "life": 0.6, "radius": 2, "look": "bolt"},
+	"021": {"dtype": "explosive", "name": "drone", "shootable": true, "warhead": 120, "fire_v": 0.25, "guided": true, "trigger": "impact", "seek_range": 900, "max_v": 0.5, "life": 12.0, "radius": 4, "look": "drone", "turn": 4.5, "accel": 260},
 }
+
+## Damage types: every weapon deals one, and shields and the hull take it
+## at these multipliers (armor resists by type on top, see the armor
+## types).  Beams are lasers, ion the disruptor, plasma the station and
+## colony batteries and the Sun's heat; rams and collisions are kinetic.
+const DAMAGE_TYPES := {
+	"kinetic": {"shield": 1.0, "hull": 1.0},
+	"beam": {"shield": 0.7, "hull": 1.2},
+	"explosive": {"shield": 0.75, "hull": 1.0},
+	"plasma": {"shield": 1.4, "hull": 1.0},
+	"ion": {"shield": 2.0, "hull": 0.5},
+}
+
+## How hard a damage type hits a layer ("shield" or "hull").
+static func damage_mult(dtype: String, layer: String) -> float:
+	return float(DAMAGE_TYPES.get(dtype, DAMAGE_TYPES["kinetic"]).get(layer, 1.0))
+
+
+## The damage type a tube or beam module deals.
+static func module_dtype(id: String) -> String:
+	var m: Dictionary = MODULES[id]
+	if m["func"] == "beam":
+		return "beam"
+	if m["func"] == "tube":
+		return MISSILES[m["p"][3]].get("dtype", "kinetic")
+	return "kinetic"
+
+
+## Each laser's damage per second at point blank, before DAMAGE_SCALE; it
+## falls to BEAM_FALLOFF of that at the beam's full reach.
+const BEAM_DPS := {"4501": 300.0, "4502": 380.0, "4503": 650.0}
+const BEAM_FALLOFF := 0.7
 
 ## Seconds between shots for each tube missile.
 const TUBE_COOLDOWN := {
-	"001": 0.28, "002": 1.0, "003": 0.5, "004": 0.55, "008": 0.7, "009": 0.9,
-	"010": 0.09, "011": 0.09, "018": 0.45, "020": 0.4, "021": 0.5,
+	"001": 0.45, "002": 1.0, "003": 0.5, "004": 0.9, "008": 1.0, "009": 0.9,
+	"010": 0.09, "011": 0.09, "018": 1.2, "020": 0.4, "021": 1.0, "022": 0.07,
 }
 
 # ------------------------------------------------------- ship designs
@@ -671,24 +717,27 @@ static func price(id: String) -> int:
 
 
 ## Weapon groups (1-4) the pilot selects with the number keys.  A new
-## weapon joins a group by what it is: guns and beams 1, launchers 2,
-## guided missiles 3, mines 4.  The shipyard lets the pilot change it.
+## weapon joins a group by what it is (Kyle: weapons grouped by type):
+## 1 guns (mass driver, rapid tube, cannon), 2 energy (lasers,
+## disruptor), 3 launchers (torpedo, missile, seeker, drone), 4 mines.
+## The PDC fires on its own, whatever its group.  The shipyard lets the
+## pilot change a group.
 const WEAPON_GROUPS := 4
 
 static func default_weapon_group(id: String) -> int:
 	var m: Dictionary = MODULES[id]
 	if m["func"] == "beam":
-		return 1
+		return 2
 	if m["func"] == "tube":
 		match str(m["p"][3]):
-			"001", "010":
+			"001", "010", "011", "018", "022":
 				return 1
+			"003", "020":
+				return 2
 			"002":
 				return 4
-			"008", "009", "021":
-				return 3
 			_:
-				return 2
+				return 3
 	return 1
 
 
@@ -735,16 +784,66 @@ static func hull_hardpoints(hull: String) -> Array:
 
 
 ## A fresh copy of a stock design as a buildable design dictionary.
-static func stock_design(hull: String) -> Dictionary:
+static func stock_design(hull: String, race_id: int = -1) -> Dictionary:
 	var d: Dictionary = SHIPS[hull]
 	var weapons := []
-	for w in d["weapons"]:
-		weapons.append(w.duplicate())
+	var fit: Array = STOCK_LOADOUTS.get(race_id, {}).get(hull, [])
+	for i in d["weapons"].size():
+		var w: Array = d["weapons"][i].duplicate()
+		if i < fit.size() and weapon_class(fit[i]) <= hull_hardpoints(hull)[i][5]:
+			w[0] = fit[i]      # the empire's own gun on the hull's mount
+		weapons.append(w)
 	return {
 		"name": hull, "rank": d["rank"], "speed": d["speed"], "turn": d["turn"], "size": d["size"],
 		"dock": d.get("dock", [180, 0]), "modules": d["modules"].duplicate(), "weapons": weapons,
 		"pirate": d.get("pirate", false), "aces": d.get("aces", false),
 	}
+
+
+## Each empire's stock guns, by hull: one module id per mount of the hull
+## in SHIPS (same order; the mount's place and arc stay the hull's).
+## Kyle (2026-10-28): stock fits vary by ship and race, no laser plus
+## mass driver mix.  Arceans fly beams and drones, Terrans guns and
+## missiles, Drengin disruptors, torpedoes and cannon, pirates whatever
+## throws metal.  Mounts: Scout turret/nose/mine; Destroyer and Raider
+## turret/port/starboard(/mine); Cruiser turret/nose/port/starboard/mine;
+## BattleCruiser and Battleship turret/nose/port/starboard/mine;
+## Dreadnought turret/port/starboard/centre/mine.
+const STOCK_LOADOUTS := {
+	0: {   # Arcean
+		"Scout": ["4501", "4021", "4002"],
+		"Destroyer": ["4501", "4021", "4021", "4002"],
+		"Cruiser": ["4022", "4021", "4501", "4501", "4002"],
+		"BattleCruiser": ["4501", "4021", "4501", "4501", "4002"],
+		"Battleship": ["4022", "4021", "4501", "4501", "4002"],
+		"Dreadnought": ["4022", "4502", "4502", "4021", "4002"],
+		"Freighter": ["4501"], "DropShip": ["4501"],
+	},
+	1: {   # Terran
+		"Scout": ["4001", "4009", "4002"],
+		"Destroyer": ["4008", "4001", "4001", "4002"],
+		"Cruiser": ["4022", "4008", "4010", "4010", "4002"],
+		"BattleCruiser": ["4022", "4010", "4008", "4008", "4002"],
+		"Battleship": ["4022", "4003", "4008", "4008", "4002"],
+		"Dreadnought": ["4022", "4018", "4018", "4008", "4002"],
+		"Freighter": ["4001"], "DropShip": ["4022"],
+	},
+	2: {   # Drengin
+		"Scout": ["4001", "4020", "4002"],
+		"Destroyer": ["4020", "4001", "4001", "4002"],
+		"Cruiser": ["4020", "4003", "4010", "4010", "4002"],
+		"BattleCruiser": ["4020", "4010", "4003", "4003", "4002"],
+		"Battleship": ["4020", "4003", "4010", "4010", "4002"],
+		"Dreadnought": ["4020", "4018", "4018", "4003", "4002"],
+		"Freighter": ["4020"], "DropShip": ["4001"],
+	},
+	3: {   # pirates
+		"Scout": ["4001", "4001", "4002"],
+		"Destroyer": ["4001", "4001", "4001", "4002"],
+		"Raider": ["4001", "4003", "4003"],
+		"Cruiser": ["4001", "4003", "4010", "4010", "4002"],
+	},
+}
 
 
 ## Mass of a hull's stock fit, the reference for turn and speed penalties.

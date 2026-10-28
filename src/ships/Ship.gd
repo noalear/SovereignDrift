@@ -247,7 +247,7 @@ func setup(p_world: Node, p_design: String, p_race: int, p_pilot: String, p_ship
 ## dictionary from the shipyard), keeping career and name.
 func refit(p_design: Variant) -> void:
 	if p_design is String:
-		design = GameData.stock_design(p_design)
+		design = GameData.stock_design(p_design, race_id)
 	else:
 		design = p_design
 	design_name = design["name"]
@@ -467,9 +467,13 @@ func _build_weapons() -> void:
 			entry["missile"] = mid
 			entry["cost"] = clampf(float(m["p"][1]) * 0.025, 20.0, 350.0) * (1.0 + (overload - 1.0) * 0.5)
 			entry["ammo"] = int(m["p"][2]) if int(m["p"][2]) < 400 else -1
+			if is_station:
+				entry["ammo"] = -1     # a station's magazines are deep
+			entry["ammo_max"] = entry["ammo"]
 			entry["rate"] = GameData.TUBE_COOLDOWN.get(mid, 0.3)
 			var md: Dictionary = GameData.MISSILES[mid]
 			entry["range"] = md["fire_v"] * GameData.LIGHT_SPEED * md["life"] * 0.8
+			entry["pdc"] = md.get("pdc", false)
 			match mid:
 				"001", "010":
 					entry["slot"] = "primary"
@@ -483,7 +487,7 @@ func _build_weapons() -> void:
 			entry["slot"] = "beam"
 			entry["cost"] = 90.0 * (1.0 + (overload - 1.0) * 0.5)          # per second
 			entry["range"] = float(m["p"][2]) * 2.2
-			entry["dps"] = 45.0 + float(m["p"][1]) * 0.15
+			entry["dps"] = float(GameData.BEAM_DPS.get(w[0], 45.0 + float(m["p"][1]) * 0.15)) * GameData.DAMAGE_SCALE
 			entry["rate"] = 0.0
 		weapons.append(entry)
 		if is_turret(entry):
@@ -1317,6 +1321,8 @@ func _weapons(delta: float) -> void:
 					want = inputs["fire_mine"]
 				"beam":
 					want = inputs["fire_beam"]
+		if w.get("pdc", false):
+			want = _pdc_aim(w) != INF       # point defence shoots on its own
 		if not want or warping or landing != Landing.NONE:
 			continue
 		if systems.is_offline("w%d" % w["index"]):
@@ -1327,6 +1333,37 @@ func _weapons(delta: float) -> void:
 			_fire_tube(w)
 
 
+## How far this ship's longest laser reaches (the AI opens fire inside it).
+func beam_reach() -> float:
+	var r := 0.0
+	for w in weapons:
+		if w["kind"] == "beam":
+			r = maxf(r, w["range"])
+	return r * 0.95
+
+
+## Does any launcher want reloading?
+func needs_rearm() -> bool:
+	for w in weapons:
+		if w.get("ammo_max", -1) > 0 and w["ammo"] < w["ammo_max"]:
+			return true
+	return false
+
+
+## Reload the launchers by `share` of each magazine (bases and colonies
+## call this, as they refuel).
+func rearm(share: float) -> void:
+	for w in weapons:
+		var full: int = w.get("ammo_max", -1)
+		if full <= 0 or w["ammo"] >= full:
+			continue
+		w["ammo_f"] = float(w.get("ammo_f", 0.0)) + full * share
+		var whole := int(w["ammo_f"])
+		if whole > 0:
+			w["ammo"] = mini(w["ammo"] + whole, full)
+			w["ammo_f"] -= whole
+
+
 func is_turret(w: Dictionary) -> bool:
 	return w["arc1"] - w["arc0"] >= deg_to_rad(150.0)
 
@@ -1334,6 +1371,17 @@ func is_turret(w: Dictionary) -> bool:
 func _aim_angle(w: Dictionary) -> float:
 	# Fire toward the target if it is inside the arc, else straight down the arc centre.
 	var centre: float = w["fire_angle"]
+	# a laser locks onto the targeted ship by itself (as in the original);
+	# with no lock it follows the pilot's mouse like any turret (Kyle)
+	if w["kind"] == "beam":
+		var lock := _beam_lock(w)
+		if lock != INF:
+			return lock
+	# a point defence gun picks its own munition to shoot at
+	if w.get("pdc", false):
+		var pd := _pdc_aim(w)
+		if pd != INF:
+			return pd
 	# a turret under a pilot's hand points where the pilot points
 	if aim_point != Vector2.INF and is_turret(w):
 		var rel := wrapf((aim_point - global_position).angle() - rotation, -PI, PI)
@@ -1356,6 +1404,48 @@ func _aim_angle(w: Dictionary) -> float:
 	return centre
 
 
+## The mount-relative angle a laser holds on the targeted ship, or INF
+## when there is no lock: no enemy ship targeted, not seen, out of reach
+## or outside the mount's arc.
+func _beam_lock(w: Dictionary) -> float:
+	if target == null or not is_instance_valid(target) or not (target is Ship):
+		return INF
+	var t: Ship = target
+	if t.dead or t.team() == team() or t.is_landing() or not t.visible_to(self):
+		return INF
+	var to := t.global_position - global_position
+	if to.length() > w["range"] + t.size:
+		return INF
+	var rel := wrapf(to.angle() - rotation, -PI, PI)
+	if w["arc1"] - w["arc0"] < TAU - 0.2 and (rel < w["arc0"] - 0.01 or rel > w["arc1"] + 0.01):
+		return INF
+	return rel
+
+
+## Point defence: the nearest enemy munition a PDC can reach and swing to,
+## led for its flight time, as an angle from the nose (INF: nothing to shoot).
+func _pdc_aim(w: Dictionary) -> float:
+	if world == null:
+		return INF
+	var best_d: float = w["range"]
+	var best := INF
+	var mv: float = GameData.MISSILES[w["missile"]]["fire_v"] * GameData.LIGHT_SPEED
+	for m: Missile in world.missiles:
+		if not is_instance_valid(m) or m.exploded or not m.shootable() or m.owner_team == team():
+			continue
+		var to: Vector2 = m.global_position - global_position
+		var d := to.length()
+		if d >= best_d:
+			continue
+		var lead: Vector2 = to + (m.velocity - velocity) * d / maxf(mv, 1.0)
+		var rel := wrapf(lead.angle() - rotation, -PI, PI)
+		if w["arc1"] - w["arc0"] < TAU - 0.2 and (rel < w["arc0"] - 0.01 or rel > w["arc1"] + 0.01):
+			continue
+		best_d = d
+		best = rel
+	return best
+
+
 func _fire_tube(w: Dictionary) -> void:
 	if w["ammo"] == 0:
 		return
@@ -1374,12 +1464,17 @@ func _fire_tube(w: Dictionary) -> void:
 	var rel := _aim_angle(w)
 	if w["missile"] == "002":
 		rel = PI   # mines drop behind
+	if md.has("spread"):
+		rel += deg_to_rad(randf_range(-md["spread"], md["spread"]))   # a spray, not a rifle
 	var ang := rotation + rel
 	var mount: Vector2 = global_position + Vector2.RIGHT.rotated(rotation + w["mount_angle"]) * w["mount_radius"]
 	var dir := Vector2.RIGHT.rotated(ang)
 	var v: Vector2 = velocity + dir * md["fire_v"] * GameData.LIGHT_SPEED
 	if w["missile"] == "002":
 		v = velocity * 0.6
+	# a heavy gun kicks the ship back, at the mount, so a side gun twists it
+	if md.has("recoil"):
+		apply_hit_impulse(-dir * md["warhead"] * World.IMPULSE_PER_DAMAGE * md["recoil"], mount)
 	if Net.is_client():
 		return   # the host fires it and tells everyone, us included
 	world.spawn_missile(self, w["missile"], mount + dir * size * 0.3, v, ang, target)
@@ -1396,7 +1491,8 @@ func _fire_tube(w: Dictionary) -> void:
 		"018": snd = "cannon"
 		"020": snd = "plasma"
 		"021": snd = "missile"
-	Sfx.play(snd, global_position, 0.7, randf_range(0.95, 1.05))
+		"022": snd = "rapid"
+	Sfx.play(snd, global_position, 0.35 if w.get("pdc", false) else 0.7, randf_range(0.95, 1.05))
 
 
 func _fire_beam(w: Dictionary, delta: float) -> void:
@@ -1413,12 +1509,17 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 	var hit: Dictionary = world.raycast_beam(self, origin, Vector2.RIGHT.rotated(ang), w["range"])
 	var end: Vector2 = hit["point"]
 	if hit["body"] != null and not Net.is_client():   # damage is the host's
+		# a beam spreads with distance: full burn up close, less at full reach
+		var reach := clampf(origin.distance_to(end) / maxf(w["range"], 1.0), 0.0, 1.0)
+		var dmg: float = w["dps"] * delta * systems.weapon_efficiency(w["index"]) * lerpf(1.0, GameData.BEAM_FALLOFF, reach)
 		if hit["body"] is Ship:
-			hit["body"].take_damage(w["dps"] * delta * systems.weapon_efficiency(w["index"]), self, end, 1.0, "", 0.1)
+			hit["body"].take_damage(dmg, self, end, 1.0, "", 0.1, "beam")
 		else:
-			hit["body"].take_damage(w["dps"] * delta * systems.weapon_efficiency(w["index"]), self, end)
+			hit["body"].take_damage(dmg, self, end, "beam")
 		# a beam leans on what it burns
 		world.push_node(hit["body"], Vector2.RIGHT.rotated(ang) * w["dps"] * delta * World.IMPULSE_PER_DAMAGE * 0.5, end)
+	if hit["body"] != null:
+		_beam_burn(w, hit["body"], end, delta)
 	beam_targets.append([origin, end])
 	# the beam itself is drawn by the world's Fx, so a laser is seen as well as felt
 	if world != null and world.has_method("add_beam"):
@@ -1427,12 +1528,35 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 	Sfx.beam(self, clampf(1.3 - size / 80.0, 0.7, 1.2), int(str(w["id"]).right(1)))
 
 
+## A beam's damage lands a sliver a frame, too small for take_damage's hit
+## sparks and sounds, so the burn shows here: sparks where it touches and
+## a shield or hull hit sound a few times a second.
+const BEAM_BURN_EVERY := 0.12
+
+func _beam_burn(w: Dictionary, body: Node, at: Vector2, delta: float) -> void:
+	w["burn"] = float(w.get("burn", 0.0)) - delta
+	if w["burn"] > 0.0 or world == null:
+		return
+	w["burn"] = BEAM_BURN_EVERY
+	var shielded: bool = body is Ship and body.shield > 0.0
+	if body is Ship:
+		var col: Color = Color(0.6, 0.85, 1.0) if shielded else body.race_color()
+		world.spawn_sparks(at, 3, col)
+		if shielded:
+			Sfx.play(Sfx.leveled("shield", body.module_levels.get("shield", 1)), at, 0.3, randf_range(0.95, 1.1))
+		else:
+			var armor_level: int = body.module_levels.get("armor", 0)
+			Sfx.play(Sfx.leveled("hit_armor", armor_level) if armor_level > 0 else "hit", at, 0.3, randf_range(1.0, 1.2))
+	else:
+		world.spawn_sparks(at, 2, race_color())
+
+
 # --------------------------------------------------------------- damage
 
 ## `at` is where the hit landed (Vector2.ZERO: nowhere in particular);
 ## `sys_mult` and `focus` say how hard it is on the ship's systems (see
 ## ShipSystems.hit).
-func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_mult: float = 1.0, focus: String = "", crew_mult: float = 1.0) -> void:
+func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_mult: float = 1.0, focus: String = "", crew_mult: float = 1.0, dtype: String = "kinetic") -> void:
 	if dead or invulnerable > 0.0 or race_id == GameData.NEUTRAL:
 		return                         # (the free port is under every empire's protection)
 	if land_scale < 0.5:
@@ -1455,12 +1579,15 @@ func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_
 	var remaining := amount
 	var bleed := 0.0
 	if shield > 0.0:
-		var absorbed := minf(shield, remaining)
+		# the shield takes the hit at its damage type's rate (GameData.DAMAGE_TYPES)
+		var ms := maxf(GameData.damage_mult(dtype, "shield"), 0.001)
+		var absorbed := minf(shield, remaining * ms)
 		shield -= absorbed
-		remaining -= absorbed
+		remaining -= absorbed / ms
 		bleed = absorbed * ShipSystems.SHIELD_BLEED
 		if absorbed > 4.0:
 			Sfx.play(Sfx.leveled("shield", module_levels.get("shield", 1)), global_position, 0.5, randf_range(0.92, 1.08))
+	remaining *= GameData.damage_mult(dtype, "hull")
 	if remaining > 0.0:
 		remaining = maxf(remaining - armor * 0.02 * remaining, remaining * 0.6)
 		hull -= remaining

@@ -37,7 +37,7 @@ func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vecto
 	reset_physics_interpolation()
 	life = data["life"]
 	radius = data["radius"]
-	warhead = data["warhead"]
+	warhead = data["warhead"] * GameData.DAMAGE_SCALE
 	target = p_target
 	armed = 0.35 if data["trigger"] == "prox" else 0.05
 	if p_id == "002":
@@ -156,12 +156,28 @@ func explode(hit: Node2D) -> void:
 	if exploded:
 		return
 	exploded = true
-	var splash: float = data.get("prox", 0.0)
-	if missile_id == "002":
-		splash = 110.0
-	elif missile_id == "004":
-		splash = 90.0
-	world.missile_detonated(self, hit, splash)
+	world.missile_detonated(self, hit, float(data.get("blast", data.get("prox", 0.0))))
+	world.release_body(body)
+	queue_free()
+
+
+## Can a gun's shot knock this down?  Missiles, seekers, drones, torpedoes
+## and mines can be shot out of the sky (Kyle).
+func shootable() -> bool:
+	return data.get("shootable", false)
+
+
+## Is this a gun's shot: an unguided round that goes off when it hits?
+func is_gun_shot() -> bool:
+	return not data["guided"] and data["trigger"] == "impact"
+
+
+## Shot down: it pops where it is and harms nobody.
+func shoot_down() -> void:
+	if exploded:
+		return
+	exploded = true
+	world.missile_detonated(self, null, 0.0)
 	world.release_body(body)
 	queue_free()
 
