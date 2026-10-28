@@ -6,6 +6,7 @@ const PATH := "user://settings.cfg"
 var music_mode := "all"       # all | remixes | new | off
 var music_volume := 0.8
 var sfx_volume := 0.8
+var voice_volume := 1.0       # spoken lines (the tutorial)
 var fullscreen := true
 var pilot_name := "Pilot"
 var race_id := 1
@@ -47,6 +48,7 @@ func load_settings() -> void:
 	music_mode = cfg.get_value("audio", "music_mode", music_mode)
 	music_volume = cfg.get_value("audio", "music_volume", music_volume)
 	sfx_volume = cfg.get_value("audio", "sfx_volume", sfx_volume)
+	voice_volume = cfg.get_value("audio", "voice_volume", voice_volume)
 	song8 = cfg.get_value("audio", "song8", song8)
 	dynamic_music = cfg.get_value("audio", "dynamic_music", dynamic_music)
 	mouse_aim = cfg.get_value("controls", "mouse_aim", mouse_aim)
@@ -77,6 +79,7 @@ func save_settings() -> void:
 	cfg.set_value("audio", "music_mode", music_mode)
 	cfg.set_value("audio", "music_volume", music_volume)
 	cfg.set_value("audio", "sfx_volume", sfx_volume)
+	cfg.set_value("audio", "voice_volume", voice_volume)
 	cfg.set_value("audio", "song8", song8)
 	cfg.set_value("audio", "dynamic_music", dynamic_music)
 	cfg.set_value("controls", "mouse_aim", mouse_aim)

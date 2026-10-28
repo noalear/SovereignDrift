@@ -58,6 +58,32 @@ of `src/ships/ShipSystems.gd` and `src/world/Capture.gd`;
 `tools/capture_test.gd` reports how much hull is left when ships are
 disabled, and `tools/battle_sim.gd` runs a whole round of computer pilots.
 
+### Tutorial
+
+**Tutorial (voiced, Terran)** on the title screen: Commander Hale of the
+Terran Naval Academy talks a cadet through the whole game in a calm Sol (no
+enemy fleets, no round clock, colonies hold their fire, nothing reaches the
+career). Seven chapters, 46 lessons: the cockpit, flight, navigation and the
+quantum drive, the map and info cards, targeting, weapon groups, disabling
+and boarding a drone, cloaking, a fight with a rookie pirate, loot, the
+starbase and shipyard, landing, colonists, cargo, the ground war tabs, the
+ledger and job board, stations, the free port, invasions and how to win.
+Every line is spoken and shown as subtitles, with the objective and its live
+keys under it. Enter skips a lesson, Shift+Enter a chapter, Backspace repeats
+the line. The lessons live in `src/ui/Tutorial.gd`, the words in
+`src/ui/TutorialLines.gd`; `tools/tutorial_test.gd` plays it through.
+
+## Voices
+
+Spoken lines are made with [Kokoro-82M](https://github.com/hexgrad/kokoro),
+a local text-to-speech model under Apache 2.0 (free to use in games, runs
+offline, 54 voices), through `tools/voice/generate.py`. It reads the lines
+from `src/ui/TutorialLines.gd` (speakers: voice, speed, clean or radio
+effect), renders `assets/voice/<set>/<id>.ogg` at 48 kHz, compresses and
+levels them to -17 LUFS, and the game ducks the music while a line plays
+(Settings > Voice volume). See the script's header for setup; the same tool
+can voice campaign characters later.
+
 ## Layout
 
 ```
@@ -73,6 +99,7 @@ tools/                 smoke test and screenshot scripts
 tools/sfx/             sound-effect generator (Python: numpy, scipy, soundfile)
 assets/music/          Ogg soundtrack (see below)
 assets/sfx/            rendered sound effects, <name>_<NN>.ogg
+assets/voice/          spoken lines (tools/voice/generate.py)
 ```
 
 ## Sound effects

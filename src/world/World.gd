@@ -74,6 +74,7 @@ var duel := false                # an online free-for-all (Duel); Main sets it o
 var duel_rules: Duel = null       # its rules; the host runs them, a client's mirror comes from Net
 var practice := false            # Practice duel: you, your starbase, one pirate at a time
 var practice_opponent := true    # false: Free flight, practice with no pirate at all
+var tutorial := false            # the voiced tutorial (practice too): a calm Sol with the economy running (Tutorial)
 var campaign := false            # a campaign: no round clock, saved as it goes (SaveGame)
 var campaign_data := {}          # a saved campaign to pick up, read before _ready
 var autosave_timer := AUTOSAVE_EVERY
@@ -134,6 +135,8 @@ func _ready() -> void:
 		round_rules = Round.new()
 		round_rules.world = self
 		Net.client_attach(self)
+	elif tutorial:
+		_spawn_tutorial()
 	elif practice:
 		_spawn_practice()
 	elif duel:
@@ -251,8 +254,8 @@ func spawn_rock(pos: Vector2, vel: Vector2, r: float, seed_value: int) -> Debris
 	return d
 
 
-func _spawn_player() -> void:
-	player = _make_ship(Settings.pilot_name, Settings.race_id, _starting_design(Settings.race_id, Settings.career), Settings.pilot_name + "'s ship", true)
+func _spawn_player(race_id: int = Settings.race_id, design: String = "") -> void:
+	player = _make_ship(Settings.pilot_name, race_id, design if design != "" else _starting_design(race_id, Settings.career), Settings.pilot_name + "'s ship", true)
 	player.score = Settings.career["score"]
 	player.kills = Settings.career["kills"]
 	player.rank = GameData.rank_for(player.score, player.kills)
@@ -382,6 +385,49 @@ func _spawn_practice() -> void:
 	s.add_child(ai)
 	ai.setup(s, self, home, 2)
 	_place_duelist(s)
+
+
+## The tutorial: a Terran cadet in a Scout at Earth, the Terran starbase
+## (holding its fire, like the colonies), our supply and trade ships at
+## work and the free port at Jupiter.  No enemy ships: the lessons bring
+## their own (Tutorial).
+func _spawn_tutorial() -> void:
+	_spawn_player(1, "Scout")
+	# a cadet whatever the profile says (it is off the record anyway), so
+	# the lessons about rank hold
+	player.score = 0
+	player.kills = 0
+	player.rank = 0
+	player.credits = START_CREDITS * 2
+	var home: Planet = planet_by_name[GameData.STARBASES[1]]
+	var base := _make_ship("Terran Command", 1, "Starbase", "Terran Starbase", false)
+	base.global_position = _station_spot(home)
+	base.velocity = space.circular_orbit_velocity(home.body, base.global_position)
+	base.reset_physics_interpolation()
+	_keep_station()
+	_place_at_home(player)
+	for row in GameData.SUPPLY_SHIPS[1]:
+		_spawn_hauler(1, row[0], row[1])
+	_spawn_trader(1, GameData.TRADE_SHIPS[1][0], GameData.TRADE_SHIPS[1][1])
+	spawn_free_port()
+
+
+## A ship for a tutorial lesson, flown by a computer pilot of `ai_rank`
+## (-1: nobody at the helm).  It never relaunches once lost.
+func spawn_ship(pilot: String, race_id: int, design: String, ship_name: String, pos: Vector2, vel: Vector2, ai_rank: int = -1) -> Ship:
+	var s := _make_ship(pilot, race_id, design, ship_name, false)
+	s.set_meta("tutorial", true)
+	s.global_position = pos
+	s.velocity = vel
+	s.body.pos = pos
+	s.body.vel = vel
+	s.reset_physics_interpolation()
+	if ai_rank >= 0:
+		var ai := AIPilot.new()
+		ai.name = "AI"
+		s.add_child(ai)
+		ai.setup(s, self, _home_planet(player.race_id if player != null else race_id), ai_rank)
+	return s
 
 
 ## Put the practice opponent inside sensor range, facing the player.
@@ -651,7 +697,7 @@ func _physics_process(delta: float) -> void:
 	capture.tick(delta)
 	if duel_rules != null:
 		duel_rules.tick(delta)
-	elif not practice:
+	elif not practice or tutorial:
 		economy.tick(delta)
 		ground.tick(delta)
 		for g in governors.values():
@@ -1346,7 +1392,7 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 			Settings.career["deaths"] = Settings.career.get("deaths", 0) + 1
 		Settings.save_settings()
 		player_died.emit()
-	if practice and not s.is_station:
+	if practice and not tutorial and not s.is_station:
 		# only a duel's real result counts: you killed it, or it killed you
 		if s.is_player and killer_ship != null:
 			duel_score[1] += 1
@@ -1450,14 +1496,14 @@ func _respawns() -> void:
 		var s: Ship = entry[0]
 		if not is_instance_valid(s):
 			continue
-		if elapsed >= entry[1] and (s.is_prize or s.has_meta("ordered") or (s.is_station and not s.is_starbase())):
+		if elapsed >= entry[1] and (s.is_prize or s.has_meta("ordered") or s.has_meta("tutorial") or (s.is_station and not s.is_starbase())):
 			remove_ship(s)        # a prize's crew does not come back, nor a built station or an ordered ship
 		elif elapsed >= entry[1]:
 			var home := _home_planet(s.race_id)
 			if s.is_station:
 				var at := _station_spot(home)
 				s.respawn(at, space.circular_orbit_velocity(home.body, at))
-			elif practice and not s.is_player and player != null and not player.dead:
+			elif practice and not tutorial and not s.is_player and player != null and not player.dead:
 				_place_duelist(s)
 				s.respawn(s.global_position, s.velocity)
 			elif duel_rules != null:
