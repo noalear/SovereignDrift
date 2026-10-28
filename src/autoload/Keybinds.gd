@@ -46,6 +46,7 @@ const ACTIONS := [
 	["trade", "Trade (online)", "Ship"],
 	["tactical_map", "System map", "Interface"],
 	["ledger", "Empire ledger (resources)", "Interface"],
+	["briefing", "Story briefing (campaign)", "Interface"],
 	["quick_save", "Save the campaign", "Interface"],
 	["radar_zoom_in", "Radar zoom in", "Interface"],
 	["radar_zoom_out", "Radar zoom out", "Interface"],

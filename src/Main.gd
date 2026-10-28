@@ -18,6 +18,12 @@ var cargo_panel: CargoPanel = null
 var tactical_opened_at := 0
 var scoreboard: Scoreboard = null
 var tutorial: Tutorial = null
+var story_layer: CanvasLayer = null   # the story campaign's call window and objectives
+var comms: Comms = null
+var story_panel: StoryPanel = null
+var briefing: Briefing = null
+var story_saves: StorySaves = null   # the story's save slots, over the pause menu or the title screen
+var pause_shot: Image = null         # the war as the pause menu opened, for a save slot's picture
 var font: Font
 
 
@@ -139,6 +145,7 @@ func _close_game() -> void:
 	if tutorial != null:
 		tutorial.queue_free()
 		tutorial = null
+	_close_story()
 	Engine.time_scale = 1.0
 	get_tree().paused = false
 	_close_trade({})
@@ -169,6 +176,9 @@ func _show_menu() -> void:
 	menu.tutorial_pressed.connect(_start_tutorial)
 	menu.campaign_new_pressed.connect(func(): _start_game(false, true, "new"))
 	menu.campaign_continue_pressed.connect(func(): _start_game(false, true, "continue"))
+	menu.story_new_pressed.connect(func(): _start_game(false, true, "story_new"))
+	menu.story_continue_pressed.connect(func(): _start_game(false, true, "story_continue"))
+	menu.story_load_pressed.connect(_open_saves.bind("load", null))
 	menu.host_pressed.connect(_host_game)
 	menu.duel_pressed.connect(_host_game.bind(true))
 	menu.mode_pressed.connect(func(which: String, online: bool):
@@ -199,20 +209,24 @@ func _start_tutorial() -> void:
 
 
 ## `campaign` is "" for a Conquest round, "new" for a fresh campaign or
-## "continue" for the saved one; `duel` hosts a free-for-all; `tutorial`
-## starts the voiced tutorial (a practice world); `arena` is "survival" or
+## "continue" for the saved one ("story_new" and "story_continue" for the
+## story campaign); `duel` hosts a free-for-all; `tutorial` starts the
+## voiced tutorial (a practice world); `arena` is "survival" or
 ## "skirmish" for those modes, alone or hosted.
 func _start_game(practice := false, opponent := true, campaign := "", duel := false, tutorial_mode := false, arena := "") -> void:
 	if not Net.is_active():
 		Settings.use_profile("single")
 	Settings.save_settings()
+	var story_mode := campaign.begins_with("story")
+	var save_path := SaveGame.STORY_PATH if story_mode else SaveGame.PATH
 	var saved := {}
-	if campaign == "continue":
-		saved = SaveGame.read()
+	if campaign.ends_with("continue"):
+		saved = SaveGame.read(save_path)
 		if saved.is_empty():
-			campaign = "new"
-	elif campaign == "new":
-		SaveGame.erase()
+			campaign = "story_new" if story_mode else "new"
+	elif campaign.ends_with("new"):
+		SaveGame.erase(save_path)
+	_close_story()
 	Sfx.play_ui("ui_start", 0.8)
 	if menu != null:
 		menu.queue_free()
@@ -231,6 +245,9 @@ func _start_game(practice := false, opponent := true, campaign := "", duel := fa
 	world.mode = arena
 	world.tutorial = tutorial_mode
 	world.campaign = campaign != ""
+	world.story_mode = story_mode
+	if story_mode:
+		world.map_scale = Story.MAP_SCALE
 	world.campaign_data = saved
 	add_child(world)
 	hud = HUD.new()
@@ -247,6 +264,14 @@ func _start_game(practice := false, opponent := true, campaign := "", duel := fa
 		layer.add_child(tutorial)
 		tutorial.tree_exited.connect(layer.queue_free)
 		add_child(layer)
+		return
+	if story_mode:
+		_open_story()
+		if campaign == "story_new":
+			world.notify_all("The Frontier War. You fly for Lantern Squadron out of Earth. The Ceres Accord keeps the peace, for now. Commander Hale will call you in.", Color(0.8, 0.9, 1.0))
+			world.save_campaign(false)
+		else:
+			world.notify_all("The Frontier War resumed: %s into it. %s for the briefing when Hale calls." % [Round._fmt(world.elapsed), Keybinds.short_text("briefing")], Color(0.8, 0.9, 1.0))
 		return
 	if campaign == "new":
 		world.notify_all("Campaign: no clock. The war goes on until one empire holds every colony. It saves every 2 minutes, with %s, and when you leave." % Keybinds.short_text("quick_save"), Color(0.8, 0.9, 1.0))
@@ -312,6 +337,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("pause_menu") and cargo_panel != null:
 		_close_cargo()
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("briefing") and world != null and world.story != null and builder == null and pause_panel == null and scoreboard == null and briefing == null:
+		_story_key()
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("quick_save") and world != null and world.campaign and scoreboard == null:
 		world.save_campaign()
 		get_viewport().set_input_as_handled()
@@ -325,7 +353,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("pause_menu") and tactical != null:
 		_close_tactical()
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("pause_menu") and world != null and builder == null and scoreboard == null:
+	elif event.is_action_pressed("pause_menu") and world != null and builder == null and scoreboard == null and briefing == null:
 		if pause_panel == null:
 			_open_pause()
 		else:
@@ -334,6 +362,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _open_pause() -> void:
+	# the frame before the menu covers it: a story save's picture
+	pause_shot = _grab_screen() if world.story_mode else null
 	if not Net.is_active():
 		world.set_paused(true)   # online the round goes on behind the menu
 	world.menu_open = true       # either way the ship ignores the keys and clicks meant for the menu
@@ -378,7 +408,30 @@ func _open_pause() -> void:
 	b3.add_theme_font_size_override("font_size", 20)
 	b3.pressed.connect(_open_settings.bind(b3))
 	box.add_child(b3)
-	if world.campaign:
+	if world.story != null and world.story.op != null:
+		var br := Button.new()
+		br.text = "Restart the operation"
+		br.add_theme_font_size_override("font_size", 20)
+		br.pressed.connect(func():
+			_close_pause()
+			retry_operation())
+		box.add_child(br)
+		box.offset_top -= 30
+		box.offset_bottom += 30
+	if world.story_mode:
+		var bsv := Button.new()
+		bsv.text = "Save the story"
+		bsv.add_theme_font_size_override("font_size", 20)
+		bsv.pressed.connect(_open_saves.bind("save", bsv))
+		box.add_child(bsv)
+		var bl := Button.new()
+		bl.text = "Load a story save"
+		bl.add_theme_font_size_override("font_size", 20)
+		bl.pressed.connect(_open_saves.bind("load", bl))
+		box.add_child(bl)
+		box.offset_top -= 60
+		box.offset_bottom += 60
+	elif world.campaign:
 		var bs := Button.new()
 		bs.text = "Save the campaign"
 		bs.add_theme_font_size_override("font_size", 20)
@@ -431,6 +484,63 @@ func _open_settings(from: Button) -> void:
 		if pause_panel != null:
 			pause_panel.visible = true
 			from.grab_focus())
+
+
+## The story's save slots: "save" from the pause menu, "load" from it or
+## from the title screen.
+func _open_saves(mode: String, from: Button) -> void:
+	if story_saves != null:
+		return
+	story_saves = StorySaves.new()
+	story_saves.mode = mode
+	if mode == "save":
+		story_saves.world = world
+		story_saves.shot = pause_shot
+	if pause_panel != null:
+		pause_panel.visible = false
+	if menu != null:
+		menu.visible = false
+	ui_layer.add_child(story_saves)
+	story_saves.closed.connect(func():
+		_close_saves()
+		if pause_panel != null:
+			pause_panel.visible = true
+		if menu != null:
+			menu.visible = true
+		if from != null:
+			from.grab_focus())
+	story_saves.load_requested.connect(load_story)
+
+
+func _close_saves() -> void:
+	if story_saves != null:
+		story_saves.queue_free()
+		story_saves = null
+
+
+## Load a story save slot: it becomes the story's save, and play goes on
+## from it.
+func load_story(path: String) -> void:
+	_close_saves()
+	if not SaveGame.use_slot(path):
+		if menu != null:
+			menu.visible = true
+		return
+	if world != null:
+		_close_pause()
+		_show_menu()
+	_start_game(false, true, "story_continue")
+
+
+## The last frame drawn, or null where there is none (headless).
+func _grab_screen() -> Image:
+	if DisplayServer.get_name() == "headless":
+		return null
+	var tex := get_viewport().get_texture()
+	if tex == null:
+		return null
+	var img := tex.get_image()
+	return img if img != null and not img.is_empty() else null
 
 
 func _close_settings() -> void:
@@ -538,8 +648,98 @@ func open_builder(ship: Ship, base: Ship) -> void:
 				world.set_paused(false))
 
 
+# ------------------------------------------------------------ the story campaign
+
+## The call window over everything (it stays over the shipyard), the
+## objectives with the HUD.
+func _open_story() -> void:
+	story_layer = CanvasLayer.new()
+	story_layer.layer = ui_layer.layer + 1
+	add_child(story_layer)
+	story_panel = StoryPanel.new()
+	story_panel.setup(world.story, self)
+	ui_layer.add_child(story_panel)
+	comms = Comms.new()
+	comms.setup(world.story, self)
+	story_layer.add_child(comms)
+
+
+func _close_story() -> void:
+	_close_briefing()
+	if story_panel != null:
+		story_panel.queue_free()
+		story_panel = null
+	if comms != null:
+		comms = null
+	if story_layer != null:
+		story_layer.queue_free()
+		story_layer = null
+
+
+## The briefing key: the briefing when one is ready, a retry after a
+## failed operation, else where the story stands.
+func _story_key() -> void:
+	var st: Story = world.story
+	if st.failed != "":
+		retry_operation()
+	elif st.briefing_ready():
+		open_briefing()
+	elif st.op != null:
+		world.notify(world.player, "Operation %s under way: %s" % [st.op.spec["title"], st.op.objective_line()])
+	elif st.index >= Story.OPS.size():
+		world.notify(world.player, "No more operations yet. Fly patrols, help the supply runs, and keep your eyes open.")
+	else:
+		world.notify(world.player, "Next briefing in about %d minute%s." % [maxi(ceili((st.unlock_at - world.elapsed) / 60.0), 1), "" if st.unlock_at - world.elapsed <= 60.0 else "s"])
+
+
+func open_briefing() -> void:
+	if briefing != null or world == null or world.story == null or not world.story.briefing_ready():
+		return
+	_close_tactical()
+	_close_ledger()
+	_close_cargo()
+	if not Net.is_active():
+		world.set_paused(true)
+	world.menu_open = true
+	briefing = Briefing.new()
+	briefing.setup(world.story)
+	briefing.comms = comms
+	ui_layer.add_child(briefing)
+	briefing.launch.connect(func():
+		var st: Story = world.story
+		_close_briefing()
+		st.start_op())
+	briefing.closed.connect(_close_briefing)
+
+
+func _close_briefing() -> void:
+	if briefing == null:
+		return
+	briefing.queue_free()
+	briefing = null
+	if world != null:
+		if world.story != null:
+			world.story.hush()
+		world.set_paused(false)
+		world.menu_open = false
+
+
+## Try the operation again: the war as it was saved when it began, and its
+## briefing.
+func retry_operation() -> void:
+	if world == null or not world.story_mode:
+		return
+	_show_menu()
+	_start_game(false, true, "story_continue")
+	await get_tree().process_frame
+	if world != null and world.story != null:
+		world.story.unlock_at = world.elapsed
+		open_briefing()
+
+
 func _close_pause() -> void:
 	_close_settings()
+	_close_saves()
 	if pause_panel != null:
 		pause_panel.queue_free()
 		pause_panel = null

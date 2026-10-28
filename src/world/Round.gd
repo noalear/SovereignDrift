@@ -127,7 +127,8 @@ func tick(delta: float) -> void:
 		phase = new_phase
 		match phase:
 			"war":
-				world.notify_all("The system is at war. Capture planets: each one pays its empire every minute.", Color(1, 0.95, 0.8))
+				if not world.get("accord"):    # the story's first act: the empires are at peace
+					world.notify_all("The system is at war. Capture planets: each one pays its empire every minute.", Color(1, 0.95, 0.8))
 			"final":
 				world.notify_all("Final %d minutes: planet income and capture bonuses are doubled." % int(FINAL_MINUTES), Color(1, 0.8, 0.4))
 				note("Final phase", -1)

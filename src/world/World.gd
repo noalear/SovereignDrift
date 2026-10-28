@@ -79,6 +79,18 @@ var practice_opponent := true    # false: Free flight, practice with no pirate a
 var tutorial := false            # the voiced tutorial (practice too): a calm Sol with the economy running (Tutorial)
 var campaign := false            # a campaign: no round clock, saved as it goes (SaveGame)
 var campaign_data := {}          # a saved campaign to pick up, read before _ready
+var story_mode := false          # the story campaign (Story): a campaign with operations laid over the war
+## How far the system is spread out: 1 is Sol as Conquest plays it; the
+## story campaign's is bigger (Story.MAP_SCALE), so getting places takes
+## time and each operation has its own corner of the system.  Set before
+## _ready.
+var map_scale := 1.0
+var story: Story = null          # its director; the host runs it
+## The Ceres Accord: while it holds, the three empires keep the peace (the
+## story's first act).  Pirates are fair game, and so is anyone who fires
+## on another empire (accord_breach).
+var accord := false
+const BREACH_MEMORY := 25.0      # seconds a ship that broke the Accord stays fair game
 var autosave_timer := AUTOSAVE_EVERY
 const AUTOSAVE_EVERY := 120.0
 var duel_score := [0, 0]         # practice: [your kills, their kills]
@@ -163,6 +175,8 @@ func _ready() -> void:
 		round_rules.setup(self, 0 if campaign else Settings.round_minutes)
 		if not campaign_data.is_empty():
 			SaveGame.restore_round(self, campaign_data)
+		if story_mode:
+			story = Story.new(self, campaign_data.get("story", {}))
 		round_rules.finished.connect(_on_round_finished)
 		if Net.is_host():
 			Net.host_attach(self)
@@ -215,8 +229,8 @@ func _build_system() -> void:
 func _spawn_rocks() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4242
-	var band_lo := 6340.0
-	var band_hi := 6520.0
+	var band_lo := 6340.0 * map_scale
+	var band_hi := 6520.0 * map_scale
 	var centres := []
 	for p in planets:
 		if p.body_class == "Minor" and p.orbit_radius >= band_lo - 150.0 and p.orbit_radius <= band_hi + 150.0:
@@ -275,7 +289,7 @@ func _spawn_player(race_id: int = Settings.race_id, design: String = "") -> void
 
 
 func _spawn_pilots() -> void:
-	_spawn_player()
+	_spawn_player(1 if story_mode else Settings.race_id)   # the story is told from Earth
 	# starbases for the three empires (the player launches from one, below)
 	for race_id in GameData.STARBASES:
 		var home: Planet = planet_by_name[GameData.STARBASES[race_id]]
@@ -717,6 +731,8 @@ func _physics_process(delta: float) -> void:
 		ground.tick(delta)
 		for g in governors.values():
 			g.tick(delta)
+	if story != null:
+		story.tick(delta)
 	_respawns()
 	_score_planets(delta)
 	if campaign and not game_over:
@@ -732,10 +748,19 @@ func save_campaign(loud: bool = true) -> bool:
 	autosave_timer = AUTOSAVE_EVERY
 	if not campaign or game_over:
 		return false
-	var ok := SaveGame.write(self)
+	if story != null and story.in_op():
+		# an operation is not saved halfway: the save from its start stands
+		if player != null and loud:
+			notify(player, "No saving during an operation. Leaving takes you back to its briefing.")
+		return true
+	var ok := SaveGame.write(self, save_path())
 	if player != null and (loud or not ok):
 		notify(player, "Campaign saved." if ok else "Could not save the campaign.")
 	return ok
+
+
+func save_path() -> String:
+	return SaveGame.STORY_PATH if story_mode else SaveGame.PATH
 
 
 func set_paused(p: bool) -> void:
@@ -828,6 +853,8 @@ func nearest_enemy_ship(pos: Vector2, side: int, range_px: float, viewer: Ship =
 	for s in ships:
 		if s.dead or s.team() == side or s.is_landing() or s.race_id == GameData.NEUTRAL:
 			continue
+		if accord and not (viewer != null and viewer.is_player) and not fair_game(side, s):
+			continue      # the Accord holds (the player still picks their own targets)
 		if s.spoken_for(side):
 			continue      # a friend is taking that one alive
 		if viewer != null and not s.visible_to(viewer):
@@ -902,9 +929,40 @@ func planet_at(pos: Vector2, tolerance: float) -> Planet:
 func enemy_planets(race_id: int) -> Array:
 	var out := []
 	for p in planets:
-		if p.is_colonised() and p.owner_race != race_id:
+		if p.is_colonised() and p.owner_race != race_id and at_war(race_id, p.owner_race):
 			out.append(p)
 	return out
+
+
+## Are sides `a` and `b` (Ship.team() values) at war?  Always, except
+## between the three empires while the Accord holds.
+func at_war(a: int, b: int) -> bool:
+	if a == b:
+		return false
+	return not (accord and a >= 0 and a <= 2 and b >= 0 and b <= 2)
+
+
+## May side `side` attack `t` (a Ship or a Planet)?  At war with it, or
+## it broke the Accord a moment ago.
+func fair_game(side: int, t: Node) -> bool:
+	if t is Ship:
+		return at_war(side, t.team()) or elapsed - float(t.get_meta("breach_at", -1e9)) < BREACH_MEMORY
+	if t is Planet:
+		return t.is_colonised() and at_war(side, t.owner_race)
+	return true
+
+
+## A shot across the Accord: `attacker` hit a ship or colony of an empire
+## at peace with its own.  It is fair game for a while, and the story hears.
+func accord_breach(attacker: Node, victim: Node) -> void:
+	if not accord or not (attacker is Ship):
+		return
+	var vside: int = victim.team() if victim is Ship else victim.owner_race
+	if attacker.team() == vside or at_war(attacker.team(), vside):
+		return
+	attacker.set_meta("breach_at", elapsed)
+	if story != null:
+		story.on_breach(attacker, victim)
 
 
 ## Turn the step's contacts into damage, sound and shake.
@@ -1359,6 +1417,8 @@ func _collect_powerups() -> void:
 # ----------------------------------------------------------- game events
 
 func _on_ship_damaged(s: Ship, amount: float) -> void:
+	if accord and s.last_attacker is Ship and s.last_attacker != s and Time.get_ticks_msec() / 1000.0 - s.last_attacked_at < 0.1:
+		accord_breach(s.last_attacker, s)
 	if s.is_player:
 		last_player_damage = elapsed
 		add_shake(clampf(amount * 0.04, 1.0, 10.0))
@@ -1699,7 +1759,7 @@ func _score_planets(delta: float) -> void:
 func _on_round_finished(result: Dictionary) -> void:
 	game_over = true
 	if campaign:
-		SaveGame.erase()           # the war is won or lost: the campaign is over
+		SaveGame.erase(save_path())   # the war is won or lost: the campaign is over
 	var winner: int = result["winner"]
 	notify_all("The %s win the Sol system!" % GameData.race(winner)["name"], GameData.race(winner)["color"])
 	Engine.time_scale = 0.35
