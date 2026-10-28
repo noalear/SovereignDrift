@@ -299,7 +299,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if finished or world == null or not (event is InputEventKey) or not event.pressed or event.echo:
 		return
 	if main != null and (main.get("pause_panel") != null or main.get("builder") != null):
-		return                  # Enter is the shipyard's Launch
+		return                  # the shipyard and the pause menu use Enter themselves
 	if event.keycode in [KEY_ENTER, KEY_KP_ENTER] and not event.alt_pressed:
 		voice.stop()
 		line_time = line_len

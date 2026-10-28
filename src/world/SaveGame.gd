@@ -114,7 +114,7 @@ static func _ship(world: Node, s: Ship, waiting: Dictionary) -> Dictionary:
 		"rank": s.rank, "score": s.score, "kills": s.kills, "deaths": s.deaths,
 		"round_score": rr.round_score(s) if rr != null else 0, "round_kills": rr.round_kills(s) if rr != null else 0,
 		"credits": s.credits, "credits_earned": s.credits_earned, "captures": s.captures, "ships_captured": s.ships_captured,
-		"hold": s.hold.duplicate(), "blueprints": s.blueprints.duplicate(),
+		"hold": s.hold.duplicate(), "hold_stock": s.hold_stock.duplicate(), "blueprints": s.blueprints.duplicate(),
 		"colonists": s.colonists, "colonist_origin": s.colonist_origin.body_name if s.colonist_origin != null else "",
 		"cargo": s.cargo.duplicate(), "cargo_origin": s.cargo_origin.body_name if s.cargo_origin is Planet else "", "support": s.support,
 		"kit": s.kit, "building": s.building, "build_t": s.build_t,
@@ -225,6 +225,7 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 		s.captures = int(row["captures"])
 		s.ships_captured = int(row["ships_captured"])
 		s.hold = row["hold"].duplicate()
+		s.hold_stock = row.get("hold_stock", {}).duplicate()
 		s.blueprints = row["blueprints"].duplicate()
 		s.colonists = minf(float(row["colonists"]), s.cabin)
 		s.colonist_origin = world.planet_by_name.get(row["colonist_origin"], null)
