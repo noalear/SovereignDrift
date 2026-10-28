@@ -21,6 +21,9 @@ const ARRIVE_MIN := 3200.0
 const ARRIVE_MAX := 4200.0
 ## Each wave the starbase gets this much of its hull back.
 const BASE_MEND := 0.3
+## The starbase is built heavier here than in Conquest: alone it holds the
+## first four waves, and a boss wave needs the pilots there to stop it.
+const BASE_TOUGHNESS := 2.5
 const PIRATE_NAMES := ["Vex", "Grist", "Mordo", "Sable", "Kett", "Rook", "Harrow", "Jinx", "Skerry", "Tallow", "Brand", "Cutter"]
 
 var world: Node
@@ -106,10 +109,16 @@ func spawn_all() -> void:
 	var ai := AIPilot.new()
 	b.add_child(ai)
 	ai.setup(b, world, h, 14)
+	_toughen(b)
 	world._keep_station()
 	world._spawn_player(race)
 	world._place_at_home(world.player)
 	_start_pilot(world.player)
+
+
+func _toughen(b: Ship) -> void:
+	b.hull_max *= BASE_TOUGHNESS
+	b.hull = b.hull_max
 
 
 ## A pilot's run starts here: what they had when it began is kept aside,
@@ -321,6 +330,7 @@ func _new_run() -> void:
 	if b != null:
 		var at: Vector2 = world._station_spot(home())
 		b.respawn(at, world.space.circular_orbit_velocity(home().body, at))
+		_toughen(b)
 		Net.host_ship_respawned(b)
 	for s in pilots():
 		var old: Array = baseline.get(s, [s.score, s.kills])
