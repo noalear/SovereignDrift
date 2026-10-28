@@ -90,8 +90,8 @@ static func why_not(captor: Node, victim: Node) -> String:
 		return "taken"
 	if captor.crew <= captor.crew_max * REPELLED_AT:
 		return "crew"
-	if captor.warping or captor.cloaked:
-		return "cloak"
+	if captor.warping:
+		return "warp"
 	if captor.global_position.distance_to(victim.global_position) > board_range(captor, victim):
 		return "far"
 	return ""
@@ -115,8 +115,8 @@ static func reason_text(why: String, captor: Node, victim: Node) -> String:
 			return "Someone else is already boarding it."
 		"crew":
 			return "Not enough crew to board (%d of %d). Take on more at a friendly base or colony." % [int(ceil(captor.crew)), captor.crew_max]
-		"cloak":
-			return "Drop the cloak and the warp to board."
+		"warp":
+			return "Drop out of warp to board."
 		"far":
 			return "Close to %d to board (now %d)." % [int(board_range(captor, victim)), int(captor.global_position.distance_to(victim.global_position))]
 	return why

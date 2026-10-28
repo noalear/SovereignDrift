@@ -114,7 +114,7 @@ func _process(delta: float) -> void:
 	mat.set_shader_parameter("strength", s)
 	mat.set_shader_parameter("collapse", collapse)
 	mat.set_shader_parameter("guard", clampf(ship.invulnerable, 0.0, 1.0))
-	mat.set_shader_parameter("alpha", ship.cloak_alpha)
+	mat.set_shader_parameter("alpha", 1.0)
 
 
 func _draw() -> void:

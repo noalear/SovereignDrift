@@ -33,7 +33,7 @@ Press H or F1 in game for the controls card.
 | Shift, X, J | Boost, brake, quantum drive (warp) |
 | Mouse | Aim turrets |
 | Space / LMB, Ctrl / RMB | Torpedoes, secondary weapon |
-| F, M, L, C | Seeking missiles, mine, laser, cloak |
+| C, F, Z | Jammer on your target, ping (pulse radar), silent running |
 | T / Tab, R, Shift+click | Next target, nearest enemy, target the ship under the cursor (or open the info card of a planet or moon: people, owner, defences, growth, income) |
 | N, G, U | Next nav planet, autopilot to it, refit at your starbase |
 | B, 1, 2 | Land on the world below / lift off; take colonists on; put them down (join, settle, invade). In flight 1 and 2 select weapon groups |
@@ -46,7 +46,7 @@ On a gamepad the left stick flies, the right stick aims, RT/LT fire.
 ### Ship systems, crews and capture
 
 Every ship's engines, reactor, shield generators, sensors, quantum drive,
-cloak and weapon mounts sit where they are drawn on the hull, and hits damage
+jammer and weapon mounts sit where they are drawn on the hull, and hits damage
 the systems near the impact: shoot a ship in the stern to knock its engines
 out, broadside it to take its shields. Damaged systems work at reduced
 strength; offline ones stop until damage control restarts them, which goes
@@ -58,14 +58,30 @@ of `src/ships/ShipSystems.gd` and `src/world/Capture.gd`;
 `tools/capture_test.gd` reports how much hull is left when ships are
 disabled, and `tools/battle_sim.gd` runs a whole round of computer pilots.
 
+### Sensors and stealth
+
+Every ship gives itself away on four channels: its radar return (hull size
+and armour coat), heat (reactor, engines, boosters and every shot), emissions
+(its own radar, pings, lasers and shields) and the temporal ripple of a
+quantum jump. Each sensor reads one channel and sees a target out to its
+rated range x signature / 100: radar, pulse radar (a ping on F), lidar (a
+narrow beam), infrared, EM receivers and temporal sensors, plus the optics
+every hull has. A track lets you lock and fire guided weapons; a contact
+only says something is about there. Allies within 4000 px share what they
+see, and sensor stations share empire-wide. The jammer (C) works on your
+locked target and cuts its sensor range to 0.4x. Silent running (Z) turns
+your radar off and the reactor down. The shipyard shows each fit's radar
+return, heat and emissions. The balance lives at the top of
+`src/ships/Sensors.gd`; `tools/sensor_test.gd` checks the ranges.
+
 ### Tutorial
 
 **Tutorial (voiced, Terran)** on the title screen: Commander Hale of the
 Terran Naval Academy talks a cadet through the whole game in a calm Sol (no
 enemy fleets, no round clock, colonies hold their fire, nothing reaches the
-career). Seven chapters, 46 lessons: the cockpit, flight, navigation and the
+career). Seven chapters, 47 lessons: the cockpit, flight, navigation and the
 quantum drive, the map and info cards, targeting, weapon groups, disabling
-and boarding a drone, cloaking, a fight with a rookie pirate, loot, the
+and boarding a drone, signatures and silent running, the jammer, a fight with a rookie pirate, loot, the
 starbase and shipyard, landing, colonists, cargo, the ground war tabs, the
 ledger and job board, stations, the free port, invasions and how to win.
 Every line is spoken and shown as subtitles, with the objective and its live

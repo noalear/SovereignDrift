@@ -11,7 +11,7 @@ signal session_started()
 signal session_ended(reason: String)
 
 const PORT := 7777
-const PROTOCOL := 17
+const PROTOCOL := 18
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -367,7 +367,7 @@ func _rpc_pong(sent_ms: int) -> void:
 	ping_ms = lerpf(ping_ms, float(Time.get_ticks_msec() - sent_ms), 0.5 if ping_ms > 0.0 else 1.0)
 
 
-## A client asks for something only the host may do: a warp, a cloak, a refit.
+## A client asks for something only the host may do: a warp, the jammer, a refit.
 @rpc("any_peer", "reliable")
 func _rpc_command(cmd: String) -> void:
 	if not is_host():
@@ -381,8 +381,18 @@ func _rpc_command(cmd: String) -> void:
 				s.end_warp()
 			else:
 				s.start_warp()
-		"cloak":
-			s.set_cloak(not s.cloaked)
+		_ when cmd.begins_with("jam:"):
+			# the client's target travels with the command; targets are local
+			var jt: Node = ships_by_id.get(int(cmd.get_slice(":", 1)), null)
+			if s.jamming or jt == null:
+				s.set_jam(false)
+			else:
+				s.target = jt
+				s.set_jam(true)
+		"ping":
+			s.ping()
+		"silent":
+			s.set_silent(not s.sensors.emcon)
 		"refit":
 			var base: Node = world.nearest_base(s)
 			if base == null:
@@ -800,7 +810,9 @@ func _rpc_snapshot(data: PackedByteArray) -> void:
 		if e["net_id"] == local_net_id:
 			if not s.dead:
 				client.reconcile(s, snap["ack_seq"], e["pos"], e["vel"], e["rot"])
-			s.cloaked = (e["flags"] & NetCodec.FLAG_CLOAKED) != 0
+			s.jamming = (e["flags"] & NetCodec.FLAG_JAMMING) != 0
+			s.sensors.emcon = (e["flags"] & NetCodec.FLAG_SILENT) != 0
+			s.sensors.jammed_until = world.elapsed + 0.5 if (e["flags"] & NetCodec.FLAG_JAMMED) != 0 else -1.0
 			if s.warping != ((e["flags"] & NetCodec.FLAG_WARPING) != 0):
 				s.warping = not s.warping
 				s.warp_charge = 0.0 if s.warping else s.warp_charge
@@ -809,7 +821,8 @@ func _rpc_snapshot(data: PackedByteArray) -> void:
 			continue
 		client.push_state(e["net_id"], snap["elapsed"], e["pos"], e["vel"], e["rot"], (e["flags"] & NetCodec.FLAG_WARPING) != 0)
 		s.thrust_level = e["thrust"]
-		s.cloaked = (e["flags"] & NetCodec.FLAG_CLOAKED) != 0
+		s.jamming = (e["flags"] & NetCodec.FLAG_JAMMING) != 0
+		s.sensors.net_sig = e["sig"]
 		s.warping = (e["flags"] & NetCodec.FLAG_WARPING) != 0
 		if dead and not was_dead:
 			s._die(null)
@@ -821,8 +834,6 @@ func _rpc_shot(mid: int, owner_id: int, race: int, missile_id: String, pos: Vect
 		return
 	var owner: Node = ships_by_id.get(owner_id, null)
 	if owner != null and is_instance_valid(owner):
-		if owner.cloaked:
-			owner.cloaked = false
 		var snd := "torpedo"
 		match missile_id:
 			"003": snd = "plasma"

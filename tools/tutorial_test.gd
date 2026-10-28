@@ -152,7 +152,7 @@ func _world_check(w: World, p: Ship) -> void:
 func _lesson(w: World, t: Tutorial, p: Ship, id: String, f: int) -> void:
 	var earth: Planet = w.planet_by_name["Earth"]
 	var luna: Planet = w.planet_by_name["Luna"]
-	if f != 3 and not id in ["warp", "map", "board", "land", "to_luna", "colonists", "unload", "cloak", "shipyard_tour", "loot", "ground_tabs", "assist", "groups"]:
+	if f != 3 and not id in ["warp", "map", "board", "land", "to_luna", "colonists", "unload", "stealth", "jammer", "shipyard_tour", "loot", "ground_tabs", "assist", "groups"]:
 		return
 	match id:
 		"thrust":
@@ -238,17 +238,32 @@ func _lesson(w: World, t: Tutorial, p: Ship, id: String, f: int) -> void:
 				_action("board", false)
 			elif f == 2000:
 				_check(false, "boarding the drone finishes (progress %d%%)" % int(p.board_progress * 100.0))
-		"cloak":
+		"stealth":
 			if f == 3:
-				_action("cloak")
-				_action("cloak", false)
+				_action("silent_running")
+				_action("silent_running", false)
 			elif f == 10:
+				_check(p.sensors.emcon, "silent running goes on")
+				_action("silent_running")
+				_action("silent_running", false)
+		"jammer":
+			var pr := t.pirate
+			if f == 3:
+				_check(pr != null and not pr.dead, "the pirate comes in for the jammer lesson")
+				_put(pr, p.global_position + Vector2(700.0, 0), p.velocity)
+				p.target = pr
+			elif f == 90:            # the radar is back from silent running
+				_check(p.has_track(pr), "the pirate is locked at 700 px")
 				_action("cloak")
 				_action("cloak", false)
+			elif f == 120:
+				_check(p.jamming, "the jammer goes on against the locked pirate")
+			elif f == 400:
+				_check(false, "the jam bites (jamming %s)" % p.jamming)
 		"spar":
 			var pr := t.pirate
 			_check(pr != null and not pr.dead and pr.get_node_or_null("AI") != null, "a pirate with a pilot comes in")
-			_check(not pr.can_cloak, "the rookie pirate does not cloak")
+			_check(not pr.can_jam, "the rookie pirate does not jam you")
 			pr.take_damage(1e6, p)
 		"loot":
 			if f == 3:
