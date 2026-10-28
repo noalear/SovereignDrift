@@ -32,6 +32,7 @@ func _ready() -> void:
 	Net.trade_updated.connect(func(d): if trade != null: trade.update(d))
 	Net.trade_closed.connect(_close_trade)
 	Net.status.connect(_on_net_status)
+	Net.round_restarted.connect(_next_round)
 	_start_from_command_line()
 
 
@@ -108,8 +109,9 @@ func _join_game(address: String) -> void:
 		Net.session_started.connect(_start_game, CONNECT_ONE_SHOT)
 
 
-func _show_menu() -> void:
-	Net.leave()
+## Everything of the game in progress goes: the world, the HUD and every
+## panel over them.  The online session stays (Next round keeps it).
+func _close_game() -> void:
 	if builder != null:
 		builder.queue_free()
 		builder = null
@@ -131,6 +133,11 @@ func _show_menu() -> void:
 	if hud != null:
 		hud.queue_free()
 		hud = null
+
+
+func _show_menu() -> void:
+	Net.leave()
+	_close_game()
 	menu_camera = Camera2D.new()
 	# the menu camera drifts every frame, not on physics ticks
 	menu_camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
@@ -441,11 +448,26 @@ func _on_round_over(result: Dictionary) -> void:
 	Engine.time_scale = 1.0
 	scoreboard = Scoreboard.new()
 	scoreboard.open(result, world.player.race_id if world.player != null else Settings.race_id)
+	scoreboard.online = "host" if Net.is_host() else ("client" if Net.is_client() else "")
 	ui_layer.add_child(scoreboard)
 	scoreboard.play_again.connect(func():
-		_show_menu()
-		_start_game())
+		if Net.is_host():
+			_next_round()        # the friends stay: everyone goes into the next round
+		else:
+			_show_menu()
+			_start_game())
 	scoreboard.to_menu.connect(_show_menu)
+
+
+## Online, the next Conquest round in the same session.  The host builds a
+## fresh system and calls everyone in; a client (Net.round_restarted)
+## builds its own and says hello again, which seats it like a new joiner.
+func _next_round() -> void:
+	_close_pause()
+	Net.host_clear_round()
+	_close_game()
+	_start_game()
+	Net.host_round_restarted()
 
 
 ## A trade the host opened for our pilot: a window over the running round.

@@ -9,9 +9,10 @@ extends Node
 signal status(text: String)
 signal session_started()
 signal session_ended(reason: String)
+signal round_restarted()       # the host started the next Conquest round (client)
 
 const PORT := 7777
-const PROTOCOL := 18
+const PROTOCOL := 19
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -312,6 +313,9 @@ func _rpc_hello(name: String, protocol: int, career_score: int = 0, career_kills
 		_rpc_duel.rpc_id(peer_id, world.duel_rules.pack())   # before the welcome: the client is in a duel from its first frame
 	_rpc_welcome.rpc_id(peer_id, s.net_id, world.elapsed, _roster(), _planet_owners(), _powerup_list())
 	_rpc_stats.rpc_id(peer_id, _stats(), _round_state())
+	if world.round_rules != null and world.round_rules.over:
+		# the round is decided: the joiner sees the scoreboard and waits for the next
+		_rpc_round_over.rpc_id(peer_id, world.round_rules.result, false)
 	_rpc_seat_changed.rpc(s.net_id, name, true)
 	world.notify_all("%s joined the game as %s." % [name, s.design_name], Color(0.7, 1.0, 0.7))
 	lan.announce(_announcement(PORT))
@@ -545,6 +549,33 @@ func host_round_over(result: Dictionary) -> void:
 		return
 	_rpc_stats.rpc(_stats(), _round_state())
 	_rpc_round_over.rpc(result)
+
+
+## The host's Next round: the session stays open, everything tied to the
+## old world goes.  Main then builds the new world (host_attach), and
+## host_round_restarted sends every player into it.  Net ids keep counting
+## up, so a late snapshot of the old world never lands on a new ship.
+func host_clear_round() -> void:
+	if not is_host():
+		return
+	world = null
+	ships_by_id.clear()
+	powerups_by_id.clear()
+	seats.clear()
+	pilot_names.clear()
+	remote_inputs.clear()
+	last_seq_from.clear()
+	_systems_sent.clear()
+	trades.clear()
+	snapshot_timer = 0.0
+	stats_timer = 0.0
+
+
+func host_round_restarted() -> void:
+	if not is_host() or world == null:
+		return
+	_rpc_new_round.rpc()
+	lan.announce(_announcement(PORT))
 
 
 func host_refit(s: Node) -> void:
@@ -1092,8 +1123,10 @@ func _rpc_cabin(colonists: float, transfer: int, troops: Dictionary) -> void:
 		world.player.troops = troops
 
 
+## `played` is false for a pilot who joined after the round was decided:
+## they see the scoreboard, but it is not a round on their career.
 @rpc("authority", "reliable")
-func _rpc_round_over(result: Dictionary) -> void:
+func _rpc_round_over(result: Dictionary, played: bool = true) -> void:
 	if world == null:
 		return
 	# the host's pilot is not us
@@ -1103,7 +1136,26 @@ func _rpc_round_over(result: Dictionary) -> void:
 		world.round_rules.over = true
 		world.round_rules.phase = "over"
 		world.round_rules.result = result
-	world._on_round_finished(result)
+	if played:
+		world._on_round_finished(result)
+	else:
+		world.game_over = true
+		world.notify_all("This round is already decided. The next one starts when the host is ready.", Color(0.8, 0.9, 1.0))
+		world.round_over.emit(result)
+
+
+## The host started the next round: drop this world, build a fresh one and
+## say hello again, which seats us like a new joiner.
+@rpc("authority", "reliable")
+func _rpc_new_round() -> void:
+	if not is_client():
+		return
+	world = null
+	ships_by_id.clear()
+	powerups_by_id.clear()
+	local_net_id = 0
+	client = NetClient.new()
+	round_restarted.emit()
 
 
 @rpc("authority", "reliable")
