@@ -18,7 +18,7 @@ extends RefCounted
 ## A system's hit points as a share of the ship's full hull.
 const HP_SHARE := {
 	"engines": 0.27, "reactor": 0.27, "shields": 0.25, "sensors": 0.16,
-	"qdrv": 0.14, "jammer": 0.12, "weapon": 0.15,
+	"qdrv": 0.14, "jammer": 0.12, "weapon": 0.15, "pdc": 0.1,
 }
 ## Damage to a system from a hit right on it, per point of hull damage.
 const DAMAGE_MULT := 1.2
@@ -55,6 +55,7 @@ const VITAL := ["engines", "reactor"]
 const LABELS := {
 	"engines": ["Engines", "ENG"], "reactor": ["Reactor", "PWR"], "shields": ["Shields", "SHD"],
 	"sensors": ["Sensors", "SNS"], "qdrv": ["Quantum drive", "QD"], "jammer": ["Jammer", "JAM"],
+	"pdc": ["Point defence", "PDC"],
 }
 ## Which part overlay on the painting stands for which system.
 const ICONS := {"reactor": "reactor", "shields": "shield", "sensors": "sensor", "qdrv": "qdrv", "jammer": "cloak"}
@@ -112,6 +113,12 @@ func build(s: Node) -> void:
 		if pts.is_empty():
 			pts = fallback[kind]
 		_add(kind, pts, hull)
+	# the point defence turrets, one system for all of them
+	if s.pdc.fitted():
+		var pts := []
+		for mt in s.pdc.mounts:
+			pts.append(mt["pos"])
+		_add("pdc", pts, hull)
 	for i in s.weapons.size():
 		var w: Dictionary = s.weapons[i]
 		var spot: Vector2 = Vector2.RIGHT.rotated(w["mount_angle"]) * w["mount_radius"]

@@ -706,6 +706,8 @@ func _draw_right(r: Rect2) -> void:
 	var flags := []
 	if st["can_jam"]:
 		flags.append("jammer")
+	if st["pdc"] > 0:
+		flags.append("PDC x%d" % st["pdc"] if st["pdc"] > 1 else "PDC")
 	if st["heat_sink"] > 0.0:
 		flags.append("heat sink")
 	if st["has_boost"]:
@@ -858,6 +860,8 @@ func _part_info(id: String) -> String:
 			return "%s %s   %s   range %d" % [fam["channel"], "lock" if fam["track"] else "contacts", "active" if fam["active"] else "passive", p[0]]
 		"jammer":
 			return "jams your target's sensors   reach %d" % p[0]
+		"pdc":
+			return "turret, shoots down missiles, torpedoes, drones, mines   reach %d   %d rds" % [PointDefence.REACH, PointDefence.MAGAZINE]
 		"heatsink":
 			return "soaks 70%% of your heat, %d heat-seconds" % p[0]
 		"boost":

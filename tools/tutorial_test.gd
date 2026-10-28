@@ -152,7 +152,7 @@ func _world_check(w: World, p: Ship) -> void:
 func _lesson(w: World, t: Tutorial, p: Ship, id: String, f: int) -> void:
 	var earth: Planet = w.planet_by_name["Earth"]
 	var luna: Planet = w.planet_by_name["Luna"]
-	if f != 3 and not id in ["warp", "map", "board", "land", "to_luna", "colonists", "unload", "stealth", "jammer", "shipyard_tour", "loot", "ground_tabs", "assist", "groups"]:
+	if f != 3 and not id in ["warp", "map", "board", "land", "to_luna", "colonists", "unload", "stealth", "pdc", "jammer", "shipyard_tour", "loot", "ground_tabs", "assist", "groups"]:
 		return
 	match id:
 		"thrust":
@@ -246,6 +246,18 @@ func _lesson(w: World, t: Tutorial, p: Ship, id: String, f: int) -> void:
 				_check(p.sensors.emcon, "silent running goes on")
 				_action("silent_running")
 				_action("silent_running", false)
+		"pdc":
+			if f == 3:
+				_check(p.pdc.fitted(), "the yard fits a PDC for the PDC lesson")
+				_check(t.launcher != null and not t.launcher.dead, "a missile launcher comes in for the PDC lesson")
+			elif t.pdc_fired >= 1 and p.pdc.shot_down - t.pdc_kills_at >= Tutorial.PDC_KILLS and p.pdc.enabled and not t.seen.has("pdc_off"):
+				_action("pdc_toggle")
+				_action("pdc_toggle", false)
+			elif t.seen.has("pdc_off") and not p.pdc.enabled:
+				_action("pdc_toggle")
+				_action("pdc_toggle", false)
+			elif f == 3000:
+				_check(false, "the PDC shoots the lesson's missiles down (%d of %d down, %d fired)" % [p.pdc.shot_down - t.pdc_kills_at, Tutorial.PDC_KILLS, t.pdc_fired])
 		"jammer":
 			var pr := t.pirate
 			if f == 3:

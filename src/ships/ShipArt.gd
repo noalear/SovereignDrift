@@ -163,6 +163,7 @@ static func module_icon(id: String) -> String:
 		"ram": return "ram"
 		"boost": return "booster"
 		"qdrv": return "qdrv"
+		"pdc": return "rapid"
 	return "reactor"
 
 
@@ -444,7 +445,7 @@ static func build_model(design: Variant, race_id: int, size: float) -> Dictionar
 	var hull_name: String = design if design is String else design["name"]
 	var fit: Dictionary = {} if design is String else design
 	var m := {"hull": hull_name, "race": race_id, "size": size, "seed": hash(hull_name) + race_id * 31,
-		"tex": hull_texture(hull_name, race_id), "rect": Rect2(), "nozzles": [], "overlays": [], "turrets": [], "sockets": [],
+		"tex": hull_texture(hull_name, race_id), "rect": Rect2(), "nozzles": [], "overlays": [], "turrets": [], "sockets": [], "pdc": [],
 		"glow": glow_color(race_id), "tint": part_tint(race_id), "station": GameData.is_station_hull(hull_name)}
 	var tex: Texture2D = m["tex"]
 	m["rect"] = _hull_rect(tex, size, m["station"])
@@ -457,6 +458,7 @@ static func build_model(design: Variant, race_id: int, size: float) -> Dictionar
 		var eng_tier: int = counts.get("eng_tier", 2)
 		m["nozzles"] = _nozzle_points(m, hull_name, size, n_eng, eng_tier)
 		_system_overlays(m, size, counts)
+	_pdc_mounts(m, size, counts.get("pdc", 0))
 	if not m["station"]:
 		_sockets(m, size)
 	var weapons: Array = fit["weapons"] if not fit.is_empty() else GameData.SHIPS[hull_name]["weapons"]
@@ -589,6 +591,34 @@ static func _system_overlays(m: Dictionary, size: float, counts: Dictionary) -> 
 		_overlay(m, "ram", Vector2(rect.end.x + s * 0.05, 0), s * 0.5, 0.0, 1.0, 0.25, true)
 
 
+## Where each PDC turret sits: the flanks amidships first, then the bow
+## and the stern, then the aft flanks, kept on the hull and clear of the
+## other parts.  PointDefence fires from these spots.
+static func _pdc_mounts(m: Dictionary, size: float, n: int) -> void:
+	if n <= 0:
+		return
+	var hw: float = m["rect"].size.y * 0.5
+	var s := size
+	var spots := [Vector2(s * 0.05, -hw * 0.55), Vector2(s * 0.05, hw * 0.55), Vector2(s * 0.5, 0),
+		Vector2(-s * 0.55, 0), Vector2(-s * 0.3, -hw * 0.5), Vector2(-s * 0.3, hw * 0.5)]
+	var t := part_texture("rapid")
+	var w := clampf(s * 0.36, 11.0, 30.0)
+	for i in n:
+		var p: Vector2 = spots[i % spots.size()] * (1.0 - 0.15 * int(i / spots.size()))
+		p = _snap(m["mask"], m["rect"], p, w * 0.3, m["taken"], w * 0.8)
+		m["taken"].append(p)
+		m["pdc"].append({"tex": t, "pos": p, "w": w, "h": w * (t.get_height() / float(t.get_width()) if t != null else 0.5),
+			"rest": p.angle() if p.length() > 0.5 else 0.0})
+
+
+## The PDC turrets' places on a model (local to the ship).
+static func pdc_spots(m: Dictionary) -> Array:
+	var out := []
+	for p in m.get("pdc", []):
+		out.append(p["pos"])
+	return out
+
+
 ## An empty socket on every hardpoint, fitted or not, with its feed
 ## conduits running aft and in toward the keel.
 static func _sockets(m: Dictionary, size: float) -> void:
@@ -628,7 +658,7 @@ static func _turret_overlay(m: Dictionary, w: Array, index: int, mount: Vector2)
 ## `broken` maps a part icon, "engines" or "t<weapon index>" to how badly
 ## that system is damaged (0..1, 1 offline): those parts are drawn dark.
 static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: float, alpha: float, damage: float,
-		xform: Transform2D = Transform2D.IDENTITY, aims: Array = [], flash: float = 0.0, broken: Dictionary = {}) -> void:
+		xform: Transform2D = Transform2D.IDENTITY, aims: Array = [], flash: float = 0.0, broken: Dictionary = {}, pdc_aims: Array = []) -> void:
 	var a := alpha
 	var size: float = m["size"]
 	var rect: Rect2 = m["rect"]
@@ -668,6 +698,16 @@ static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: flo
 			ang = aims[t["index"]]
 		var k := 1.0 - 0.6 * float(broken.get("t%d" % t["index"], 0.0))
 		_draw_icon(c, xform, t["tex"], t["pos"], t["w"], t["h"], ang, Color(pm.r * k, pm.g * k, pm.b * k, pm.a), t["anchor"])
+	# point defence turrets: a dark ring under a small gatling at its live aim
+	var kp := 1.0 - 0.6 * float(broken.get("pdc", 0.0))
+	for i in m["pdc"].size():
+		var p: Dictionary = m["pdc"][i]
+		c.draw_set_transform_matrix(xform)
+		c.draw_circle(p["pos"], p["w"] * 0.36, Color(0.06, 0.07, 0.09, 0.9 * a))
+		c.draw_arc(p["pos"], p["w"] * 0.36, 0.0, TAU, 14, Color(tint.r, tint.g, tint.b, 0.7 * a * kp), 1.0, true)
+		if p["tex"] != null:
+			var ang: float = pdc_aims[i] if i < pdc_aims.size() else p["rest"]
+			_draw_icon(c, xform, p["tex"], p["pos"], p["w"], p["h"], ang, Color(pm.r * kp, pm.g * kp, pm.b * kp, pm.a), 0.3)
 	c.draw_set_transform_matrix(xform)
 	# idle nozzle glow
 	if a > 0.05 and not m["station"]:

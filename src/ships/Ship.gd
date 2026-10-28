@@ -117,6 +117,7 @@ var captures := 0
 var credits_earned := 0
 
 var weapons: Array = []            # see _build_weapons
+var pdc := PointDefence.new()      # point defence turrets (internal PDC parts)
 var inputs := {
 	"thrust": 0.0, "turn": 0.0, "strafe": 0.0, "boost": false, "brake": false,
 	"fire_primary": false, "fire_secondary": false, "fire_missile": false,
@@ -249,7 +250,7 @@ func refit(p_design: Variant) -> void:
 	if p_design is String:
 		design = GameData.stock_design(p_design, race_id)
 	else:
-		design = p_design
+		design = GameData.fix_design(p_design)
 	design_name = design["name"]
 	is_station = GameData.is_station_hull(design_name)
 	size = design["size"]
@@ -307,6 +308,7 @@ func refit(p_design: Variant) -> void:
 	hull = hull_max
 	_build_weapons()
 	art_model = ShipArt.build_model(design, hull_race, size)
+	pdc.build(int(stats.get("pdc", 0)), ShipArt.pdc_spots(art_model), is_station)
 	systems.build(self)
 	apply_systems()
 	_build_body()
@@ -473,7 +475,6 @@ func _build_weapons() -> void:
 			entry["rate"] = GameData.TUBE_COOLDOWN.get(mid, 0.3)
 			var md: Dictionary = GameData.MISSILES[mid]
 			entry["range"] = md["fire_v"] * GameData.LIGHT_SPEED * md["life"] * 0.8
-			entry["pdc"] = md.get("pdc", false)
 			match mid:
 				"001", "010":
 					entry["slot"] = "primary"
@@ -595,6 +596,18 @@ func ping() -> void:
 
 ## Silent running: radar and lidar off, shields stop recharging, the
 ## reactor turned down (half the energy regen, no reactor heat).
+## Point defence on or off (the PDC key): its stream of fire shows up on
+## heat sensors, so a pilot sneaking up may want it quiet.
+func set_pdc(on: bool) -> void:
+	if not pdc.fitted():
+		if is_player and world != null:
+			world.notify(self, "No PDC fitted: buy one at the shipyard (an internal part).")
+		return
+	pdc.enabled = on
+	if is_player and world != null:
+		world.notify(self, "Point defence on: the PDCs shoot down incoming missiles, torpedoes, drones and mines." if on else "Point defence off: the PDCs hold their fire.")
+
+
 func set_silent(on: bool) -> void:
 	sensors.set_emcon(on)
 	if is_player and world != null:
@@ -817,6 +830,7 @@ func _puppet_step(delta: float) -> void:
 		_landing_visual(delta)
 	if engine_sound != null:
 		engine_sound.update(thrust_level, false, warping, delta)
+	pdc.tick(self, delta, false)      # the turrets track, the host shoots
 	queue_redraw()
 
 
@@ -1321,8 +1335,6 @@ func _weapons(delta: float) -> void:
 					want = inputs["fire_mine"]
 				"beam":
 					want = inputs["fire_beam"]
-		if w.get("pdc", false):
-			want = _pdc_aim(w) != INF       # point defence shoots on its own
 		if not want or warping or landing != Landing.NONE:
 			continue
 		if systems.is_offline("w%d" % w["index"]):
@@ -1331,6 +1343,7 @@ func _weapons(delta: float) -> void:
 			_fire_beam(w, delta)
 		elif w["cooldown"] <= 0.0:
 			_fire_tube(w)
+	pdc.tick(self, delta, true)
 
 
 ## How far this ship's longest laser reaches (the AI opens fire inside it).
@@ -1342,8 +1355,10 @@ func beam_reach() -> float:
 	return r * 0.95
 
 
-## Does any launcher want reloading?
+## Does any launcher (or PDC magazine) want reloading?
 func needs_rearm() -> bool:
+	if pdc.needs_rearm():
+		return true
 	for w in weapons:
 		if w.get("ammo_max", -1) > 0 and w["ammo"] < w["ammo_max"]:
 			return true
@@ -1353,6 +1368,7 @@ func needs_rearm() -> bool:
 ## Reload the launchers by `share` of each magazine (bases and colonies
 ## call this, as they refuel).
 func rearm(share: float) -> void:
+	pdc.rearm(share)
 	for w in weapons:
 		var full: int = w.get("ammo_max", -1)
 		if full <= 0 or w["ammo"] >= full:
@@ -1377,11 +1393,6 @@ func _aim_angle(w: Dictionary) -> float:
 		var lock := _beam_lock(w)
 		if lock != INF:
 			return lock
-	# a point defence gun picks its own munition to shoot at
-	if w.get("pdc", false):
-		var pd := _pdc_aim(w)
-		if pd != INF:
-			return pd
 	# a turret under a pilot's hand points where the pilot points
 	if aim_point != Vector2.INF and is_turret(w):
 		var rel := wrapf((aim_point - global_position).angle() - rotation, -PI, PI)
@@ -1420,30 +1431,6 @@ func _beam_lock(w: Dictionary) -> float:
 	if w["arc1"] - w["arc0"] < TAU - 0.2 and (rel < w["arc0"] - 0.01 or rel > w["arc1"] + 0.01):
 		return INF
 	return rel
-
-
-## Point defence: the nearest enemy munition a PDC can reach and swing to,
-## led for its flight time, as an angle from the nose (INF: nothing to shoot).
-func _pdc_aim(w: Dictionary) -> float:
-	if world == null:
-		return INF
-	var best_d: float = w["range"]
-	var best := INF
-	var mv: float = GameData.MISSILES[w["missile"]]["fire_v"] * GameData.LIGHT_SPEED
-	for m: Missile in world.missiles:
-		if not is_instance_valid(m) or m.exploded or not m.shootable() or m.owner_team == team():
-			continue
-		var to: Vector2 = m.global_position - global_position
-		var d := to.length()
-		if d >= best_d:
-			continue
-		var lead: Vector2 = to + (m.velocity - velocity) * d / maxf(mv, 1.0)
-		var rel := wrapf(lead.angle() - rotation, -PI, PI)
-		if w["arc1"] - w["arc0"] < TAU - 0.2 and (rel < w["arc0"] - 0.01 or rel > w["arc1"] + 0.01):
-			continue
-		best_d = d
-		best = rel
-	return best
 
 
 func _fire_tube(w: Dictionary) -> void:
@@ -1491,8 +1478,7 @@ func _fire_tube(w: Dictionary) -> void:
 		"018": snd = "cannon"
 		"020": snd = "plasma"
 		"021": snd = "missile"
-		"022": snd = "rapid"
-	Sfx.play(snd, global_position, 0.35 if w.get("pdc", false) else 0.7, randf_range(0.95, 1.05))
+	Sfx.play(snd, global_position, 0.7, randf_range(0.95, 1.05))
 
 
 func _fire_beam(w: Dictionary, delta: float) -> void:
@@ -1823,7 +1809,13 @@ func _draw() -> void:
 	if art_model.is_empty():
 		art_model = ShipArt.build_model(design, hull_race, size)
 	var broken := systems.broken_map()
-	ShipArt.draw_model(self, art_model, base, thrust_level, (0.4 if building else 1.0), dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0), broken)
+	ShipArt.draw_model(self, art_model, base, thrust_level, (0.4 if building else 1.0), dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0), broken, pdc.aims())
+	# PDC muzzle flashes
+	for mt in pdc.mounts:
+		if mt["flash"] > 0.0:
+			var tip: Vector2 = mt["pos"] + Vector2.RIGHT.rotated(mt["aim"]) * size * 0.3
+			draw_circle(tip, 3.0, Color(1.0, 0.85, 0.45, 0.9))
+			draw_circle(tip, 1.6, Color(1, 1, 1, 0.95))
 	if building:
 		_draw_frame()
 	if not broken.is_empty():
