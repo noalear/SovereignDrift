@@ -11,7 +11,7 @@
 ## Turrets spread out over a salvo before doubling up, so a salvo of
 ## more munitions than turrets is what gets through.
 ##
-## The pilot turns them off with the PDC key (P): the stream of fire
+## The pilot turns them off with the PDC key (8): the stream of fire
 ## shows up on heat sensors.  Ammunition is a magazine per turret,
 ## refilled where launchers rearm.
 class_name PointDefence
