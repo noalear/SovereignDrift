@@ -10,7 +10,7 @@
 ## engine needs a new installer, since those load before any patch.
 extends Node
 
-const MANIFEST_URL := "https://raw.githubusercontent.com/noalear/Stellar-Frontier-Updates/main/updates.json"
+const MANIFEST_URL := "https://raw.githubusercontent.com/noalear/SFUpdater/main/updates.json"
 const DIR := "user://updates/"
 const INFO := DIR + "patch.json"     # {"base", "build", "file"}: the patch to load at start
 

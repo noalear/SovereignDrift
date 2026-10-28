@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Publish the current commit to players (see src/autoload/Updater.gd):
-#   GODOT=/path/to/godot UPDATES=/path/to/Stellar-Frontier-Updates BASES=/path/to/bases \
+#   GODOT=/path/to/godot UPDATES=/path/to/SFUpdater BASES=/path/to/bases \
 #     tools/publish_update.sh [--new-base]
 # The installer's game data is the base.  Each later build ships as one patch
 # pack of the files changed since that base, so players download only that.
@@ -13,9 +13,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 GODOT="${GODOT:-godot}"
-: "${UPDATES:?set UPDATES to a checkout of Stellar-Frontier-Updates}"
+: "${UPDATES:?set UPDATES to a checkout of noalear/SFUpdater}"
 : "${BASES:?set BASES to the folder that keeps base packs}"
-REPO_URL="https://raw.githubusercontent.com/noalear/Stellar-Frontier-Updates/main"
+REPO_URL="https://raw.githubusercontent.com/noalear/SFUpdater/main"
 INSTALLER_URL="${INSTALLER_URL:-https://drive.google.com/file/d/1xAcmV3v4agDk25Q6vmtaA_xgXHyXHVy7/view}"
 MAX_PATCH=$((60 * 1024 * 1024))
 VERSION=$(sed -n 's/^config\/version="\(.*\)"/\1/p' project.godot)
