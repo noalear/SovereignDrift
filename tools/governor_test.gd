@@ -77,6 +77,9 @@ func _process(_delta: float) -> bool:
 	var p: Ship = w.player
 	var now := w.elapsed
 	p.invulnerable = 1e9
+	if runner != null:
+		for h in _terran_haulers(w):
+			h.invulnerable = 1e9      # the kit run calls at Uranus, among Drengin warships; the test needs both later
 	var earth: Planet = w.planet_by_name["Earth"]
 	var luna: Planet = w.planet_by_name["Luna"]
 	var mars: Planet = w.planet_by_name["Mars"]
@@ -137,8 +140,10 @@ func _process(_delta: float) -> bool:
 			var raider: AIPilot = foe.get_node("AI")
 			raider.raid = true
 			var spot := mars.global_position + Vector2(0, -(mars.radius + 2500.0))
-			_freeze(lone, true)
-			_freeze(guarded, true)
+			for h in [lone, guarded]:
+				_freeze(h, true)
+				if h.is_landing():
+					h._end_landing()      # a kit run may start with a landing for its materials
 			_put(foe, spot, mars.velocity)
 			_put(guarded, spot + Vector2(400, 0), mars.velocity)
 			_put(lone, spot + Vector2(-900, 0), mars.velocity)
@@ -162,10 +167,31 @@ func _process(_delta: float) -> bool:
 				h.cargo.clear()
 				h.get_node("AI").state = AIPilot.State.PATROL
 				h.get_node("AI").job = ""
+			# a gas giant has room for every empire's skimmer; a rock holds one mine
+			var uranus: Planet = w.planet_by_name["Uranus"]
+			var theirs: Ship = w.build_station(2, "GasSkimmer", uranus, uranus.global_position + Vector2(uranus.radius + 400.0, 0))
+			var site: Dictionary = gov.choose_site([])
+			_check(site.get("key", "") == "GasSkimmer" and site.get("body") == uranus, "a Drengin skimmer at Uranus leaves room for a Terran one (%s at %s)" % [
+				site.get("key", "-"), site["body"].body_name if site.get("body") != null else "-"])
+			var ours: Ship = w.build_station(1, "GasSkimmer", uranus, uranus.global_position + Vector2(-uranus.radius - 400.0, 0))
+			var rock: Dictionary = gov.choose_site([ours])
+			var mine: Ship = null
+			if rock.get("key", "") == "MiningStation":
+				mine = w.build_station(2, "MiningStation", rock["body"], rock["body"].global_position + Vector2(rock["body"].radius + 300.0, 0))
+				site = gov.choose_site([ours])
+				_check(site.get("body") != rock["body"], "a Drengin mine at %s turns the Terran mine elsewhere (%s at %s)" % [rock["body"].body_name,
+					site.get("key", "-"), site["body"].body_name if site.get("body") != null else "-"])
+				w.remove_ship(mine)
+			else:
+				_check(false, "with a skimmer up, the Terrans want a mine next (%s)" % rock.get("key", "-"))
+			w.remove_ship(ours)
+			w.remove_ship(theirs)
 			frames0 = _frames(w, 1)
+			for k in ["metals", "alloys", "exotics"]:
+				earth.stock[k] = Economy.cap(earth) * 0.5
 			gov._station_kits()
 			for h in _terran_haulers(w):
-				if h.get_node("AI").job == "kit":
+				if h.get_node("AI").job in ["stock", "kit"]:
 					runner = h
 			_check(runner != null, "the governor sends a supply ship for a %s kit at %s" % [runner.get_node("AI").haul_res if runner != null else "?", runner.get_node("AI").kit_body.body_name if runner != null else "?"])
 			if runner == null:
@@ -177,9 +203,11 @@ func _process(_delta: float) -> bool:
 			step = 1
 		1:
 			var ai: AIPilot = runner.get_node("AI")
-			if ai.job != "deploy" and now - t0 < 20.0:
+			if ai.job != "deploy" and now - t0 < 90.0:
 				return false
-			_check(ai.job == "deploy" and runner.kit != "", "it took the kit aboard at the starbase (%s)" % runner.kit)
+			_check(ai.job == "deploy" and runner.kit != "", "it took the kit aboard at the starbase (%s; %s %s)" % [runner.kit, AIPilot.State.keys()[ai.state], ai.job])
+			var cost: Dictionary = GameData.STATIONS.get(runner.kit, {}).get("cost", {"?": 1})
+			_check(cost.keys().all(func(k): return runner.cargo.get(k, 0.0) >= float(cost[k])), "with the frame's materials from Earth aboard (%s)" % [runner.cargo])
 			# a long flight, shortened
 			_park(w, runner, ai.kit_body, 500.0)
 			t0 = now
@@ -188,6 +216,8 @@ func _process(_delta: float) -> bool:
 			if _frames(w, 1) == frames0 and now - t0 < 30.0:
 				return false
 			_check(_frames(w, 1) == frames0 + 1 and runner.kit == "", "and put the frame up (%d stations)" % _frames(w, 1))
+			var rai: AIPilot = runner.get_node("AI")
+			_check(rai.job == "supply" and rai.dock_at != null and rai.dock_at.building, "and goes straight alongside it with the materials (%s)" % rai.job)
 			step = 3
 		3:
 			# the job board: Luna short of Food, Earth with plenty

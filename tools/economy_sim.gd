@@ -17,6 +17,7 @@ var kit_runs := {}              # supply ships on a station kit run last frame
 var raiders := {}               # what killed supply ships: raid duty, pirate, other warship, colony guns, station
 var roles := {}                 # and which kind: supply, trade or drop ship
 var seen_convoys := {}
+var stations_lost := {}         # race:hull -> stations (not starbases) destroyed
 var real0 := 0
 var gd: Node
 
@@ -38,6 +39,8 @@ func _start() -> void:
 	real0 = Time.get_ticks_msec()
 	var w: World = main.world
 	w.message.connect(func(t, _c):
+		if " is complete" in t:
+			print("  %s: %s" % [Round._fmt(main.world.elapsed), t])
 		if "deployed a" in t:
 			tally["kits"] += 1
 			print("  %s: %s" % [Round._fmt(main.world.elapsed), t])
@@ -48,7 +51,7 @@ func _start() -> void:
 		print("  %s: %s now held by the %s" % [Round._fmt(w.elapsed), p.body_name, gd.race(p.owner_race)["name"] if p.owner_race >= 0 else "nobody"]))
 	for s in w.ships:
 		_watch(s)
-	w.child_entered_tree.connect(func(n):
+	w.ships_layer.child_entered_tree.connect(func(n):
 		if n is Ship:
 			_watch(n))
 
@@ -60,6 +63,18 @@ func _watch(s: Ship) -> void:
 
 
 func _died(_victim, killer, s: Ship) -> void:
+	if s.is_station and not s.is_starbase() and s.race_id <= 2:
+		var by := "nothing"
+		if killer is Planet:
+			by = "colony guns of " + killer.body_name
+		elif killer is Ship and is_instance_valid(killer):
+			by = "%s %s" % [gd.race(killer.race_id)["adj"], killer.ship_name]
+		var host: String = s.station_body.body_name if s.station_body != null else "-"
+		print("  %s: %s %s%s at %s lost to %s" % [Round._fmt(main.world.elapsed), gd.race(s.race_id)["adj"], s.design_name,
+			" (frame)" if s.building else "", host, by])
+		var k := "%s:%s" % [gd.race(s.race_id)["name"].substr(0, 4), s.design_name]
+		stations_lost[k] = int(stations_lost.get(k, 0)) + 1
+		return
 	if not s.support or s.race_id > 2:
 		return
 	var kind := "other"
@@ -113,7 +128,7 @@ func _process(_delta: float) -> bool:
 	for s in w.ships:
 		var ai: AIPilot = s.get_node_or_null("AI") if s.support else null
 		if ai != null:
-			var on_kit: bool = ai.job in ["kit", "deploy"]
+			var on_kit: bool = ai.job in ["stock", "kit", "deploy"]
 			if on_kit != kit_runs.get(s, false):
 				print("  %s: %s %s %s a %s kit run (%s, %s)" % [Round._fmt(w.elapsed), gd.race(s.race_id)["adj"], s.ship_name, "starts" if on_kit else "ends",
 					ai.haul_res if on_kit else "", AIPilot.State.keys()[ai.state], ai.kit_body.body_name if ai.kit_body != null else "-"])
@@ -174,9 +189,25 @@ func _report(w: World) -> void:
 	for s in w.ships:
 		var ai: AIPilot = s.get_node_or_null("AI") if s.support and not s.dead else null
 		if ai != null:
-			var key: String = AIPilot.State.keys()[ai.state] + ("/" + ai.job if ai.job in ["kit", "deploy"] else "")
+			var key: String = AIPilot.State.keys()[ai.state] + ("/" + ai.job if ai.job in ["stock", "kit", "deploy"] else "")
 			states[key] = int(states.get(key, 0)) + 1
 	print("    homes: %s   supply ships lost to: %s, by kind: %s" % [", ".join(homes), raiders, roles])
-	print("    support ships now: %s" % [states])
+	var traders := []
+	for s in w.ships:
+		var ai: AIPilot = s.get_node_or_null("AI") if s.support and not s.dead else null
+		if ai != null and ai.trader and s.race_id <= 2:
+			traders.append("%s %dcr %s %s" % [gd.race(s.race_id)["name"].substr(0, 4), s.credits, ai.job, ai.haul_res])
+	print("    support ships now: %s   stations lost: %s   traders: %s" % [states, stations_lost, ", ".join(traders)])
+	var built := []
+	for s in w.ships:
+		if s.is_station and not s.dead and not s.is_starbase() and s.race_id <= 2:
+			built.append("%s %s%s@%s %s" % [gd.race(s.race_id)["name"].substr(0, 4), s.design_name, "(frame)" if s.building else "",
+				s.station_body.body_name if s.station_body != null else "-", JSON.stringify(s.cargo).replace("\"", "")])
+	print("    stations: %s" % ", ".join(built))
+	var fuel := []
+	for p in w.planets:
+		if p.is_colonised() and p.owner_race <= 2 and p.stock.get("fuel", 0.0) >= 0.0:
+			fuel.append("%s %d" % [p.body_name, int(p.stock.get("fuel", 0.0))])
+	print("    fuel: %s" % ", ".join(fuel))
 	line += " | battles %d taken %d convoys %d raided %d kits %d jobs %d fled %d" % [tally["battles"], tally["taken"], tally["convoys"], tally["raided"], tally["kits"], jobs, tally["fled"]]
 	print(line)

@@ -761,7 +761,10 @@ func _plan_ferry() -> bool:
 
 
 func _job_still_good() -> bool:
-	# a kit run has no job planet: the starbase, then the site
+	# a kit run: the frame's materials from home, the starbase, then the site
+	if job == "stock":
+		return kit_body != null and job_planet != null and is_instance_valid(job_planet) and job_planet.is_colonised() \
+			and job_planet.owner_race == ship.race_id
 	if job == "kit":
 		return dock_at != null and is_instance_valid(dock_at) and not dock_at.dead and kit_body != null
 	if job == "deploy":
@@ -926,23 +929,41 @@ func make_dropper() -> void:
 
 
 ## The governor's order for a supply ship: fetch a station kit from the
-## starbase and put the frame up over `body`.
+## starbase and put the frame up over `body`, with what the home world
+## can spare of the frame's materials aboard, so the frame is not left
+## waiting far from home for a second run.
 func start_kit(key: String, body: Planet) -> void:
 	var base: Ship = world.starbase_of(ship.race_id)
 	if base == null or body == null:
 		return
 	job = "kit"
+	var home: Planet = world._home_planet(ship.race_id)
+	if ship.cargo_total() < 1.0 and home != null and home.owner_race == ship.race_id and not _kit_stock(home, key).is_empty():
+		job = "stock"
 	haul_res = key
 	kit_body = body
 	kit_turn = 0.0
 	kit_side = Vector2.ZERO
-	job_planet = null
+	job_planet = home if job == "stock" else null
 	haul_to = null
 	haul_frame = null
 	haul_market = null
-	dock_at = base
+	dock_at = base if job == "kit" else null
 	ground_order = false
 	state = State.FERRY
+
+
+## What of a station's materials a colony can spare for its kit run.
+func _kit_stock(p: Planet, key: String) -> Dictionary:
+	var out := {}
+	var room := ship.cargo_space()
+	var cost: Dictionary = GameData.STATIONS[key]["cost"]
+	for k in cost:
+		var n := floorf(minf(minf(float(cost[k]), _spare_for_frame(p, k)), room))
+		if n >= 1.0:
+			out[k] = n
+			room -= n
+	return out
 
 
 ## Alongside the starbase: the kit comes aboard (the empire pays for it).
@@ -965,7 +986,18 @@ func _deploy_kit() -> void:
 	var site: Dictionary = world.station_site(ship, ship.kit)
 	if site["why"] == "":
 		world.deploy_kit(ship)
+		var frame: Ship = null
+		for o in world.ships:
+			if o.building and not o.dead and o.race_id == ship.race_id and o.station_body == kit_body \
+					and (frame == null or o.global_position.distance_to(ship.global_position) < frame.global_position.distance_to(ship.global_position)):
+				frame = o
 		_end_kit()
+		if frame != null and ship.cargo_total() >= 1.0:
+			# the materials came along: straight alongside the new frame
+			job = "supply"
+			job_planet = null
+			dock_at = frame
+			state = State.FERRY
 	elif "Too close" in site["why"] and kit_turn < TAU:
 		if ship.global_position.distance_to(_site_point()) < 250.0:
 			kit_turn += 0.6         # there, and still crowded: move round the world a little
@@ -1209,7 +1241,7 @@ func _plan_haul() -> bool:
 			var v := 0.0
 			var room := 0.0
 			for k in ship.cargo:
-				v += Economy.need(p, k) * ship.cargo[k] * GameData.RESOURCE_PRICE.get(k, 1.0)
+				v += Economy.need(p, k) * ship.cargo[k] * GameData.RESOURCE_PRICE.get(k, 1.0) * (UPKEEP_FIRST if Economy.running_low(p, k) else 1.0)
 				room += maxf(Economy.cap(p) - p.stock.get(k, 0.0), 0.0)
 			if room < 5.0:
 				continue
@@ -1292,7 +1324,7 @@ func _plan_haul() -> bool:
 					continue
 				var amount := minf(spare, maxf(Economy.wanted(dst, k), 20.0))
 				var trip: float = 1500.0 + pos.distance_to(src.global_position) + src.global_position.distance_to(dst.global_position)
-				var v: float = amount * want * GameData.RESOURCE_PRICE.get(k, 1.0) * _safety(src) * _safety(dst) / trip
+				var v: float = amount * want * GameData.RESOURCE_PRICE.get(k, 1.0) * (UPKEEP_FIRST if Economy.running_low(dst, k) else 1.0) * _safety(src) * _safety(dst) / trip
 				if v > best:
 					best = v
 					job_planet = src
@@ -1365,17 +1397,23 @@ func _plan_trade() -> bool:
 		for k in Economy.RESOURCES:
 			var have: float = m.cargo.get(k, 0.0)
 			var price := Economy.buy_price(m, k, ship)
-			if have < 40.0 or price > GameData.RESOURCE_PRICE.get(k, 1.0):
-				continue           # only what sells cheap
+			if have < 40.0 or price > GameData.RESOURCE_PRICE.get(k, 1.0) * URGENT_PRICE:
+				continue
 			for dst in ours:
 				var want := Economy.need(dst, k)
 				if want < 0.4:
+					continue
+				# what sells cheap, or dear when a world is nearly out (a world
+				# with no Fuel of its own has nowhere else to get it); what keeps
+				# a shield up comes first
+				var low := Economy.running_low(dst, k)
+				if price > GameData.RESOURCE_PRICE.get(k, 1.0) and want < URGENT_NEED and not low:
 					continue
 				var amount := minf(minf(have - 10.0, Economy.wanted(dst, k) + 20.0), minf(ship.cargo_max, ship.credits / price))
 				if amount < 20.0:
 					continue
 				var trip: float = 1500.0 + pos.distance_to(m.global_position) + m.global_position.distance_to(dst.global_position)
-				var v: float = amount * want * GameData.RESOURCE_PRICE.get(k, 1.0) * 0.8 * _safety(m) * _safety(dst) / trip
+				var v: float = amount * want * GameData.RESOURCE_PRICE.get(k, 1.0) * 0.8 * (UPKEEP_FIRST if low else 1.0) * _safety(m) * _safety(dst) / trip
 				if v > best:
 					best = v
 					job_planet = null
@@ -1387,6 +1425,16 @@ func _plan_trade() -> bool:
 		haul_market = null
 		return true
 	return job_planet != null
+
+
+## A trade ship buys at up to URGENT_PRICE times the usual price for a
+## colony whose need for it is URGENT_NEED or more.
+const URGENT_NEED := 0.7
+const URGENT_PRICE := 1.6
+## Supply and trade runs count goods a world's upkeep is running out of
+## (Economy.running_low) this many times over: Fuel for a shield before
+## Fuel for a world that burns none.
+const UPKEEP_FIRST := 4.0
 
 
 ## How much a run to or from `n` is worth for its danger: less when an
@@ -1413,6 +1461,11 @@ func _haul_on_ground() -> void:
 	var here := ship.land_body
 	if not ground_order:
 		ground_order = true
+		if job == "stock" and here == job_planet:
+			var take := _kit_stock(here, haul_res)
+			for k in take:
+				world.cargo_command(ship, k, take[k])
+			return
 		if job == "load" and here == job_planet and haul_frame != null and is_instance_valid(haul_frame):
 			# everything the frame (or yard) still needs that this colony can spare
 			var room := ship.cargo_space()
@@ -1461,7 +1514,13 @@ func _haul_on_ground() -> void:
 		return
 	ground_order = false
 	world.try_land(ship)              # lift off
-	if job == "load" and ship.cargo_total() >= 1.0 and haul_frame != null and is_instance_valid(haul_frame) and not haul_frame.dead:
+	var base: Ship = world.starbase_of(ship.race_id) if job == "stock" else null
+	if base != null and kit_body != null:
+		job = "kit"                   # on up to the starbase for the kit itself
+		dock_at = base
+		job_planet = null
+		state = State.FERRY
+	elif job == "load" and ship.cargo_total() >= 1.0 and haul_frame != null and is_instance_valid(haul_frame) and not haul_frame.dead:
 		job = "supply"
 		dock_at = haul_frame
 		job_planet = null
@@ -1495,9 +1554,13 @@ static func _priority(st: Ship) -> float:
 const COLLECT_AT := 60.0
 
 
-## What a colony can give a frame: anything over a sixth of its cap.
+## What a colony can give a frame: anything over a sixth of its cap, or
+## over FRAME_KEEP units when that is less.  A world's Alloys seldom pile up
+## to a sixth of a big cap, and a skimmer frame waiting on its last five
+## Alloys leaves the empire with no Fuel.
 static func _spare_for_frame(p: Planet, k: String) -> float:
-	return maxf(p.stock.get(k, 0.0) - Economy.cap(p) / 6.0, 0.0)
+	return maxf(p.stock.get(k, 0.0) - minf(Economy.cap(p) / 6.0, FRAME_KEEP), 0.0)
+const FRAME_KEEP := 20.0
 
 
 ## Fly to a station and hold alongside it, on its far side from its world.

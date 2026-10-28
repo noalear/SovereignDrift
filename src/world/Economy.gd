@@ -243,6 +243,13 @@ static func refinable_fuel(p: Planet) -> float:
 const FUEL_RESERVE := 20.0
 
 
+## Is a world burning through a resource its shield, farms or troops
+## need, with less than FUEL_RESERVE minutes of that upkeep left?
+static func running_low(p: Planet, k: String) -> bool:
+	var burn: float = Ground.upkeep_rate(p).get(k, 0.0)
+	return burn > 0.0 and p.stock.get(k, 0.0) < burn * FUEL_RESERVE
+
+
 ## A fresh game: every colony starts with a few minutes of its own output.
 func seed_stocks() -> void:
 	for p in world.planets:

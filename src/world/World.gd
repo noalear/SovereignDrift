@@ -2425,8 +2425,10 @@ func station_site(s: Ship, key: String) -> Dictionary:
 		for o in ships:
 			if not o.is_station or o.dead:
 				continue
-			if st["where"] != "any" and o.station_body == p and GameData.STATIONS.get(o.design_name, {}).get("where", "") == st["where"]:
-				out["why"] = "%s already has a %s." % [p.body_name, GameData.STATIONS[o.design_name]["label"].to_lower()]
+			# one mine to a rock; a gas giant has room for every empire's skimmer
+			if st["where"] != "any" and o.station_body == p and GameData.STATIONS.get(o.design_name, {}).get("where", "") == st["where"] \
+					and (st["where"] == "rock" or o.race_id == s.race_id):
+				out["why"] = "%s already has %s %s." % [p.body_name, "a" if st["where"] == "rock" else "your", GameData.STATIONS[o.design_name]["label"].to_lower()]
 				break
 			if o.global_position.distance_to(s.global_position) < o.size + 300.0:
 				out["why"] = "Too close to %s: move off a little." % o.ship_name

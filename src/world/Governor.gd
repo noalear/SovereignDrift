@@ -159,7 +159,11 @@ func _recruit_on(p: Planet) -> void:
 	if Ground.strength(p.garrison) >= garrison_target(p):
 		return
 	var unit := "infantry"
-	if p.stock.get("metals", 0.0) >= 40.0 and p.stock.get("fuel", 0.0) >= 20.0 and p.stock.get("alloys", 0.0) >= 10.0 and randf() < 0.35:
+	# armour burns Fuel for good: only with FUEL_RESERVE minutes of the
+	# world's upkeep, armour's own included, in hand or a well of its own
+	var fuel_ok: bool = Economy.makes(p, "fuel") >= 1.0 or p.stock.get("fuel", 0.0) >= 20.0 \
+		+ (Ground.upkeep_rate(p).get("fuel", 0.0) + 1.0) * Economy.FUEL_RESERVE
+	if p.stock.get("metals", 0.0) >= 40.0 and fuel_ok and p.stock.get("alloys", 0.0) >= 10.0 and randf() < 0.35:
 		unit = "armour"
 	if Ground.recruit_refusal(null, p, unit) == "":
 		Ground.queue_recruit(p, unit)
@@ -211,7 +215,7 @@ func _station_kits() -> void:
 		if s.dead or s.race_id != race or not s.support:
 			continue
 		var ai: AIPilot = s.get_node_or_null("AI")
-		if ai != null and (ai.job in ["kit", "deploy"] or s.kit != ""):
+		if ai != null and (ai.job in ["stock", "kit", "deploy"] or s.kit != ""):
 			return                  # one run at a time
 	if have.size() >= MAX_STATIONS:
 		return
@@ -235,6 +239,12 @@ func choose_site(have: Array) -> Dictionary:
 		for p in colonies():
 			n += Economy.need(p, k)
 		short[k] = n
+	# a rock holds one mine, whoever's (World.station_site): a rock another
+	# empire got to first turns the kit away on arrival
+	var claimed := {}
+	for s in world.ships:
+		if s.is_station and not s.dead and s.station_body != null and GameData.STATIONS.get(s.design_name, {}).get("where", "") == "rock":
+			claimed[s.station_body] = true
 	var best := {}
 	var best_v := 0.0
 	for p in world.planets:
@@ -255,7 +265,7 @@ func choose_site(have: Array) -> Dictionary:
 			if v > best_v:
 				best_v = v
 				best = {"key": "GasSkimmer", "body": p}
-		elif p.has_surface() and not p.is_colonised() and world._minable(p):
+		elif p.has_surface() and not p.is_colonised() and world._minable(p) and not claimed.has(p):
 			var v := 0.0
 			for k in ["metals", "ice", "exotics"]:
 				v += float(p.richness.get(k, 0)) * (1.0 + short[k]) * GameData.RESOURCE_PRICE.get(k, 1.0)
