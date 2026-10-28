@@ -12,7 +12,7 @@ signal session_ended(reason: String)
 signal round_restarted()       # the host started the next Conquest round (client)
 
 const PORT := 7777
-const PROTOCOL := 19
+const PROTOCOL := 20
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -1465,6 +1465,10 @@ func _handle_trade_cmd(peer_id: int, kind: String, data: Dictionary) -> void:
 	if world.duel_rules != null:
 		if kind == "invite":
 			world.notify(me, "No trading in a duel: everyone here is out to get you.")
+		return
+	if world.mode == "skirmish":
+		if kind == "invite":
+			world.notify(me, "No trading in Skirmish: every ship there is ready-built.")
 		return
 	match kind:
 		"invite":
