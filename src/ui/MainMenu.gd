@@ -11,6 +11,7 @@ signal campaign_new_pressed()
 signal campaign_continue_pressed()
 signal host_pressed()
 signal duel_pressed()
+signal mode_pressed(which: String, online: bool)   # "survival" or "skirmish", alone or hosted
 signal join_pressed(address: String)
 signal quit_pressed()
 signal closed()              # in_game: Back or Esc on the Settings page
@@ -319,7 +320,7 @@ func _draw() -> void:
 func _draw_main(vp: Vector2) -> void:
 	var w := 320.0
 	var x := (vp.x - w) * 0.5
-	var y := vp.y * 0.42
+	var y := vp.y * 0.39
 	draw_string(font, Vector2(0, y - 20), _profile_line("single"), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 17, Color(1, 0.95, 0.8))
 	_button(Rect2(x, y, w, 52), "Play: the Sol system", func(): play_pressed.emit())
 	var has_save := not save_info.is_empty()
@@ -332,12 +333,17 @@ func _draw_main(vp: Vector2) -> void:
 	_button(Rect2(x, y + 128, w, 52), "Tutorial (voiced, Terran)", func(): tutorial_pressed.emit())
 	_button(Rect2(x, y + 192, w * 0.5 - 4, 52), "Practice duel", func(): practice_pressed.emit())
 	_button(Rect2(x + w * 0.5 + 4, y + 192, w * 0.5 - 4, 52), "Free flight", func(): free_flight_pressed.emit())
-	_button(Rect2(x, y + 256, w, 52), "Play online", func(): _set_page("online"))
-	_button(Rect2(x, y + 320, w * 0.5 - 4, 52), "Pilot", func(): _set_page("pilot"))
-	_button(Rect2(x + w * 0.5 + 4, y + 320, w * 0.5 - 4, 52), "Settings", func(): _set_page("settings"))
-	_button(Rect2(x, y + 384, w * 0.5 - 4, 52), "About", func(): _set_page("about"))
-	_button(Rect2(x + w * 0.5 + 4, y + 384, w * 0.5 - 4, 52), "Quit", func(): quit_pressed.emit())
-	draw_string(font, Vector2(0, y + 468), "Arrow keys, D-pad or stick to move   ·   Enter or A to choose   ·   Esc or B to go back", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14, Color(0.6, 0.7, 0.85))
+	_button(Rect2(x, y + 256, w * 0.5 - 4, 52), "Survival", func(): mode_pressed.emit("survival", false))
+	_button(Rect2(x + w * 0.5 + 4, y + 256, w * 0.5 - 4, 52), "Skirmish", func(): mode_pressed.emit("skirmish", false))
+	var best := int(Settings.profile_info("single")["career"].get("survival_best", 0))
+	draw_string(font, Vector2(x + w + 16, y + 288), "Survival: hold your starbase against waves%s.   Skirmish: two empires, %d a side, first to %d kills." % [
+		(" (best: %d)" % best) if best > 0 else "", Skirmish.TEAM_SIZE, Skirmish.KILLS_TO_WIN], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.7, 0.8, 0.95))
+	_button(Rect2(x, y + 320, w, 52), "Play online", func(): _set_page("online"))
+	_button(Rect2(x, y + 384, w * 0.5 - 4, 52), "Pilot", func(): _set_page("pilot"))
+	_button(Rect2(x + w * 0.5 + 4, y + 384, w * 0.5 - 4, 52), "Settings", func(): _set_page("settings"))
+	_button(Rect2(x, y + 448, w * 0.5 - 4, 52), "About", func(): _set_page("about"))
+	_button(Rect2(x + w * 0.5 + 4, y + 448, w * 0.5 - 4, 52), "Quit", func(): quit_pressed.emit())
+	draw_string(font, Vector2(0, y + 532), "Arrow keys, D-pad or stick to move   ·   Enter or A to choose   ·   Esc or B to go back", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14, Color(0.6, 0.7, 0.85))
 
 
 ## Top right: the build and the updater's news, with Restart once an
@@ -387,8 +393,11 @@ func _draw_online(vp: Vector2) -> void:
 	draw_string(font, Vector2(0, y - 28), "Change it on the Pilot page.", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 13, Color(0.65, 0.72, 0.85))
 	draw_string(font, Vector2(x, y), "Co-op: friends drop in as %s pilots.  Duel: a free-for-all, everyone against everyone." % GameData.race(int(Settings.profile_info("online")["race"]))["name"],
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.8, 0.85, 0.95))
-	_button(Rect2(x, y + 20, 296, 48), "Host co-op (port %d)" % Net.PORT, func(): host_pressed.emit())
+	_button(Rect2(x, y + 20, 296, 48), "Host co-op Conquest", func(): host_pressed.emit())
 	_button(Rect2(x + 304, y + 20, 296, 48), "Host a duel (free-for-all)", func(): duel_pressed.emit())
+	_button(Rect2(x, y + 76, 296, 48), "Host Survival (co-op, up to %d)" % Survival.MAX_PLAYERS, func(): mode_pressed.emit("survival", true))
+	_button(Rect2(x + 304, y + 76, 296, 48), "Host Skirmish (teams)", func(): mode_pressed.emit("skirmish", true))
+	y += 56
 	draw_string(font, Vector2(x, y + 90), "Friends join with your address. Online, open UDP %d on your router or use Tailscale." % Net.PORT,
 		HORIZONTAL_ALIGNMENT_LEFT, 600, 13, Color(0.7, 0.75, 0.85))
 	y += 30
@@ -403,7 +412,7 @@ func _draw_online(vp: Vector2) -> void:
 		draw_string(font, Vector2(x, gy + 22), "Listening... a host on your LAN shows up here within a few seconds.", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.6, 0.65, 0.75))
 		gy += 40
 	for g in games.slice(0, 5):
-		var label := "%s  (%s, %s, %d/%d players)  %s" % [g["name"], "duel" if g.get("mode", "") == "duel" else "co-op", g.get("system", "Sol"), int(g["players"]), int(g["max"]), g["ip"]]
+		var label := "%s  (%s, %s, %d/%d players)  %s" % [g["name"], {"duel": "duel", "survival": "Survival", "skirmish": "Skirmish"}.get(g.get("mode", ""), "co-op"), g.get("system", "Sol"), int(g["players"]), int(g["max"]), g["ip"]]
 		var ok: bool = int(g.get("protocol", -1)) == Net.PROTOCOL
 		_button(Rect2(x, gy, 600, 40), label if ok else label + "  (different version)", func(): join_pressed.emit("%s:%d" % [g["ip"], int(g["port"])]), ok)
 		gy += 48

@@ -42,6 +42,25 @@ func _on_message(text: String, color: Color) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if world != null and world.mode == "skirmish" and world.mode_rules != null and world.player != null and world.player.dead and not world.menu_open:
+		# waiting to launch: 1 to 5, left and right, or a click pick the ship
+		var hulls: Array = Skirmish.HULLS
+		var pick: String = world.mode_rules.picks.get(world.player, world.player.design_name)
+		var i := hulls.find(pick)
+		if event is InputEventKey and event.pressed and not event.echo and event.keycode >= KEY_1 and event.keycode < KEY_1 + hulls.size():
+			_pick_hull(hulls[event.keycode - KEY_1])
+			get_viewport().set_input_as_handled()
+			return
+		if event.is_action_pressed("turn_left") or event.is_action_pressed("turn_right"):
+			_pick_hull(hulls[posmod(i + (1 if event.is_action_pressed("turn_right") else -1), hulls.size())])
+			get_viewport().set_input_as_handled()
+			return
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			for c in _hull_cards(get_viewport_rect().size):
+				if c[1].has_point(event.position):
+					_pick_hull(c[0])
+					get_viewport().set_input_as_handled()
+					return
 	if event.is_action_pressed("help"):
 		show_help = not show_help
 	elif event.is_action_pressed("radar_zoom_in"):
@@ -563,6 +582,9 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 	if world.duel_rules != null:
 		_draw_duel(p, vp)
 		return
+	if world.mode == "skirmish" and world.mode_rules != null:
+		_draw_skirmish(p, vp)
+		return
 	var rank := GameData.rank_name(p.rank)
 	var next := ""
 	if p.rank + 1 < GameData.RANKS.size():
@@ -591,6 +613,9 @@ func _draw_rank(p: Ship, vp: Vector2) -> void:
 		draw_rect(plate, Color(0.4, 1.0, 0.7, 0.55), false, 1.5)
 		draw_string_outline(font, Vector2(plate.position.x, plate.position.y + 22), dock_text, HORIZONTAL_ALIGNMENT_CENTER, plate.size.x, 16, 4, Color(0, 0, 0, 0.85))
 		draw_string(font, Vector2(plate.position.x, plate.position.y + 22), dock_text, HORIZONTAL_ALIGNMENT_CENTER, plate.size.x, 16, Color(0.7, 1.0, 0.8, 0.85 + 0.15 * sin(time * 4.0)))
+	if world.mode == "survival" and world.mode_rules != null:
+		_draw_survival(p, vp)
+		return
 	# empire standings
 	var sx := vp.x * 0.5 - 195.0
 	_text(Vector2(sx - 70, 26), "Planets", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.7, 0.8, 0.9, 0.9))
@@ -746,6 +771,108 @@ func _draw_duel(p: Ship, vp: Vector2) -> void:
 		_text(Vector2(0, vp.y * 0.3 + 36), "Next round in %d.  Everyone relaunches with a clean slate." % int(ceil(du.break_left)), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 18, Color(1, 1, 1, 0.9))
 
 
+## Survival: the wave, what is left of it or the break's countdown, the
+## starbase's hull, and the defenders' tally.
+func _draw_survival(p: Ship, vp: Vector2) -> void:
+	var sv: Survival = world.mode_rules
+	var cx := vp.x * 0.5
+	var head := "SURVIVAL   run %d   wave %d   %d raider%s left" % [sv.run, sv.wave, sv.enemies_left, "" if sv.enemies_left == 1 else "s"]
+	var col := Color(1.0, 0.75, 0.5)
+	if sv.over:
+		head = "THE STARBASE HAS FALLEN   new run in %s" % sv.clock_text()
+		col = Color(1.0, 0.55, 0.45)
+	elif sv.break_left > 0.0:
+		head = "SURVIVAL   run %d   wave %d in %s   dock (U) to mend and refit" % [sv.run, sv.wave + 1, sv.clock_text()]
+		col = Color(0.75, 1.0, 0.8)
+	elif sv.from_text != "":
+		head += "   from the " + sv.from_text
+	_text(Vector2(cx - 400, 22), head, HORIZONTAL_ALIGNMENT_CENTER, 800, 16, col)
+	# the starbase's hull
+	var b: Ship = sv.base()
+	var bw := 320.0
+	var frac := 0.0 if b == null else clampf(b.hull / maxf(b.hull_max, 1.0), 0.0, 1.0)
+	_text(Vector2(cx - bw * 0.5 - 90, 44), "Starbase", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.7, 0.8, 0.9, 0.9))
+	draw_rect(Rect2(cx - bw * 0.5, 34, bw, 8), Color(0, 0, 0, 0.55))
+	draw_rect(Rect2(cx - bw * 0.5, 34, bw * frac, 8), Color(0.4, 1.0, 0.55).lerp(Color(1.0, 0.3, 0.2), 1.0 - frac))
+	if b != null and b.shield_max > 0.0:
+		draw_rect(Rect2(cx - bw * 0.5, 43, bw * clampf(b.shield / b.shield_max, 0.0, 1.0), 3), Color(0.45, 0.75, 1.0, 0.9))
+	_text(Vector2(cx + bw * 0.5 + 10, 44), "best %d wave%s" % [sv.best, "" if sv.best == 1 else "s"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.7, 0.8, 0.9, 0.9))
+	var pilots := sv.pilots()
+	for i in mini(pilots.size(), Survival.MAX_PLAYERS):
+		var s: Ship = pilots[i]
+		var x := cx - 350.0 + float(i) * 180.0
+		var c: Color = Color(1, 0.95, 0.6) if s == p else (Color(0.55, 0.55, 0.6) if s.dead else Color(0.9, 0.9, 0.92))
+		_text(Vector2(x, 68), "%s  %d" % [s.pilot_name, sv.run_kills(s)], HORIZONTAL_ALIGNMENT_CENTER, 170, 14, c)
+
+
+## Skirmish: your tally top left, the two sides' scores and the clock top
+## centre with each side's pilots under them, and the winner between rounds.
+func _draw_skirmish(p: Ship, vp: Vector2) -> void:
+	var sk: Skirmish = world.mode_rules
+	_text(Vector2(24, 24), "%s   kills %d   deaths %d   %s" % [p.pilot_name, p.kills, p.deaths, p.design_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 0.95, 0.8))
+	_text(Vector2(24, 44), "Skirmish: the %s against the %s.  %s targets the nearest enemy." % [sk.side_name(0), sk.side_name(1), Keybinds.short_text("target_nearest")], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.75, 0.82, 0.95, 0.85))
+	var cx := vp.x * 0.5
+	var head := "round %d   first to %d   %s left" % [sk.round_no, Skirmish.KILLS_TO_WIN, sk.clock_text()]
+	if sk.break_left > 0.0:
+		head = "CEASEFIRE   next round in %d" % int(ceil(sk.break_left))
+	_text(Vector2(cx - 360, 22), head, HORIZONTAL_ALIGNMENT_CENTER, 720, 15, Color(1.0, 0.85, 0.45) if sk.break_left > 0.0 else Color(0.85, 0.92, 1.0))
+	for side in [0, 1]:
+		var col: Color = GameData.race(sk.teams[side])["color"]
+		var x := cx - 350.0 + float(side) * 360.0
+		draw_circle(Vector2(x + 6, 39), 5.5, col)
+		_text(Vector2(x + 16, 46), "%s   %d" % [sk.side_name(side), sk.score[side]], HORIZONTAL_ALIGNMENT_LEFT, 320, 18, col.lerp(Color.WHITE, 0.35))
+		var board := sk.roster(side)
+		for i in mini(board.size(), Skirmish.TEAM_SIZE):
+			var s: Ship = board[i]
+			var y := 64.0 + float(i) * 16.0
+			var c: Color = Color(1, 0.95, 0.6) if s == p else (Color(0.55, 0.55, 0.6) if s.dead else Color(0.9, 0.9, 0.92))
+			_text(Vector2(x + 16, y), "%s  (%s)" % [s.pilot_name, s.design_name], HORIZONTAL_ALIGNMENT_LEFT, 230, 13, c)
+			_text(Vector2(x + 240, y), "%d / %d" % [s.kills, s.deaths], HORIZONTAL_ALIGNMENT_RIGHT, 90, 13, c)
+	if sk.break_left > 0.0:
+		var msg := ("The %s take round %d!" % [sk.side_name(sk.winner), sk.round_no]) if sk.winner >= 0 else ("Round %d is a draw." % sk.round_no)
+		_text(Vector2(0, vp.y * 0.3), msg, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 40, Color(1.0, 0.9, 0.55))
+		_text(Vector2(0, vp.y * 0.3 + 36), "Next round in %d.  Everyone relaunches." % int(ceil(sk.break_left)), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 18, Color(1, 1, 1, 0.9))
+
+
+## Skirmish, while waiting to launch: a card per hull with its launch time;
+## 1 to 5 or a click picks one.
+func _hull_cards(vp: Vector2) -> Array:
+	var out := []
+	var w := 150.0
+	var x0 := vp.x * 0.5 - (w + 10.0) * Skirmish.HULLS.size() * 0.5 + 5.0
+	for i in Skirmish.HULLS.size():
+		out.append([Skirmish.HULLS[i], Rect2(x0 + i * (w + 10.0), vp.y * 0.52, w, 150)])
+	return out
+
+
+func _draw_hull_picker(vp: Vector2, a: float) -> void:
+	var sk: Skirmish = world.mode_rules
+	var p := world.player
+	var pick: String = sk.picks.get(p, p.design_name)
+	var col: Color = p.race_color()
+	_text(Vector2(0, vp.y * 0.52 - 14), "Pick your ship for the next launch", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 17, Color(1, 1, 1, a))
+	var cards := _hull_cards(vp)
+	for i in cards.size():
+		var hull: String = cards[i][0]
+		var r: Rect2 = cards[i][1]
+		var on := hull == pick
+		draw_rect(r, Color(0.05, 0.08, 0.14, 0.8 * a))
+		draw_rect(r, Color(1.0, 0.85, 0.4, a) if on else Color(0.5, 0.6, 0.8, 0.5 * a), false, 2.5 if on else 1.0)
+		ShipArt.draw_ship(self, hull, p.race_id, 34.0, col, 0.4, 1.0, 0.0, Transform2D(-PI * 0.5, r.get_center() + Vector2(0, -12)))
+		_text(Vector2(r.position.x, r.position.y + 20), "%d  %s" % [i + 1, hull], HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 15, Color(1, 0.95, 0.7, a) if on else Color(0.9, 0.9, 0.95, a))
+		_text(Vector2(r.position.x, r.end.y - 10), "launch %d s" % int(Skirmish.LAUNCH_DELAY[hull]), HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 13, Color(0.7, 0.8, 0.9, a))
+
+
+func _pick_hull(hull: String) -> void:
+	var sk: Skirmish = world.mode_rules
+	sk.picks[world.player] = hull
+	if Net.is_client():
+		Net.client_command("hull:" + hull)
+	else:
+		sk.choose(world.player, hull)
+	Sfx.play_ui("click", 0.4)
+
+
 func _draw_music(vp: Vector2) -> void:
 	if now_playing.is_empty():
 		return
@@ -874,10 +1001,17 @@ func _draw_aim(p: Ship, vp: Vector2) -> void:
 func _draw_dead(vp: Vector2) -> void:
 	var a := clampf(dead_time, 0.0, 1.0)
 	draw_rect(Rect2(Vector2.ZERO, vp), Color(0.3, 0.0, 0.0, 0.25 * a))
-	var killer: String = world.duel_rules.killed_by if world.duel_rules != null else ""
+	var killer: String = world.arena_rules().killed_by if world.is_arena() else ""
 	draw_string(font, Vector2(0, vp.y * 0.4), "Your ship was captured" if world.player.captured else ("Destroyed by %s" % killer if killer != "" else "Your ship was destroyed"), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 40, Color(1, 0.8, 0.7, a))
 	var left := maxf(World.RESPAWN_DELAY - dead_time, 0.0)
-	draw_string(font, Vector2(0, vp.y * 0.4 + 40), "Relaunching in %d..." % int(ceil(left)), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, Color(1, 1, 1, a))
+	var line := "Relaunching in %d..." % int(ceil(left))
+	if world.mode == "skirmish" and world.mode_rules != null:
+		left = maxf(world.mode_rules.launch_delay(world.player) - dead_time, 0.0)
+		line = "Launching in %d..." % int(ceil(left)) if left > 0.0 else "Launching..."
+		_draw_hull_picker(vp, a)
+	elif world.mode == "survival" and world.mode_rules != null and world.mode_rules.over:
+		line = "The starbase has fallen.  A new run starts in %s." % world.mode_rules.clock_text()
+	draw_string(font, Vector2(0, vp.y * 0.4 + 40), line, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, Color(1, 1, 1, a))
 
 
 ## A help row for an action as it is bound right now: "W / Up  (RT)".

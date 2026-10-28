@@ -360,6 +360,8 @@ func is_disabled() -> bool:
 func team() -> int:
 	if world != null and world.get("duel_rules") != null and not is_station:
 		return get_instance_id()
+	if world != null and world.get("mode_rules") != null:
+		return world.mode_rules.team_of(self)
 	return race_id
 
 

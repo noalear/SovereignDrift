@@ -72,6 +72,8 @@ var governors := {}               # race -> Governor: each empire's economy, con
 var job_board: Array = []         # a client's copy of its empire's board (Governor.pack_board rows)
 var duel := false                # an online free-for-all (Duel); Main sets it on the host
 var duel_rules: Duel = null       # its rules; the host runs them, a client's mirror comes from Net
+var mode := ""                   # "survival" or "skirmish"; Main sets it before _ready
+var mode_rules = null            # their rules (Survival or Skirmish); the host runs them, a client's mirror comes from Net
 var practice := false            # Practice duel: you, your starbase, one pirate at a time
 var practice_opponent := true    # false: Free flight, practice with no pirate at all
 var tutorial := false            # the voiced tutorial (practice too): a calm Sol with the economy running (Tutorial)
@@ -143,6 +145,12 @@ func _ready() -> void:
 		duel_rules = Duel.new()
 		duel_rules.setup(self)
 		duel_rules.spawn_all()
+		if Net.is_host():
+			Net.host_attach(self)
+	elif mode != "":
+		mode_rules = Survival.new() if mode == "survival" else Skirmish.new()
+		mode_rules.setup(self)
+		mode_rules.spawn_all()
 		if Net.is_host():
 			Net.host_attach(self)
 	else:
@@ -702,6 +710,8 @@ func _physics_process(delta: float) -> void:
 	capture.tick(delta)
 	if duel_rules != null:
 		duel_rules.tick(delta)
+	elif mode_rules != null:
+		mode_rules.tick(delta)
 	elif not practice or tutorial:
 		economy.tick(delta)
 		ground.tick(delta)
@@ -841,7 +851,7 @@ func nearest_known_enemy(viewer: Ship, range_px: float = 16000.0) -> Ship:
 		var d := viewer.global_position.distance_to(s.global_position)
 		if d >= best_d:
 			continue
-		var seen := duel_rules != null or (s.visible_to(viewer) and d <= viewer.sensor_range * 1.5)
+		var seen := is_arena() or (s.visible_to(viewer) and d <= viewer.sensor_range * 1.5)
 		if not seen:
 			for f in ships:
 				if f.dead or f.team() != viewer.team():
@@ -853,6 +863,12 @@ func nearest_known_enemy(viewer: Ship, range_px: float = 16000.0) -> Ship:
 			best_d = d
 			best = s
 	return best
+
+
+## The node, or null once it is freed (a shooter that left the game while
+## its shot was in flight).
+static func _live(n: Variant) -> Variant:
+	return n if n != null and is_instance_valid(n) else null
 
 
 func ship_at(pos: Vector2, tolerance: float) -> Ship:
@@ -1146,9 +1162,9 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		if hit != null:
 			var at := m.hit_point if m.hit_point != Vector2.INF else pos
 			if hit is Ship:
-				hit.take_damage(m.warhead, attacker if attacker is Ship else m.owner_ship, at, m.data.get("sys", 1.0), "engines" if m.data.get("heat", false) else "", 1.0, m.data.get("dtype", "kinetic"))
+				hit.take_damage(m.warhead, attacker if attacker is Ship else _live(m.owner_ship), at, m.data.get("sys", 1.0), "engines" if m.data.get("heat", false) else "", 1.0, m.data.get("dtype", "kinetic"))
 			else:
-				hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else m.owner_ship, at, m.data.get("dtype", "kinetic"))
+				hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else _live(m.owner_ship), at, m.data.get("dtype", "kinetic"))
 			if hit is Ship and m.data.has("drain"):
 				hit.energy = maxf(hit.energy - m.data["drain"], 0.0)
 				hit.jam_off(3.0)              # a disruptor knocks the jammer out
@@ -1261,7 +1277,7 @@ func _refuel(delta: float) -> void:
 				notify(s, "Crew at full strength (%d)." % s.crew_max)
 		if s.is_landed() and s.land_body.is_colonised() and s.land_body.owner_race == s.race_id:
 			rate = maxf(rate, 0.15)       # the colony's spaceport fills the tanks
-		if duel_rules != null:
+		if is_arena():
 			rate = maxf(rate, 0.02)       # a duel has no bases: tanks top up slowly anywhere
 		if rate > 0.0 and s.needs_rearm():
 			s.rearm(rate * delta)           # magazines refill at the same rate as the tanks
@@ -1354,13 +1370,13 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 		if near > 0.0:
 			add_shake((16.0 if big else 8.0) * near)
 			Music.duck_for((0.8 if big else 0.5) * near)
-		if killer == player and not s.is_player and duel_rules == null:
+		if killer == player and not s.is_player and not is_arena():
 			# (not in a duel: kills come every few seconds there, and the
 			# host's slow motion would slow the fight for everyone)
 			Engine.time_scale = 0.25
 			slowmo = 0.12
-	if duel_rules != null and s.is_player:
-		duel_rules.killed_by = killer.pilot_name if killer is Ship and killer != s else ""
+	if is_arena() and s.is_player:
+		arena_rules().killed_by = killer.pilot_name if killer is Ship and killer != s else ""
 	if Net.is_client():
 		if s.is_player:
 			player_died.emit()
@@ -1375,6 +1391,14 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 			player_died.emit()
 		respawn_queue.append([s, elapsed + RESPAWN_DELAY])
 		return
+	if mode_rules != null:
+		mode_rules.on_death(s, killer as Ship)
+		if mode == "skirmish":
+			# like a duel, no loot: every ship there is ready-built
+			if s.is_player:
+				player_died.emit()
+			respawn_queue.append([s, elapsed + 2.0])   # the rules hold it for the hull's launch time
+			return
 	# the wreck leaves modules floating
 	var drops := 1 + (2 if big else 0) + (1 if randf() < 0.5 else 0)
 	var candidates := []
@@ -1534,8 +1558,10 @@ func _respawns() -> void:
 		var s: Ship = entry[0]
 		if not is_instance_valid(s):
 			continue
-		if elapsed >= entry[1] and (s.is_prize or s.has_meta("ordered") or s.has_meta("tutorial") or (s.is_station and not s.is_starbase())):
-			remove_ship(s)        # a prize's crew does not come back, nor a built station or an ordered ship
+		if elapsed >= entry[1] and (s.is_prize or s.has_meta("ordered") or s.has_meta("tutorial") or s.has_meta("wave") or (s.is_station and not s.is_starbase())):
+			remove_ship(s)        # a prize's crew does not come back, nor a built station, an ordered ship or a Survival raider
+		elif elapsed >= entry[1] and mode_rules != null and not mode_rules.may_relaunch(s):
+			keep.append(entry)    # Survival after the starbase fell, a Skirmish hull still launching
 		elif elapsed >= entry[1]:
 			var home := _home_planet(s.race_id)
 			if s.is_station:
@@ -1546,6 +1572,9 @@ func _respawns() -> void:
 				s.respawn(s.global_position, s.velocity)
 			elif duel_rules != null:
 				duel_rules.place(s)
+				s.respawn(s.global_position, s.velocity)
+			elif mode == "skirmish":
+				mode_rules.place(s)
 				s.respawn(s.global_position, s.velocity)
 			elif s.is_player or s.net_id in Net.seats.values():
 				_place_at_home(s)
@@ -1560,17 +1589,29 @@ func _respawns() -> void:
 			if s.is_player:
 				player_respawned.emit()
 				var base := starbase_of(s.race_id)
-				if duel_rules == null:
+				if duel_rules == null and mode != "skirmish":
 					notify(s, ("Launched from the %s starbase at %s." % [GameData.race(s.race_id)["name"], home.body_name]) if base != null else ("Launched from %s." % home.body_name))
 		else:
 			keep.append(entry)
 	respawn_queue = keep
 
 
-## Practice duels, free flight and online duels are off the record:
-## nothing earned there reaches the pilot's profile.
+## Practice duels, free flight, duels, Survival and Skirmish are off the
+## record: nothing earned there reaches the pilot's rank.
 func records_career() -> bool:
-	return not practice and not duel and duel_rules == null
+	return not practice and not duel and not is_arena()
+
+
+## A duel, Survival or Skirmish: a fight with rules of its own, no
+## economy, no landing or boarding, colonies holding their fire and every
+## ship on the map.
+func is_arena() -> bool:
+	return duel_rules != null or mode_rules != null
+
+
+## Whichever of those rules is running.
+func arena_rules() -> RefCounted:
+	return duel_rules if duel_rules != null else mode_rules
 
 
 func _on_rank_changed(s: Ship, level: int) -> void:
@@ -1616,7 +1657,7 @@ func _count_planets() -> void:
 
 func _score_planets(delta: float) -> void:
 	_count_planets()
-	if game_over or duel_rules != null:
+	if game_over or is_arena():
 		return
 	# held planets pay their empire's pilots every minute, double in the
 	# final phase
@@ -1674,8 +1715,8 @@ func landing_body(s: Ship) -> Planet:
 func try_land(s: Ship, onto: Planet = null) -> void:
 	if s.dead:
 		return
-	if duel_rules != null:
-		notify(s, "No landing in a duel: the fight stays in space.")
+	if is_arena():
+		notify(s, "No landing in %s: the fight stays in space." % ("a duel" if duel_rules != null else mode.capitalize()))
 		return
 	if Net.is_client():
 		Net.client_command("land")
