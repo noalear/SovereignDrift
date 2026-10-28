@@ -544,12 +544,14 @@ static func _hash2(x: float, y: float) -> float:
 ## its own finish and pattern; each empire lays the pattern out its own
 ## way: Terran straight and square, Arcean flowing in curves, Drengin
 ## raked at an angle, pirates patchy, with cells missing and mismatched.
-##  Plate: steel panels, more seams and rivets with each tier.
+##  Plate: steel panels, smaller with each tier, rivets from Plate II.
 ##  Reflective: mirror chrome with raking highlights, bright edges.
 ##  Ablative: pale ceramic tiles, mottled, the rims heat-stained.
-##  Reactive: a band of explosive bricks round the edges.
+##  Reactive: a matte hull with rounded explosive cassettes bolted round
+##   the rim.
 ##  Shroud: near black, with faint radar-scattering facets.
-##  Bulkheads: heavy ribs across the hull and a keel down the middle.
+##  Bulkheads: barely shows outside (it is inside work): a duller skin,
+##   faint frame lines and a thicker rim.
 static func bake_coat(img: Image, coat: String, tier: int, race_id: int, mask: Dictionary) -> Image:
 	var w := img.get_width()
 	var h := img.get_height()
@@ -596,11 +598,12 @@ static func bake_coat(img: Image, coat: String, tier: int, race_id: int, mask: D
 			var nb := b
 			match coat:
 				"plate":
+					# steel grey at the painting's own brightness
 					var k := 0.18 + 0.1 * tier
-					var st := lum * 1.05
-					nr = lerpf(r, st * 0.78 * tint.r, k)
-					ng = lerpf(g, st * 0.82 * tint.g, k)
-					nb = lerpf(b, st * 0.9 * tint.b, k)
+					var st := lum * 1.08 + 0.02
+					nr = lerpf(r, st * 0.95 * tint.r, k)
+					ng = lerpf(g, st * 1.0 * tint.g, k)
+					nb = lerpf(b, st * 1.1 * tint.b, k)
 					var pw := s * (1.25 - 0.15 * tier)
 					var ph := pw * 0.72
 					var col := floorf(u / pw)
@@ -610,9 +613,9 @@ static func bake_coat(img: Image, coat: String, tier: int, race_id: int, mask: D
 					var du := minf(fu, 1.0 - fu) * pw
 					var dv := minf(fv, 1.0 - fv) * ph
 					var seam := 0.9 + 0.4 * tier
-					var f := 1.0 - 0.04 * tier
+					var f := 1.0
 					if minf(du, dv) < seam:
-						f *= 0.55
+						f *= 0.72
 					elif dv < seam + 1.2 and fv < 0.5:
 						f *= 1.12
 					if tier >= 2 and du < 3.0 + tier and dv < 3.0 + tier and du > seam and dv > seam:
@@ -661,29 +664,30 @@ static func bake_coat(img: Image, coat: String, tier: int, race_id: int, mask: D
 					ng *= f
 					nb *= f
 				"reactive":
+					# a matte, darker hull with explosive cassettes bolted on
+					# round the rim: separate rounded pads, hull between them
 					var lv := 0.6 + 0.55 * lum
-					nr = lerpf(r, 0.5 * lv * tint.r, 0.4)
-					ng = lerpf(g, 0.47 * lv * tint.g, 0.4)
-					nb = lerpf(b, 0.4 * lv * tint.b, 0.4)
-					if dep > 0.0 and dep < 5.5 and not patchy:
-						var bw := s * 0.85
-						var bh := s * 0.52
-						var row := floorf(v / bh)
-						var bu := u / bw + 0.5 * fmod(absf(row), 2.0)
-						var fu := bu - floorf(bu)
-						var fv := v / bh - row
-						var f := 1.0
-						if fu < 0.07 or fu > 0.93 or fv < 0.11 or fv > 0.89:
-							f = 0.38
-						elif fv < 0.24:
-							f = 1.28
-						elif fv > 0.76:
-							f = 0.72
-						else:
-							f = 0.95 + 0.1 * _hash2(floorf(bu), row)
-						nr = lerpf(nr, 0.55 * lv, 0.5) * f
-						ng = lerpf(ng, 0.52 * lv, 0.5) * f
-						nb = lerpf(nb, 0.44 * lv, 0.5) * f
+					nr = lerpf(r, 0.5 * lv * tint.r, 0.3)
+					ng = lerpf(g, 0.48 * lv * tint.g, 0.3)
+					nb = lerpf(b, 0.42 * lv * tint.b, 0.3)
+					if dep > 0.3 and dep < 2.0 and not patchy:
+						var sp := s * 0.95
+						var row := floorf(v / sp)
+						var pu := u / sp + 0.5 * fmod(absf(row), 2.0)
+						var qx := (pu - floorf(pu) - 0.5) * 2.0       # -1..1 across the pad's cell
+						var qy := (v / sp - row - 0.5) * 2.0
+						var d := pow(pow(absf(qx), 4.0) + pow(absf(qy), 4.0), 0.25)   # rounded square
+						if d < 0.62:
+							var lit := clampf(1.0 - 0.45 * (qx + qy), 0.55, 1.4)     # lit from the upper left
+							var f := lit * (0.75 if d > 0.52 else 1.0)
+							var face := 0.5 * lv
+							nr = lerpf(nr, face * 0.92, 0.75) * f
+							ng = lerpf(ng, face * 0.9, 0.75) * f
+							nb = lerpf(nb, face * 0.78, 0.75) * f
+						elif d < 0.72:
+							nr *= 0.55                                    # its shadow on the hull
+							ng *= 0.55
+							nb *= 0.55
 				"shroud":
 					var dk := 0.09 + 0.24 * lum
 					nr = lerpf(r, dk * (0.9 + 0.1 * tint.r), 0.84)
@@ -700,24 +704,18 @@ static func bake_coat(img: Image, coat: String, tier: int, race_id: int, mask: D
 						nr += 0.04
 						ng += 0.03
 				"bulkheads":
+					# inside work, so the hull barely shows it: a heavier,
+					# slightly duller skin with faint frame lines and a
+					# thickened rim
 					var st := lum * 1.05
-					nr = lerpf(r, st * 0.8 * tint.r, 0.28)
-					ng = lerpf(g, st * 0.82 * tint.g, 0.28)
-					nb = lerpf(b, st * 0.86 * tint.b, 0.28)
-					var pitch := s * 1.5
+					nr = lerpf(r, st * 0.85 * tint.r, 0.12)
+					ng = lerpf(g, st * 0.87 * tint.g, 0.12)
+					nb = lerpf(b, st * 0.9 * tint.b, 0.12)
+					var pitch := s * 2.2
 					var fu := u / pitch - floorf(u / pitch)
-					var band := 0.32
-					var f := 1.0
-					if fu < band:
-						f = 0.6
-						if fu < 0.07:
-							f = 1.5          # the rib's lit edge
-						elif fu > band - 0.07:
-							f = 0.38         # and its shadow
-					if absf(v - h * 0.5) < maxf(s * 0.16, 1.5) and race_id != 2:
-						f *= 0.55            # the keel
-					if patchy:
-						f = lerpf(f, 1.0, 0.6)
+					var f := 0.93 if fu < 0.05 else 1.0
+					if dep > 0.0 and dep < 1.0:
+						f *= 0.88
 					nr *= f
 					ng *= f
 					nb *= f
