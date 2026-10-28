@@ -78,6 +78,8 @@ static func why_not(captor: Node, victim: Node) -> String:
 		return "no target"
 	if captor.world != null and captor.world.get("duel_rules") != null:
 		return "duel"
+	if captor.world != null and captor.world.get("mode_rules") != null:
+		return "arena"
 	if victim == captor or victim.race_id == captor.race_id:
 		return "friendly"
 	if captor.is_station or victim.is_station:
@@ -105,6 +107,8 @@ static func reason_text(why: String, captor: Node, victim: Node) -> String:
 			return "That ship is on your side."
 		"duel":
 			return "No boarding in a duel."
+		"arena":
+			return "No boarding in %s." % captor.world.mode.capitalize()
 		"station":
 			return "Stations can't be boarded."
 		"landed":

@@ -387,8 +387,8 @@ func _charge_pshield(delta: float) -> void:
 
 
 func _defend(delta: float) -> void:
-	if "practice" in world and (world.practice or world.duel_rules != null):
-		return                          # practice and duels: the colonies hold their fire
+	if "practice" in world and (world.practice or world.is_arena()):
+		return                          # practice, duels, Survival and Skirmish: the colonies hold their fire
 	if is_defenceless():
 		return                          # knocked out: the guns are silent
 	var reach := defence_range

@@ -12,7 +12,7 @@ signal session_ended(reason: String)
 signal round_restarted()       # the host started the next Conquest round (client)
 
 const PORT := 7777
-const PROTOCOL := 19
+const PROTOCOL := 20
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -43,7 +43,7 @@ var snapshots_received := 0
 var inputs_received := 0
 var host_elapsed := 0.0
 var callsign := "Pilot"
-var mode := ""                   # "duel" for a free-for-all, "" for co-op (set before host())
+var mode := ""                   # "duel" for a free-for-all, "survival", "skirmish", "" for co-op Conquest (set before host())
 var client: NetClient = null
 var lan: LanDiscovery = null
 var powerups_by_id := {}         # net_id -> Powerup
@@ -92,7 +92,7 @@ func host(port: int = PORT) -> Error:
 
 
 func _announcement(port: int) -> Dictionary:
-	return {"name": callsign + ("'s duel" if mode == "duel" else "'s game"), "players": player_count(), "max": MAX_PLAYERS, "port": port,
+	return {"name": callsign + ("'s " + mode if mode != "" else "'s game"), "players": player_count(), "max": MAX_PLAYERS, "port": port,
 		"protocol": PROTOCOL, "system": "Sol", "mode": mode}
 
 
@@ -191,6 +191,9 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	var s: Node = ships_by_id.get(net_id, null)
 	if s != null and is_instance_valid(s) and world != null and world.duel_rules != null:
 		world.duel_rules.pilot_left(s)      # their ship goes; a computer pilot refills the arena
+	elif s != null and is_instance_valid(s) and world != null and world.mode_rules != null:
+		world.mode_rules.pilot_left(s)
+		host_mode_changed()
 	elif s != null and is_instance_valid(s):
 		_seat_ai(s, true)
 		for k in s.inputs.keys():
@@ -305,12 +308,20 @@ func _rpc_hello(name: String, protocol: int, career_score: int = 0, career_kills
 	if protocol != PROTOCOL:
 		_rpc_refused.rpc_id(peer_id, "Different game version (yours %d, host %d)." % [protocol, PROTOCOL])
 		return
-	var s := _seat_duelist(peer_id, name, race) if world.duel_rules != null else _seat_player(peer_id, name, career_score, career_kills)
+	var s: Node = null
+	if world.duel_rules != null:
+		s = _seat_duelist(peer_id, name, race)
+	elif world.mode_rules != null:
+		s = _seat_mode_pilot(peer_id, name, career_score, career_kills)
+	else:
+		s = _seat_player(peer_id, name, career_score, career_kills)
 	if s == null:
-		_rpc_refused.rpc_id(peer_id, "No free seat in this round.")
+		_rpc_refused.rpc_id(peer_id, "No free seat in this round." if world.mode != "survival" else "Survival is full (%d pilots)." % Survival.MAX_PLAYERS)
 		return
 	if world.duel_rules != null:
 		_rpc_duel.rpc_id(peer_id, world.duel_rules.pack())   # before the welcome: the client is in a duel from its first frame
+	elif world.mode_rules != null:
+		_rpc_mode.rpc_id(peer_id, world.mode, world.mode_rules.pack())   # likewise for Survival and Skirmish
 	_rpc_welcome.rpc_id(peer_id, s.net_id, world.elapsed, _roster(), _planet_owners(), _powerup_list())
 	for o in world.ships:
 		if o.landing != 0 and o.net_id != 0:     # ships already going down or parked on a world
@@ -380,6 +391,9 @@ func _rpc_command(cmd: String) -> void:
 	if not is_host():
 		return
 	var s: Node = ships_by_id.get(seats.get(multiplayer.get_remote_sender_id(), 0), null)
+	if s != null and is_instance_valid(s) and cmd.begins_with("hull:") and world.mode == "skirmish":
+		world.mode_rules.choose(s, cmd.get_slice(":", 1))   # picked while waiting to launch
+		return
 	if s == null or not is_instance_valid(s) or s.dead:
 		return
 	match cmd:
@@ -1212,6 +1226,8 @@ func client_tick(delta: float) -> void:
 	client.tick(delta, ships_by_id)
 	if world.duel_rules != null:
 		world.duel_rules.client_tick(delta)
+	if world.mode_rules != null:
+		world.mode_rules.client_tick(delta)
 	var rd = world.round_rules
 	if rd != null and not rd.over:
 		rd.elapsed += delta           # between stats the clock runs locally
@@ -1221,6 +1237,8 @@ func client_tick(delta: float) -> void:
 	if ping_timer <= 0.0:
 		ping_timer = PING_EVERY
 		_rpc_ping.rpc_id(1, Time.get_ticks_msec())
+		if world.mode == "skirmish" and world.mode_rules != null and p != null and p.dead and world.mode_rules.picks.has(p):
+			client_command("hull:" + world.mode_rules.picks[p])   # commands are unreliable: say it again while waiting
 
 
 # --------------------------------------------------------------- duels
@@ -1266,6 +1284,53 @@ func _rpc_duel(state: Array) -> void:
 		world.notify_all("Free-for-all duel: everyone is your enemy, and everyone flies a %s." % Duel.HULL, Color(0.8, 0.9, 1.0))
 		world.notify_all("First to %d kills wins the round. %s targets the nearest pilot." % [Duel.KILLS_TO_WIN, Keybinds.short_text("target_nearest")], Color(0.8, 0.9, 1.0))
 	world.duel_rules.unpack(state)
+
+
+# ---------------------------------------------- Survival and Skirmish
+# Like duels: the host's rules (World.mode_rules) decide, clients get a
+# mirror for the HUD.  In Survival a joiner flies a fresh ship for the
+# host's empire; in Skirmish a fresh ship for the side with fewer people.
+
+func _seat_mode_pilot(peer_id: int, name: String, career_score: int, career_kills: int) -> Node:
+	if seats.size() + 1 >= MAX_PLAYERS:
+		return null
+	var s: Node = world.mode_rules.pilot_joined(name, career_score, career_kills) if world.mode == "survival" else world.mode_rules.pilot_joined(name)
+	if s == null:
+		return null
+	_register(s)
+	for other in seats:
+		_rpc_ship_added.rpc_id(other, _roster_row(s))
+	seats[peer_id] = s.net_id
+	pilot_names[peer_id] = name
+	_seat_ai(s, false)
+	host_mode_changed()
+	return s
+
+
+## A wave, a kill or a new round: everyone's tally at once, not at the
+## next stats tick.
+func host_mode_changed() -> void:
+	if not is_host() or seats.is_empty() or world == null or world.mode_rules == null:
+		return
+	_rpc_stats.rpc(_stats(), _round_state())
+	_rpc_mode.rpc(world.mode, world.mode_rules.pack())
+
+
+@rpc("authority", "reliable")
+func _rpc_mode(which: String, state: Array) -> void:
+	if world == null or not which in ["survival", "skirmish"]:
+		return
+	if world.mode_rules == null:
+		# the host is running Survival or Skirmish: no Conquest round here
+		mode = which
+		world.mode = which
+		world.mode_rules = Survival.new() if which == "survival" else Skirmish.new()
+		world.mode_rules.setup(world)
+		world.round_rules = null
+		world.mode_rules.unpack(state)
+		for line in world.mode_rules.intro():
+			world.notify_all(line, Color(0.8, 0.9, 1.0))
+	world.mode_rules.unpack(state)
 
 
 # ------------------------------------------------------------- trading
@@ -1400,6 +1465,10 @@ func _handle_trade_cmd(peer_id: int, kind: String, data: Dictionary) -> void:
 	if world.duel_rules != null:
 		if kind == "invite":
 			world.notify(me, "No trading in a duel: everyone here is out to get you.")
+		return
+	if world.mode == "skirmish":
+		if kind == "invite":
+			world.notify(me, "No trading in Skirmish: every ship there is ready-built.")
 		return
 	match kind:
 		"invite":
@@ -1604,6 +1673,8 @@ func _physics_process(delta: float) -> void:
 		_rpc_convoys.rpc(_convoy_state())
 		if world.duel_rules != null:
 			_rpc_duel.rpc(world.duel_rules.pack())
+		if world.mode_rules != null:
+			_rpc_mode.rpc(world.mode, world.mode_rules.pack())
 		for peer_id in seats:
 			var s: Node = ships_by_id.get(seats[peer_id], null)
 			if s != null and is_instance_valid(s):
