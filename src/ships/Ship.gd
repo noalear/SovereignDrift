@@ -1553,7 +1553,7 @@ func try_pickup(module_id: String) -> bool:
 			if level <= have:
 				return false
 			energy_max += m["power"] * 2.0
-			b["energy_regen"] += m["power"] * 0.2
+			b["energy_regen"] += m["power"] * 0.2 * GameData.ENERGY_REGEN_SCALE
 		"stealth":
 			if b["can_cloak"]:
 				return false
