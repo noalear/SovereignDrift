@@ -65,6 +65,14 @@ func complete(id: String) -> void:
 			story.changed.emit()
 
 
+## Reword an objective (a countdown, a count).
+func set_text(id: String, text: String) -> void:
+	for o in objectives:
+		if o["id"] == id and o["text"] != text:
+			o["text"] = text
+			story.changed.emit()
+
+
 func fail_objective(id: String) -> void:
 	for o in objectives:
 		if o["id"] == id:
@@ -138,6 +146,21 @@ func on_breach(_attacker: Node, _victim: Node) -> void:
 	pass
 
 
+## The player answered a choice put with ask().
+func on_choice(_id: String, _key: String) -> void:
+	pass
+
+
+func ask(id: String, question: String, options: Array) -> void:
+	story.ask(id, question, options)
+
+
+## Something the story remembers from here on (kept only if the operation
+## is won: a retry starts from the save made before it).
+func flag(key: String, value: Variant) -> void:
+	story.flags[key] = value
+
+
 # ------------------------------------------------------------ ships
 
 ## A ship for this operation, flown by a computer pilot of `rank` (-1:
@@ -207,23 +230,25 @@ class Waypoint extends Node2D:
 	var body_name := ""
 	var look := ""
 	var follow: Node2D = null
+	var offset := Vector2.ZERO    # from `follow`
 
 	func _physics_process(_delta: float) -> void:
 		if follow != null and is_instance_valid(follow):
-			global_position = follow.global_position
+			global_position = follow.global_position + offset
 			velocity = follow.velocity
 
 
 var waypoints: Array = []
 
 
-func waypoint(label: String, follow: Node2D, radius: float = 60.0) -> Waypoint:
+func waypoint(label: String, follow: Node2D, radius: float = 60.0, offset: Vector2 = Vector2.ZERO) -> Waypoint:
 	var wp := Waypoint.new()
 	wp.body_name = label
 	wp.follow = follow
 	wp.radius = radius
+	wp.offset = offset
 	world.add_child(wp)
-	wp.global_position = follow.global_position
+	wp.global_position = follow.global_position + offset
 	wp.velocity = follow.velocity
 	waypoints.append(wp)
 	return wp

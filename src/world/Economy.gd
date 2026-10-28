@@ -380,12 +380,20 @@ static func market_price(market: Ship, k: String) -> float:
 
 ## What `s` pays for a unit of `k` here, fee included.
 static func buy_price(market: Ship, k: String, s: Ship) -> float:
-	return market_price(market, k) * (1.0 + MARKET_SPREAD) * (1.0 + (MARKET_FEE if pays_fee(market, s) else 0.0))
+	return market_price(market, k) * (1.0 + MARKET_SPREAD) * (1.0 + (MARKET_FEE if pays_fee(market, s) else 0.0) + markup(market, s))
 
 
 ## What `s` gets for a unit of `k` here, after the fee.
 static func sell_price(market: Ship, k: String, s: Ship) -> float:
-	return market_price(market, k) * (1.0 - MARKET_SPREAD) * (1.0 - (MARKET_FEE if pays_fee(market, s) else 0.0))
+	return market_price(market, k) * (1.0 - MARKET_SPREAD) * (1.0 - (MARKET_FEE if pays_fee(market, s) else 0.0) - markup(market, s))
+
+
+## A market's grudge against an empire (the story's free port, once its
+## records were stolen): a share on top of every price.
+static func markup(market: Ship, s: Ship) -> float:
+	if not market.has_meta("markup"):
+		return 0.0
+	return float(market.get_meta("markup").get(s.race_id, 0.0))
 
 
 ## The owner's cut of a trade worth `value` at the middle price.

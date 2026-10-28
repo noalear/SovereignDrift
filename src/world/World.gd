@@ -1673,6 +1673,8 @@ func remove_ship(s: Ship) -> void:
 		if o.prize_of == s:
 			o.prize_of = null
 	ships.erase(s)
+	for side in _links:
+		_links[side].erase(s)     # the data links are rebuilt next tick; the HUD may draw before that
 	# out of the relaunch queue too: a freed ship there stops every relaunch
 	respawn_queue = respawn_queue.filter(func(e): return e[0] != s)
 	space.remove_body(s.body)

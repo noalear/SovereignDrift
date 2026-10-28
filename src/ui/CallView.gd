@@ -122,6 +122,32 @@ static func _draw_place(c: CanvasItem, r: Rect2, place: String, t: float) -> voi
 			c.draw_rect(Rect2(x + w * 0.6, y + h * 0.12, w * 0.32, h * 0.3), Color(0.02, 0.03, 0.04))
 			_stars(c, Rect2(x + w * 0.6, y + h * 0.12, w * 0.32, h * 0.3), 12, 31)
 			c.draw_circle(Vector2(x + w * 0.12, y + h * 0.18), 5, Color(1.0, 0.7, 0.2, 0.6 + 0.3 * sin(t * 2.0)))
+		"port_backroom":
+			# a dim back office: crates, a lamp, screens of prices
+			c.draw_rect(r, Color(0.08, 0.06, 0.07))
+			c.draw_rect(Rect2(x, y + h * 0.7, w, h * 0.3), Color(0.12, 0.09, 0.08))
+			for i in 3:
+				c.draw_rect(Rect2(x + w * (0.04 + i * 0.1), y + h * (0.5 - i * 0.06), w * 0.09, h * (0.2 + i * 0.06)), Color(0.2, 0.15, 0.1))
+			for i in 2:
+				var sr := Rect2(x + w * (0.66 + i * 0.16), y + h * 0.14, w * 0.13, h * 0.2)
+				c.draw_rect(sr, Color(0.02, 0.05, 0.04))
+				for k in 4:
+					var on := 0.5 + 0.4 * sin(t * 2.3 + i * 2.0 + k)
+					c.draw_line(sr.position + Vector2(4, 6 + k * 8), sr.position + Vector2(sr.size.x * (0.4 + 0.5 * on), 6 + k * 8), Color(0.4, 1.0, 0.6, 0.6), 1.5)
+			c.draw_circle(Vector2(x + w * 0.5, y + h * 0.05), w * 0.2, Color(1.0, 0.75, 0.4, 0.07))
+			c.draw_circle(Vector2(x + w * 0.5, y + h * 0.03), 4.0, Color(1.0, 0.85, 0.5, 0.9))
+		"bridge_drengin":
+			# red-lit iron, a war table, Mars through the viewport
+			c.draw_rect(r, Color(0.07, 0.02, 0.02))
+			var vw := Rect2(x + w * 0.15, y + h * 0.06, w * 0.7, h * 0.38)
+			c.draw_rect(vw, Color(0.01, 0.0, 0.0))
+			_stars(c, vw, 30, 41, 0.6)
+			c.draw_circle(Vector2(vw.position.x + vw.size.x * 0.2, vw.end.y + h * 0.05), h * 0.3, Color(0.6, 0.22, 0.12, 0.95))
+			c.draw_rect(Rect2(x, y + h * 0.44, w, h * 0.56), Color(0.1, 0.03, 0.03))
+			for i in 5:
+				c.draw_line(Vector2(x + w * (0.1 + i * 0.2), y + h * 0.44), Vector2(x + w * (0.05 + i * 0.22), y + h), Color(0.2, 0.05, 0.04), 4.0)
+			c.draw_rect(vw, Color(0.35, 0.1, 0.08), false, 3.0)
+			c.draw_rect(Rect2(x, y + h * 0.86, w, h * 0.14), Color(1.0, 0.2, 0.1, 0.18 + 0.08 * sin(t * 2.0)))
 		_:
 			c.draw_rect(r, Color(0.04, 0.05, 0.08))
 
@@ -138,6 +164,9 @@ static func _ellipse(c: CanvasItem, centre: Vector2, rx: float, ry: float, col: 
 
 static func _draw_person(c: CanvasItem, r: Rect2, spk: Dictionary, talk: float, blink: bool, t: float) -> void:
 	var look: Dictionary = spk.get("look", {})
+	if look.get("alien", "") == "drengin":
+		_draw_drengin(c, r, spk, talk, blink, t)
+		return
 	var skin: Color = look.get("skin", Color(0.8, 0.65, 0.55))
 	var hair: Color = look.get("hair", Color(0.2, 0.15, 0.1))
 	var uniform: Color = look.get("uniform", Color(0.2, 0.25, 0.35))
@@ -207,3 +236,39 @@ static func _draw_signal(c: CanvasItem, r: Rect2, noise: float, t: float) -> voi
 		if noise > 0.8:
 			c.draw_rect(r, Color(0.6, 0.65, 0.7, (noise - 0.8) * 3.0))
 	c.draw_rect(r, Color(0.5, 0.65, 0.8, 0.5), false, 1.5)
+
+
+## A Drengin: a heavy ridged skull, a jutting jaw with tusks, small
+## burning eyes, armour plate at the shoulders.
+static func _draw_drengin(c: CanvasItem, r: Rect2, spk: Dictionary, talk: float, blink: bool, t: float) -> void:
+	var look: Dictionary = spk.get("look", {})
+	var skin: Color = look.get("skin", Color(0.42, 0.48, 0.36))
+	var armour: Color = look.get("uniform", Color(0.35, 0.1, 0.08))
+	var u := r.size.y / 225.0
+	var bob := sin(t * 1.2) * 1.2 * u
+	var cx := r.position.x + r.size.x * 0.5
+	var head := Vector2(cx, r.position.y + r.size.y * 0.44 + bob)
+	var sh_y := r.end.y - 58.0 * u + bob * 0.5
+	# armour: broad pauldrons with spikes
+	c.draw_colored_polygon(PackedVector2Array([Vector2(cx - 110 * u, r.end.y), Vector2(cx - 104 * u, sh_y - 4 * u), Vector2(cx - 40 * u, sh_y - 16 * u),
+		Vector2(cx + 40 * u, sh_y - 16 * u), Vector2(cx + 104 * u, sh_y - 4 * u), Vector2(cx + 110 * u, r.end.y)]), armour)
+	for sx in [-1.0, 1.0]:
+		c.draw_colored_polygon(PackedVector2Array([Vector2(cx + sx * 70 * u, sh_y - 8 * u), Vector2(cx + sx * 84 * u, sh_y - 34 * u), Vector2(cx + sx * 92 * u, sh_y - 4 * u)]), armour.lightened(0.2))
+	c.draw_rect(Rect2(cx - 22 * u, head.y + 26 * u, 44 * u, sh_y - head.y - 26 * u), skin.darkened(0.25))
+	# the skull: wide, with a ridged crest
+	_ellipse(c, head, 40 * u, 44 * u, skin)
+	for i in 4:
+		var ry := head.y - 44 * u + i * 9 * u
+		c.draw_line(Vector2(head.x - (18 - i * 3) * u, ry), Vector2(head.x + (18 - i * 3) * u, ry), skin.darkened(0.35), 3.0 * u)
+	c.draw_colored_polygon(PackedVector2Array([head + Vector2(-10, -46) * u, head + Vector2(0, -58) * u, head + Vector2(10, -46) * u]), skin.darkened(0.3))
+	# a heavy brow over small eyes that glow
+	c.draw_rect(Rect2(head.x - 36 * u, head.y - 16 * u, 72 * u, 9 * u), skin.darkened(0.3))
+	var eye_h := 1.0 * u if blink else 3.5 * u
+	for sx in [-1.0, 1.0]:
+		c.draw_rect(Rect2(head.x + sx * 16 * u - 5 * u, head.y - 5 * u - eye_h * 0.5, 10 * u, eye_h), Color(1.0, 0.75, 0.1))
+	# the jaw drops with the voice; tusks from the lower jaw
+	var open := lerpf(2.0, 11.0, clampf(talk, 0.0, 1.0)) * u
+	c.draw_rect(Rect2(head.x - 18 * u, head.y + 16 * u, 36 * u, open), Color(0.15, 0.03, 0.03))
+	c.draw_rect(Rect2(head.x - 26 * u, head.y + 16 * u + open, 52 * u, 12 * u), skin.darkened(0.1))
+	for sx in [-1.0, 1.0]:
+		c.draw_colored_polygon(PackedVector2Array([Vector2(head.x + sx * 20 * u, head.y + 18 * u + open), Vector2(head.x + sx * 24 * u, head.y + 2 * u + open), Vector2(head.x + sx * 15 * u, head.y + 18 * u + open)]), Color(0.9, 0.86, 0.7))

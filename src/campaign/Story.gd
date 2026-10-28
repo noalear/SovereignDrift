@@ -12,6 +12,7 @@ extends RefCounted
 
 signal line_started(id: String)
 signal changed()
+signal choice_asked()
 
 ## The operations in order.  wait: seconds of open war before it is
 ## offered (counted from the end of the one before).
@@ -24,11 +25,24 @@ const OPS := [
 		"call": "call_dark_convoy", "brief": ["dc_brief_1", "dc_brief_2", "dc_brief_3"],
 		"summary": "Find the missing fuel convoy near Ceres and scan the wrecks. If you meet the raiders, disable one and board it.",
 		"script": "res://src/campaign/ops/DarkConvoy.gd"},
+	{"id": "free_port", "act": 1, "title": "Free Port", "where": "The free port at Jupiter's Trojan point", "wait": 150.0,
+		"call": "call_free_port", "brief": ["port_brief_1", "port_brief_2", "port_brief_3"],
+		"summary": "Get the raiders' transponder records from the broker Ilsa Marrow at the free port. Pay her price, or copy them under silent running. No weapons at the port.",
+		"script": "res://src/campaign/ops/FreePort.gd"},
+	{"id": "picket_line", "act": 1, "title": "Picket Line", "where": "Earth to Luna", "wait": 150.0,
+		"call": "call_picket_line", "brief": ["pk_brief_1", "pk_brief_2", "pk_brief_3"],
+		"summary": "Land on Earth for 8 Alloys and deliver them to the defense station frame over Luna with Lt. Brandt, then guard it until it is built.",
+		"script": "res://src/campaign/ops/PicketLine.gd"},
+	{"id": "accord_breaks", "act": 1, "title": "The Accord Breaks", "where": "Luna", "wait": 120.0,
+		"call": "call_accord_breaks", "brief": ["ab_brief_1", "ab_brief_2", "ab_brief_3"],
+		"summary": "The Drengin come for Luna. Hold it with Lt. Brandt for six minutes until the fleet arrives. If Luna falls, fall back: the war goes on either way.",
+		"script": "res://src/campaign/ops/AccordBreaks.gd"},
 ]
 ## The story's Sol is this much bigger than Conquest's (Kyle: "scale the
 ## map up huge ... it takes time to get places").
 const MAP_SCALE := 3.0
 const ACTS := ["", "Act 1: Cold Orbit", "Act 2: Open War", "Act 3: Hammer of Mars"]
+const PORT_MARKUP := 0.25         # on the free port's prices for Terrans once the records were stolen
 const BREACH_WARN_EVERY := 30.0   # Hale's "hold your fire" between operations
 
 var world: Node
@@ -39,8 +53,12 @@ var unlock_at := 0.0              # world.elapsed when the next operation is off
 var called := false               # Hale has called the player in for it
 var failed := ""                  # why the operation failed ("" = it did not): waiting for a retry
 var briefing_open := false        # the player is reading the briefing (Main's Briefing)
+## A story choice waiting for the player: {id, question, options: [[key,
+## label, what it means], ...]} (Main's StoryChoice shows it).
+var choice := {}
 var _last_warn := -100.0
 var _player_down := false         # Hale has said the player is down
+var _marked_up := false           # the free port's prices for Terrans are up (Free Port, stolen records)
 
 # the voice: lines wait their turn, and every player hears the same one
 var line := ""                    # the line being spoken
@@ -134,6 +152,8 @@ func tick_voice(delta: float) -> void:
 func tick(delta: float) -> void:
 	if world.game_over:
 		return
+	if not _marked_up and flags.get("port_fees", "") == "high":
+		_marked_up = mark_up_port()
 	if op != null:
 		var p: Ship = world.player
 		if p != null and p.dead and not _player_down:
@@ -172,6 +192,7 @@ func start_op() -> void:
 
 func _finish() -> void:
 	var spec := current()
+	choice = {}
 	op.cleanup()
 	op = null
 	flags[spec["id"]] = "won"
@@ -190,9 +211,40 @@ func _finish() -> void:
 
 func _fail(reason: String) -> void:
 	failed = reason
+	choice = {}
 	op.cleanup()
 	op = null
 	world.notify_all("Operation failed: %s Press %s to try it again from the briefing." % [reason, Keybinds.short_text("briefing")], Color(1.0, 0.6, 0.45))
+	changed.emit()
+
+
+## The free port charges Terrans more for the rest of the war (Economy).
+func mark_up_port() -> bool:
+	for s in world.ships:
+		if s.race_id == GameData.NEUTRAL and s.design_name == "TradeStation" and not s.dead:
+			s.set_meta("markup", {1: PORT_MARKUP})
+			return true
+	return false
+
+
+# ------------------------------------------------------------ choices
+
+## Put a choice to the player.  The operation hears the answer in
+## on_choice, and flags keep it as "choice_<id>".
+func ask(id: String, question: String, options: Array) -> void:
+	choice = {"id": id, "question": question, "options": options}
+	choice_asked.emit()
+	changed.emit()
+
+
+func choose(key: String) -> void:
+	if choice.is_empty():
+		return
+	var id: String = choice["id"]
+	choice = {}
+	flags["choice_" + id] = key
+	if op != null:
+		op.on_choice(id, key)
 	changed.emit()
 
 
