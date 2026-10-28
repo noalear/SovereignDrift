@@ -143,6 +143,9 @@ func _process(_delta: float) -> bool:
 			_put(guarded, spot + Vector2(400, 0), mars.velocity)
 			_put(lone, spot + Vector2(-900, 0), mars.velocity)
 			guarded.convoy = true
+			# the raider's sensors cache what they saw a moment ago, from where it was
+			foe.sensors._own.clear()
+			foe.sensors._seen.clear()
 			_check(raider._raid_target() == lone, "a raider goes for the lone supply ship, not the convoy")
 			guarded.convoy = false
 			_check(raider._raid_target() == guarded, "and for the nearest when neither is guarded")

@@ -223,6 +223,11 @@ func _orbit_guard() -> void:
 	var min_alt := INF
 	var burned := false
 	var step := 1.0 / 60.0
+	# the second minute: how high and low it swings, and how far round it goes
+	var lo := INF
+	var hi := 0.0
+	var swept := 0.0
+	var last_dir := Vector2.ZERO
 	for i in 60 * 120:
 		for p in w.planets:
 			p.update_orbit(step)
@@ -231,14 +236,20 @@ func _orbit_guard() -> void:
 		w.space.step(step)
 		s.post_step(step)
 		burned = burned or s.orbit_guard
-		min_alt = minf(min_alt, s.global_position.distance_to(earth.global_position) - earth.radius)
-	var alt := s.global_position.distance_to(earth.global_position) - earth.radius
-	var relv := (s.velocity - earth.velocity).length()
-	var v_circ := w.space.orbital_speed(earth.body, earth.radius + alt)
+		var rel := s.global_position - earth.global_position
+		min_alt = minf(min_alt, rel.length() - earth.radius)
+		if i >= 60 * 60:
+			lo = minf(lo, rel.length() - earth.radius)
+			hi = maxf(hi, rel.length() - earth.radius)
+			if last_dir != Vector2.ZERO:
+				swept += absf(last_dir.angle_to(rel))
+			last_dir = rel
 	_check("the orbit guard fires the engines", burned)
 	_check("the orbit guard burns fuel", s.fuel < fuel0, "%f -> %f" % [fuel0, s.fuel])
 	_check("a ship left at rest beside a planet never touches it", min_alt > s.size, "lowest %.0f px" % min_alt)
-	_check("after two minutes it is in a near-circular orbit", alt > 100.0 and alt < 900.0 and absf(relv - v_circ) < v_circ * 0.35, "alt %.0f relv %.1f circ %.1f" % [alt, relv, v_circ])
+	# the guard only lifts the periapsis clear (it does not circularise), so
+	# the orbit it leaves is an ellipse: judge the whole of it, not one moment
+	_check("after a minute it is in a stable orbit", lo > s.size and hi < 900.0 and swept > TAU, "alt %.0f..%.0f px, %.1f turns in the second minute" % [lo, hi, swept / TAU])
 	# the player, thrusting prograde round Jupiter's deep well (the natural
 	# way to "go fast"), must be able to leave it: the drive's rating is a
 	# cap on energy, not on speed relative to the planet, so it may pass the
