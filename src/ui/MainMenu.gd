@@ -309,6 +309,7 @@ func _draw() -> void:
 			_draw_online(vp)
 		"controls":
 			_draw_controls(vp)
+	_draw_update(vp)
 	var np := Music.now_playing()
 	if not np.is_empty():
 		draw_string(font, Vector2(24, vp.y - 20), "Now playing: %s     (F9: next song)" % np, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.8, 0.8, 0.95, 0.8))
@@ -337,6 +338,20 @@ func _draw_main(vp: Vector2) -> void:
 	_button(Rect2(x, y + 384, w * 0.5 - 4, 52), "About", func(): _set_page("about"))
 	_button(Rect2(x + w * 0.5 + 4, y + 384, w * 0.5 - 4, 52), "Quit", func(): quit_pressed.emit())
 	draw_string(font, Vector2(0, y + 468), "Arrow keys, D-pad or stick to move   ·   Enter or A to choose   ·   Esc or B to go back", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14, Color(0.6, 0.7, 0.85))
+
+
+## Top right: the build and the updater's news, with Restart once an
+## update is downloaded, or a link to the installer when it needs one.
+func _draw_update(vp: Vector2) -> void:
+	if Updater.state == "off":
+		return
+	var ok := Updater.state in ["current", "checking", "downloading"]
+	var col := Color(0.7, 0.8, 0.95, 0.75) if ok else Color(1.0, 0.85, 0.55)
+	draw_string(font, Vector2(vp.x - 724, 32), "Build %s   ·   %s" % [Updater.build, Updater.note], HORIZONTAL_ALIGNMENT_RIGHT, 700, 15, col)
+	if Updater.state == "ready":
+		_button(Rect2(vp.x - 244, 46, 220, 42), "Restart to update", Updater.restart)
+	elif Updater.state == "installer":
+		_button(Rect2(vp.x - 244, 46, 220, 42), "Get the installer", func(): OS.shell_open(Updater.installer_url), not Updater.installer_url.is_empty())
 
 
 ## A new campaign over a saved one asks first: the second press starts it.

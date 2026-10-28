@@ -15,6 +15,7 @@ config/icon="res://assets/icon.svg"
 
 [autoload]
 
+Updater="*res://src/autoload/Updater.gd"
 Settings="*res://src/autoload/Settings.gd"
 Keybinds="*res://src/autoload/Keybinds.gd"
 GameData="*res://src/autoload/GameData.gd"
