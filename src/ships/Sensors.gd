@@ -133,6 +133,21 @@ func fit(stats: Dictionary) -> void:
 	sink_store = 0.0
 
 
+## How far off `v`'s own sensors make a contact of a ship giving off
+## `sig` (channel -> loudness, as fit_signatures gives it), line of sight
+## and beam cones aside.
+static func contact_reach(v: Node, sig: Dictionary) -> float:
+	var sv: Sensors = v.sensors
+	var best := 0.0
+	for fam in sv.suite:
+		var info: Dictionary = GameData.SENSOR_FAMILIES[fam]
+		if fam == "pulse" or info["cone"] > 0.0 or (info["active"] and not sv.active_on()):
+			continue
+		var r: float = sv.rated(fam) * float(sig.get(info["channel"], 0.0)) / 100.0
+		best = maxf(best, r * CONTACT_REACH if info["track"] else r)
+	return best
+
+
 func reset() -> void:
 	spikes.clear()
 	heat = 0.0

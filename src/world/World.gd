@@ -23,6 +23,8 @@ const AI_RESPAWN_DELAY := 15.0
 const PIRATE_FIRST := Vector2(360.0, 720.0)
 const PIRATE_RETURN := Vector2(600.0, 1080.0)
 const SPAWN_CLEAR := 2600.0
+## The practice pirate starts no nearer than this, seen or not.
+const DUELIST_NEAREST := 500.0
 ## Momentum carried per point of weapon damage (mass units * px/s): a
 ## torpedo nudges a Scout by about 6 px/s, a mine throws it at 70.
 const IMPULSE_PER_DAMAGE := 180.0
@@ -458,8 +460,17 @@ func spawn_ship(pilot: String, race_id: int, design: String, ship_name: String, 
 
 ## Put the practice opponent inside sensor range, facing the player.
 func _place_duelist(s: Ship) -> void:
+	# inside sensor range, and nearer still for a hull our sensors pick up
+	# late (the pirates' shroud coating): where it shows as a contact
+	var reach := Sensors.contact_reach(player, Sensors.fit_signatures(s.design, s.stats))
+	var d := clampf(minf(minf(1200.0, player.sensor_range * 0.75), reach * 0.85), DUELIST_NEAREST, 1200.0)
+	# off the nose, unless a world is in the way
 	var a := player.rotation + randf_range(-0.6, 0.6)
-	s.global_position = player.global_position + Vector2(cos(a), sin(a)) * minf(1200.0, player.sensor_range * 0.75)
+	for turn in [0.0, 1.2, -1.2, PI]:
+		if line_clear(player.global_position, player.global_position + Vector2.from_angle(a + turn) * d):
+			a += turn
+			break
+	s.global_position = player.global_position + Vector2.from_angle(a) * d
 	s.velocity = player.velocity
 	s.reset_physics_interpolation()
 	s.rotation = a + PI
