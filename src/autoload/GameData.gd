@@ -12,6 +12,10 @@ const UNIVERSE_RADIUS := 24000.0
 ## Every ship's energy regeneration is scaled by this (Kyle, 2026-10-28:
 ## about 15% faster overall).
 const ENERGY_REGEN_SCALE := 1.15
+## Every weapon's damage (warheads and beams) is scaled by this, the one
+## knob for how long fights last (Kyle, 2026-10-28: a Scout duel should
+## take 6-7 s).
+const DAMAGE_SCALE := 0.55
 
 # ---------------------------------------------------------------- races
 

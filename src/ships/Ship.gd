@@ -485,7 +485,7 @@ func _build_weapons() -> void:
 			entry["slot"] = "beam"
 			entry["cost"] = 90.0 * (1.0 + (overload - 1.0) * 0.5)          # per second
 			entry["range"] = float(m["p"][2]) * 2.2
-			entry["dps"] = 45.0 + float(m["p"][1]) * 0.15
+			entry["dps"] = (45.0 + float(m["p"][1]) * 0.15) * GameData.DAMAGE_SCALE
 			entry["rate"] = 0.0
 		weapons.append(entry)
 		if is_turret(entry):

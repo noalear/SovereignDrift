@@ -239,7 +239,7 @@ func set_colony(race: int, design: String, pop: float) -> void:
 			e["rate"] = GameData.TUBE_COOLDOWN.get(e["missile"], 0.4) * 1.6
 		else:
 			e["range"] = float(m["p"][2]) * 2.2
-			e["dps"] = 30.0 + float(m["p"][1]) * 0.1
+			e["dps"] = (30.0 + float(m["p"][1]) * 0.1) * GameData.DAMAGE_SCALE
 			e["rate"] = 0.0
 		weapons.append(e)
 	fit_batteries()

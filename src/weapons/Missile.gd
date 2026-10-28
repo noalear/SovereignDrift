@@ -37,7 +37,7 @@ func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vecto
 	reset_physics_interpolation()
 	life = data["life"]
 	radius = data["radius"]
-	warhead = data["warhead"]
+	warhead = data["warhead"] * GameData.DAMAGE_SCALE
 	target = p_target
 	armed = 0.35 if data["trigger"] == "prox" else 0.05
 	if p_id == "002":
