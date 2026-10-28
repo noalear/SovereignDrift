@@ -267,6 +267,22 @@ func _process(_delta: float) -> bool:
 				return false
 			_check(trader.cargo.get("food", 0.0) < 1.0 and trader.credits > was, "the computer trade ship sold its Food at %s for %d credits (%.0f s)" % [
 				trader.get_node("AI").dock_at.ship_name if trader.get_node("AI").dock_at != null else "the free port", trader.credits - was, now - t0])
+			# Earth all but out of Fuel, which no Terran world makes: the trade
+			# ship buys it at the free port even at the going price
+			var earth: Planet = w.planet_by_name["Earth"]
+			for col in w.planets:
+				if col.is_colonised() and col.owner_race == p.race_id:
+					for k in Economy.RESOURCES:
+						col.stock[k] = Economy.cap(col) / 3.0          # no surplus to sell, no need
+			earth.stock["fuel"] = 5.0
+			port.cargo["fuel"] = Economy.MARKET_TARGET
+			trader.cargo.clear()
+			trader.credits = 2000
+			var ai: AIPilot = trader.get_node("AI")
+			ai.plan_timer = 0.0
+			ai._plan_trade()
+			_check(Economy.buy_price(port, "fuel", trader) > GameData.RESOURCE_PRICE["fuel"] and ai.job == "buy" and ai.haul_res == "fuel" and ai.haul_to == earth,
+				"a trade ship buys Fuel dear for Earth when it is nearly out (%s %s for %s)" % [ai.job, ai.haul_res, ai.haul_to.body_name if ai.haul_to != null else "-"])
 			print("trade test %s" % ("FAILED" if failed else "passed"))
 			quit(1 if failed else 0)
 			return true
