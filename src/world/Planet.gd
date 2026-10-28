@@ -90,10 +90,12 @@ func setup(p_world: Node, row: Array, parent: Planet, seed_value: int) -> void:
 	radius = float(row[8])
 	richness = Economy.richness(look, body_class, temperature, habitable, mass, radius)
 	stock = Economy.empty_stock()
+	# the story campaign spreads the system out (World.map_scale)
+	var spread: float = world.get("map_scale") if world != null and world.get("map_scale") != null else 1.0
 	if body_class == "Moon":
-		orbit_radius = float(row[2]) * 1.6 + (parent.radius if parent else 0.0)
+		orbit_radius = float(row[2]) * 1.6 * spread + (parent.radius if parent else 0.0)
 	else:
-		orbit_radius = float(row[2]) * GameData.UNIVERSE_RADIUS
+		orbit_radius = float(row[2]) * GameData.UNIVERSE_RADIUS * spread
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	orbit_angle = rng.randf() * TAU
@@ -436,6 +438,8 @@ func take_damage(amount: float, attacker: Node, _at: Vector2 = Vector2.ZERO, dty
 	under_attack = 8.0
 	if attacker is Ship:
 		last_attacker = attacker
+		if world != null and world.get("accord"):
+			world.accord_breach(attacker, self)
 	var remaining := amount
 	var ms := maxf(GameData.damage_mult(dtype, "shield"), 0.001)
 	if pshield_up():

@@ -215,6 +215,9 @@ func _think() -> void:
 	# attack duty: with no ship about, go after an enemy colony's defences
 	if tgt == null and bombard and state == State.PATROL:
 		tgt = _colony_to_bombard()
+	# the Accord: no first shot at another empire
+	if tgt != null and world.accord and not world.fair_game(ship.team(), tgt):
+		tgt = null
 	ship.target = tgt
 	var weak := shield_frac < 0.15 and hull_frac < 0.55
 	if escort != null and tgt == null and state != State.BOARD:
@@ -567,7 +570,7 @@ func _plan_ferry() -> bool:
 		var kind := ""
 		if p.is_colonised() and p.owner_race != ship.race_id:
 			# settlers only take a world with no troops on it, twenty to one
-			if p.is_defenceless() and Ground.count(p.garrison) == 0 and p.battle.is_empty() and not p.pshield_up() \
+			if p.is_defenceless() and Ground.count(p.garrison) == 0 and p.battle.is_empty() and not p.pshield_up() and world.at_war(ship.race_id, p.owner_race) \
 					and ship.colonists > p.population * GameData.COLONIST_RATIO * 1.15:
 				score = 3.0
 				kind = "invade"
@@ -865,6 +868,8 @@ func _plan_drop() -> bool:
 	if ship.troop_count() > 0:
 		for p in world.planets:
 			if not p.is_colonised() or p.owner_race == ship.race_id or p.owner_race == GameData.NEUTRAL or not p.has_surface():
+				continue
+			if not world.at_war(ship.race_id, p.owner_race):
 				continue
 			if not _assault_open(p):
 				continue

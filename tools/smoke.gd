@@ -28,7 +28,11 @@ func _start() -> void:
 	# a real click on "Play" must start the game (full-screen Controls
 	# under a CanvasLayer once stayed at size zero and ate no clicks)
 	assert(main.menu.size != Vector2.ZERO, "main menu has no size")
-	_click(main.menu.buttons[0][0].get_center())
+	var play: Rect2 = main.menu.buttons[0][0]
+	for b in main.menu.buttons:
+		if str(b[1]).begins_with("Play:"):
+			play = b[0]
+	_click(play.get_center())
 	await process_frame
 	await process_frame
 	assert(main.world != null, "clicking Play did not start the game")

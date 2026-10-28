@@ -1,6 +1,7 @@
 """Stellar Frontier remake -- voice-line generator.
 
-Speaks every line in src/ui/TutorialLines.gd with Kokoro-82M, a local
+Speaks every line in src/ui/TutorialLines.gd and src/campaign/StoryLines.gd
+with Kokoro-82M, a local
 text-to-speech model (Apache 2.0: free for games, no account, no network
 once the model is on disk), and writes assets/voice/<set>/<id>.ogg
 (48 kHz mono Ogg Vorbis, loudness-matched).  The same tool voices any
@@ -88,10 +89,45 @@ def fx_chain(x, sr, fx):
     if fx == "radio":
         x = signal.sosfilt(signal.butter(4, [320.0, 3400.0], "bandpass", fs=sr, output="sos"), x)
         x = np.tanh(x * 2.2) / np.tanh(2.2)
+    elif fx == "drengin":
+        # a Drengin over comms: lower and heavier, a growl of grit, still clear words
+        x = pitch_shift(x, sr, -3.0)
+        x = signal.sosfilt(signal.butter(4, [180.0, 3800.0], "bandpass", fs=sr, output="sos"), x)
+        x = np.tanh(x * 3.5) / np.tanh(3.5)
+    elif fx == "arcean":
+        # an Arcean: a faint shimmer, a doubled voice a few cents apart
+        y = pitch_shift(x, sr, 0.12)
+        n = min(len(x), len(y))
+        x = x[:n] * 0.75 + np.roll(y[:n], int(0.012 * sr)) * 0.45
+        x = signal.sosfilt(signal.butter(4, [250.0, 6000.0], "bandpass", fs=sr, output="sos"), x)
     else:
         b, a = _peaking(3200.0, 1.5, 0.9, sr)
         x = signal.lfilter(b, a, x)
     return x
+
+
+def pitch_shift(x, sr, semitones):
+    """Shift the pitch, keeping the length: resample, then stretch back
+    with overlap-added windows."""
+    k = 2 ** (semitones / 12.0)
+    y = signal.resample_poly(x, 1000, int(round(1000 * k)))
+    win = int(0.04 * sr)
+    hop_out = win // 2
+    hop_in = hop_out * len(y) / max(len(x), 1)
+    out = np.zeros(len(x) + win)
+    norm = np.zeros(len(x) + win)
+    w = np.hanning(win)
+    i = 0
+    while i * hop_out + win < len(out):
+        a = int(i * hop_in)
+        seg = y[a:a + win]
+        if len(seg) < win:
+            break
+        out[i * hop_out:i * hop_out + win] += seg * w
+        norm[i * hop_out:i * hop_out + win] += w
+        i += 1
+    norm[norm < 1e-3] = 1.0
+    return (out / norm)[:len(x)]
 
 
 def _peaking(f0, gain_db, q, sr):
@@ -177,7 +213,10 @@ def main(argv):
             continue
         path = os.path.join(ROOT, "assets", "voice", line["set"], line["id"] + ".ogg")
         if not report_only:
-            write_ogg(render(k, line["text"], speakers[line["speaker"]]), path)
+            spk = dict(speakers[line["speaker"]])
+            if line.get("fx"):
+                spk["fx"] = line["fx"]
+            write_ogg(render(k, line["text"], spk), path)
         if os.path.exists(path):
             x, sr = sf.read(path)
             words = len(line["text"].split())

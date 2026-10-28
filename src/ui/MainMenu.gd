@@ -9,6 +9,9 @@ signal free_flight_pressed()
 signal tutorial_pressed()
 signal campaign_new_pressed()
 signal campaign_continue_pressed()
+signal story_new_pressed()
+signal story_continue_pressed()
+signal story_load_pressed()
 signal host_pressed()
 signal duel_pressed()
 signal mode_pressed(which: String, online: bool)   # "survival" or "skirmish", alone or hosted
@@ -32,6 +35,9 @@ var capture_since := 0
 var controls_status := ""
 var campaign_note := ""      # the warning before a new campaign replaces the saved one
 var save_info := {}          # the saved campaign's summary, read once
+var story_info := {}         # the story campaign's, the same
+var story_slots := false     # there are story save slots to load
+var story_note := ""         # the warning before a new story replaces the saved one
 var in_game := false         # opened from the pause menu: Settings and Controls only
 var world: World = null      # in_game: the camera setting zooms it at once
 
@@ -39,6 +45,8 @@ var world: World = null      # in_game: the camera setting zooms it at once
 func _ready() -> void:
 	font = ThemeDB.fallback_font
 	save_info = SaveGame.summary()
+	story_info = SaveGame.summary(SaveGame.STORY_PATH)
+	story_slots = SaveGame.has_slots()
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	if in_game:
@@ -320,8 +328,19 @@ func _draw() -> void:
 func _draw_main(vp: Vector2) -> void:
 	var w := 320.0
 	var x := (vp.x - w) * 0.5
-	var y := vp.y * 0.39
-	draw_string(font, Vector2(0, y - 20), _profile_line("single"), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 17, Color(1, 0.95, 0.8))
+	var y := minf(vp.y * 0.39 + 44.0, vp.y - 580.0)
+	draw_string(font, Vector2(0, y - 84), _profile_line("single"), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 17, Color(1, 0.95, 0.8))
+	# the story campaign
+	var has_story := not story_info.is_empty()
+	var third := (w - 16.0) / 3.0
+	_button(Rect2(x, y - 64, third, 52), "New", _new_story)
+	_button(Rect2(x + third + 8, y - 64, third, 52), "Continue", func(): story_continue_pressed.emit(), has_story)
+	_button(Rect2(x + (third + 8) * 2.0, y - 64, third, 52), "Load", func(): story_load_pressed.emit(), story_slots)
+	draw_string(font, Vector2(x - 336, y - 32), "The Frontier War (story)", HORIZONTAL_ALIGNMENT_RIGHT, 320, 15, Color(0.75, 0.85, 1.0))
+	if not story_note.is_empty():
+		draw_string(font, Vector2(x + w + 16, y - 32), story_note, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1.0, 0.85, 0.55))
+	elif has_story:
+		draw_string(font, Vector2(x + w + 16, y - 32), _story_line(), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.7, 0.8, 0.95))
 	_button(Rect2(x, y, w, 52), "Play: the Sol system", func(): play_pressed.emit())
 	var has_save := not save_info.is_empty()
 	_button(Rect2(x, y + 64, w * 0.5 - 4, 52), "New campaign", _new_campaign)
@@ -358,6 +377,24 @@ func _draw_update(vp: Vector2) -> void:
 		_button(Rect2(vp.x - 244, 46, 220, 42), "Restart to update", Updater.restart)
 	elif Updater.state == "installer":
 		_button(Rect2(vp.x - 244, 46, 220, 42), "Get the installer", func(): OS.shell_open(Updater.installer_url), not Updater.installer_url.is_empty())
+
+
+## A new story over a saved one asks first, like a campaign.
+func _new_story() -> void:
+	if SaveGame.exists(SaveGame.STORY_PATH) and story_note.is_empty():
+		story_note = "This replaces the story you are playing (your save slots stay). Press New again to start over."
+		return
+	story_note = ""
+	story_new_pressed.emit()
+
+
+## "Operation 2 of 14 next, 0:42:10 in"
+func _story_line() -> String:
+	var t := int(story_info["elapsed"])
+	var op := int(story_info.get("op", 0))
+	if op >= Story.OPS.size():
+		return "Saved story: every operation so far done, %d:%02d:%02d in" % [t / 3600, (t / 60) % 60, t % 60]
+	return "Saved story: operation %d, %s, %d:%02d:%02d in" % [op + 1, Story.OPS[maxi(op, 0)]["title"], t / 3600, (t / 60) % 60, t % 60]
 
 
 ## A new campaign over a saved one asks first: the second press starts it.

@@ -12,34 +12,42 @@ class_name SaveGame
 extends RefCounted
 
 const PATH := "user://campaign.save"
+## The story campaign keeps its own save, apart from the sandbox war's.
+const STORY_PATH := "user://story.save"
 const VERSION := 1
+## Story save slots, as many as the player likes, each with a screenshot
+## beside it (<name>.save and <name>.png).
+const SLOT_DIR := "user://story_saves/"
+const SHOT_SIZE := Vector2i(384, 216)
 
 
-static func exists() -> bool:
-	return FileAccess.file_exists(PATH)
+static func exists(path: String = PATH) -> bool:
+	return FileAccess.file_exists(path)
 
 
-static func erase() -> void:
-	if exists():
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(PATH))
+static func erase(path: String = PATH) -> void:
+	if exists(path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
 ## The menu's line about the saved campaign, from the file alone.
-static func summary() -> Dictionary:
-	var d := read()
+static func summary(path: String = PATH) -> Dictionary:
+	var d := read(path)
 	if d.is_empty():
 		return {}
 	var held := 0
 	for p in d.get("planets", []):
 		if int(p.get("owner", -1)) == int(d.get("race", -1)) and str(p.get("design", "")) != "":
 			held += 1
-	return {"elapsed": float(d.get("elapsed", 0.0)), "race": int(d.get("race", 1)), "held": held, "saved_at": float(d.get("saved_at", 0.0))}
+	var story: Dictionary = d.get("story", {})
+	return {"elapsed": float(d.get("elapsed", 0.0)), "race": int(d.get("race", 1)), "held": held, "saved_at": float(d.get("saved_at", 0.0)),
+		"op": int(story.get("index", -1))}
 
 
-static func read() -> Dictionary:
-	if not exists():
+static func read(path: String = PATH) -> Dictionary:
+	if not exists(path):
 		return {}
-	var f := FileAccess.open(PATH, FileAccess.READ)
+	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
 		return {}
 	var v: Variant = f.get_var(false)
@@ -50,20 +58,102 @@ static func read() -> Dictionary:
 
 ## Write the world to disk (through a temporary file, so a crash mid-write
 ## never leaves a broken save).  False when the disk refused.
-static func write(world: Node) -> bool:
-	var d := capture(world)
-	var tmp := PATH + ".tmp"
+static func write(world: Node, path: String = PATH) -> bool:
+	return _store(capture(world), path)
+
+
+# ------------------------------------------------------------- story slots
+
+## Every story save slot, the newest first: {path, shot (a Texture2D or
+## null), info (summary)}.
+static func slots() -> Array:
+	var out := []
+	var dir := DirAccess.open(SLOT_DIR)
+	if dir == null:
+		return out
+	for f in dir.get_files():
+		if not f.ends_with(".save"):
+			continue
+		var path := SLOT_DIR + f
+		var info := summary(path)
+		if info.is_empty():
+			continue
+		var shot: Texture2D = null
+		var png := path.get_basename() + ".png"
+		if FileAccess.file_exists(png):
+			var img := Image.load_from_file(ProjectSettings.globalize_path(png))
+			if img != null and not img.is_empty():
+				shot = ImageTexture.create_from_image(img)
+		out.append({"path": path, "shot": shot, "info": info})
+	out.sort_custom(func(a, b): return a["info"]["saved_at"] > b["info"]["saved_at"])
+	return out
+
+
+static func has_slots() -> bool:
+	var dir := DirAccess.open(SLOT_DIR)
+	if dir == null:
+		return false
+	for f in dir.get_files():
+		if f.ends_with(".save"):
+			return true
+	return false
+
+
+## A fresh slot's path.
+static func new_slot_path() -> String:
+	var n := int(Time.get_unix_time_from_system() * 1000.0)
+	while FileAccess.file_exists(SLOT_DIR + "save_%d.save" % n):
+		n += 1
+	return SLOT_DIR + "save_%d.save" % n
+
+
+## Save the story into a slot (a new one, or over `path`), with `shot` as
+## its picture.  During an operation the slot gets the save from the
+## operation's start, as Continue would.
+static func save_slot(world: Node, path: String, shot: Image = null) -> bool:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(SLOT_DIR))
+	var ok := false
+	if world.story != null and world.story.in_op():
+		var d := read(STORY_PATH)
+		if d.is_empty():
+			return false
+		d["saved_at"] = Time.get_unix_time_from_system()
+		ok = _store(d, path)
+	else:
+		ok = write(world, path)
+	if ok and shot != null and not shot.is_empty():
+		var img := shot.duplicate() as Image
+		img.resize(SHOT_SIZE.x, SHOT_SIZE.y, Image.INTERPOLATE_BILINEAR)
+		img.save_png(ProjectSettings.globalize_path(path.get_basename() + ".png"))
+	elif ok:
+		erase(path.get_basename() + ".png")
+	return ok
+
+
+static func delete_slot(path: String) -> void:
+	erase(path)
+	erase(path.get_basename() + ".png")
+
+
+## Load a slot: it becomes the story's own save, which Continue then opens.
+static func use_slot(path: String) -> bool:
+	var d := read(path)
+	return not d.is_empty() and _store(d, STORY_PATH)
+
+
+static func _store(d: Dictionary, path: String) -> bool:
+	var tmp := path + ".tmp"
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
 		return false
 	f.store_var(d, false)
 	f.close()
-	var dir := DirAccess.open("user://")
+	var dir := DirAccess.open(path.get_base_dir())
 	if dir == null:
 		return false
-	if dir.file_exists(PATH.get_file()):
-		dir.remove(PATH.get_file())
-	return dir.rename(tmp.get_file(), PATH.get_file()) == OK
+	if dir.file_exists(path.get_file()):
+		dir.remove(path.get_file())
+	return dir.rename(tmp.get_file(), path.get_file()) == OK
 
 
 # ------------------------------------------------------------- saving
@@ -80,6 +170,8 @@ static func capture(world: Node) -> Dictionary:
 			waiting[entry[0]] = maxf(entry[1] - world.elapsed, 1.0)
 	var ships := []
 	for s in world.ships:
+		if s.has_meta("story") and not s.is_prize:
+			continue           # an operation's own ships: it brings them again
 		ships.append(_ship(world, s, waiting))
 	var rr: Round = world.round_rules
 	return {
@@ -92,6 +184,7 @@ static func capture(world: Node) -> Dictionary:
 		"ships": ships,
 		"round": {"elapsed": rr.elapsed if rr != null else world.elapsed, "captures": rr.captures.duplicate() if rr != null else {},
 			"kills": rr.kills.duplicate() if rr != null else {}, "events": rr.events.duplicate(true) if rr != null else []},
+		"story": world.story.pack() if world.get("story") != null else {},
 	}
 
 
