@@ -411,6 +411,7 @@ func _ensure_drone() -> void:
 	var p := _player()
 	var at := p.global_position + Vector2.RIGHT.rotated(p.rotation) * 650.0
 	drone = world.spawn_ship("Training drone", 3, "Scout", "Target drone", at, p.velocity)
+	drone.refit(GameData.stock_design("Scout", 3))   # bare hull: no pirate Shroud to hide it
 	drone.rotation = p.rotation   # its stern toward you: the engines are the easy shot
 	drone.reset_physics_interpolation()
 	# tough enough that its systems go before its hull, crewed by a skeleton
@@ -528,6 +529,7 @@ func _ensure_pirate() -> void:
 	var a := p.rotation + randf_range(-0.8, 0.8)
 	var at := p.global_position + Vector2(cos(a), sin(a)) * 1500.0
 	pirate = world.spawn_ship("Rookie Kell", 3, "Scout", "Rust Mite", at, p.velocity, 0)
+	pirate.refit(GameData.stock_design("Scout", 3))  # no Shroud: a cadet locks it at 700 px
 	pirate.rotation = a + PI
 	pirate.reset_physics_interpolation()
 	# a fair first fight: it comes for you (not our supply ships), stays
