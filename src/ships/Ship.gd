@@ -354,6 +354,19 @@ func is_disabled() -> bool:
 	return systems.disabled() or (crew < 0.5 and not is_station)
 
 
+## A station whose shields are down and whose hull is broken open: a
+## boarding party can get in (see Capture).  Ships are boarded when
+## disabled instead.
+func is_breached() -> bool:
+	return is_station and not is_starbase() and shield <= shield_max * Capture.STATION_BREACH_SHIELD \
+		and hull <= hull_max * Capture.STATION_BREACH_HULL
+
+
+## Open to a boarding party: a ship dead in space, or a breached station.
+func boardable() -> bool:
+	return is_breached() if is_station else is_disabled()
+
+
 ## Whose side the ship is on: its empire's, except in a free-for-all
 ## duel, where every pilot fights alone.  Compare sides with this, not
 ## race_id, when deciding friend or foe.
@@ -1594,7 +1607,7 @@ func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_
 		remaining = maxf(remaining - armor * 0.02 * remaining, remaining * 0.6)
 		hull -= remaining
 		_hit_systems(remaining + bleed, attacker, at, sys_mult, focus)
-		if not Net.is_client() and not is_station:
+		if not Net.is_client() and not is_starbase():
 			crew = maxf(crew - crew_max * remaining / maxf(hull_max, 1.0) * CREW_LOSS * crew_mult, 0.0)
 		if remaining > 4.0:
 			var armor_level: int = module_levels.get("armor", 0)
@@ -1830,7 +1843,7 @@ func _draw() -> void:
 		_draw_frame()
 	if not broken.is_empty():
 		_draw_system_damage()
-	if is_disabled():
+	if is_disabled() or is_breached():
 		# a dead ship's running light blinks red, so it can be found and boarded
 		var blink := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 1000.0 * 5.0)
 		draw_arc(Vector2.ZERO, size * 1.25, 0, TAU, 40, Color(1.0, 0.25, 0.15, 0.25 + 0.3 * blink), 1.5, true)

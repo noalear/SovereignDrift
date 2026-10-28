@@ -346,15 +346,16 @@ func _raid_target() -> Ship:
 ## Board this one instead of finishing it?  Decided once per target, and
 ## only when our crew would win quickly.
 func _wants_to_board(tgt: Node2D) -> bool:
-	if not tgt is Ship or ship.is_station or not tgt.is_disabled() or tgt.is_station:
+	if not tgt is Ship or ship.is_station or ship.support or not tgt.boardable():
 		return false
 	var why := Capture.why_not(ship, tgt)
 	if why != "" and why != "far":
 		return false
 	var key := tgt.get_instance_id()
 	if not board_rolls.has(key):
-		# raiders want the cargo, so they nearly always try
-		board_rolls[key] = randf() < (0.9 if raid and tgt.support else 0.55 + 0.4 * aggression)
+		# raiders want the cargo, so they nearly always try; a breached
+		# station is a prize for the bold
+		board_rolls[key] = randf() < (0.9 if raid and tgt.support else (0.3 + 0.5 * aggression if tgt.is_station else 0.55 + 0.4 * aggression))
 	if not board_rolls[key]:
 		return false
 	return Capture.board_estimate(ship, tgt) < BOARD_PATIENCE
