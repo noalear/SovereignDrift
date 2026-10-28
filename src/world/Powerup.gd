@@ -13,6 +13,8 @@ var life := 40.0
 var label := ""
 var spawn_id := ""                # the id it was made from, as the network sends it
 
+const CRATE_LENGTH := 40.0        # a cargo container's long side, world px
+
 
 ## kind: "part" (a module id), "blueprint" ("bp:" + module id),
 ## "credits" ("cr:" + amount) or "cargo" ("rs:" + resource + ":" + units,
@@ -43,6 +45,9 @@ func setup(id: String, pos: Vector2, vel: Vector2) -> void:
 		amount = int(id.get_slice(":", 2))
 		relabel()
 		life = 60.0
+		# the container painting is mipmapped: shrunk to a few dozen pixels
+		# it stays smooth instead of shimmering as it tumbles
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	else:
 		label = GameData.MODULES[id]["name"]
 	body = PhysicsBody.new()
@@ -91,13 +96,16 @@ func _draw() -> void:
 			draw_texture_rect(soft, Rect2(-16, -16, 32, 32), false, Color(1.0, 0.75, 0.25, 0.45 * pulse * fade))
 			draw_texture_rect(soft, Rect2(-6, -6, 12, 12), false, Color(1.0, 0.95, 0.7, 0.95 * fade))
 		"cargo":
-			# a tumbling crate in the resource's colour
+			# a tumbling shipping container painted with what it holds, in a
+			# faint glow of the resource's colour so it can be found in the dark
 			var c: Color = Economy.COLORS.get(module_id, Color.WHITE)
-			draw_texture_rect(soft, Rect2(-18, -18, 36, 36), false, Color(c.r, c.g, c.b, 0.4 * pulse * fade))
-			draw_rect(Rect2(-8, -6, 16, 12), Color(c.r * 0.55, c.g * 0.55, c.b * 0.55, fade))
-			draw_rect(Rect2(-8, -6, 16, 12), Color(c.r, c.g, c.b, fade), false, 1.5)
-			draw_line(Vector2(-8, 0), Vector2(8, 0), Color(c.r, c.g, c.b, 0.8 * fade), 1.0)
-			draw_line(Vector2(0, -6), Vector2(0, 6), Color(c.r, c.g, c.b, 0.5 * fade), 1.0)
+			draw_texture_rect(soft, Rect2(-26, -26, 52, 52), false, Color(c.r, c.g, c.b, 0.28 * pulse * fade))
+			var tex := Economy.crate_texture(module_id)
+			if tex == null:
+				draw_rect(Rect2(-8, -6, 16, 12), Color(c.r, c.g, c.b, fade))
+			else:
+				var h := CRATE_LENGTH * tex.get_height() / tex.get_width()
+				draw_texture_rect(tex, Rect2(-CRATE_LENGTH * 0.5, -h * 0.5, CRATE_LENGTH, h), false, Color(1, 1, 1, fade))
 		"blueprint":
 			draw_texture_rect(soft, Rect2(-18, -18, 36, 36), false, Color(0.3, 0.9, 1.0, 0.35 * pulse * fade))
 			_draw_part(Color(0.55, 1.0, 1.0, 0.75 * fade))

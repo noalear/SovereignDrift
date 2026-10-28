@@ -108,7 +108,7 @@ func _draw() -> void:
 	draw_string(font, Vector2(cols[3], y + 20), "Troops", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, DIM)
 	for i in Economy.RESOURCES.size():
 		var k: String = Economy.RESOURCES[i]
-		draw_string(font, Vector2(res_x + i * res_w, y + 20), Economy.NAMES[k], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Economy.COLORS[k])
+		draw_string(font, Vector2(Economy.draw_icon(self, k, res_x + i * res_w, y + 14), y + 20), Economy.NAMES[k], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Economy.COLORS[k])
 	y += 30.0
 	# the empire's totals
 	var tot: Dictionary = world.economy.totals(race)
