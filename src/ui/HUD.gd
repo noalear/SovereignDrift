@@ -310,7 +310,8 @@ func _draw_disabled(p: Ship, vp: Vector2) -> void:
 func _draw_weapons(p: Ship, vp: Vector2) -> void:
 	var x := 350.0
 	var y := vp.y - 130.0
-	draw_rect(Rect2(x - 10, y - 34, 300, 134), Color(0.02, 0.04, 0.08, 0.6))
+	var pd: PointDefence = p.pdc
+	draw_rect(Rect2(x - 10, y - 34, 300, 134 + (18 if pd.fitted() else 0)), Color(0.02, 0.04, 0.08, 0.6))
 	draw_string(font, Vector2(x, y - 12), "Weapons", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(1, 1, 1, 0.9))
 	draw_string(font, Vector2(x + 80, y - 12), "%s fires  ·  %s alt (group %d)" % [Keybinds.short_text("fire_primary"), Keybinds.short_text("fire_secondary"), Settings.alt_fire_group],
 		HORIZONTAL_ALIGNMENT_LEFT, 205, 11, Color(0.7, 0.8, 0.95, 0.8))
@@ -353,6 +354,34 @@ func _draw_weapons(p: Ship, vp: Vector2) -> void:
 	if p.has_boost:
 		sys.append("%s boost" % Keybinds.short_text("boost"))
 	draw_string(font, Vector2(x, y + 94), "  ".join(sys), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.75, 0.85, 1.0, 0.8))
+	if pd.fitted():
+		_draw_pdc(p, Vector2(x, y + 112))
+
+
+## The point defence line: on or off, firing, rounds left, kills.
+func _draw_pdc(p: Ship, at: Vector2) -> void:
+	var pd: PointDefence = p.pdc
+	var state := "ON"
+	var col := Color(0.6, 1.0, 0.7)
+	if not pd.enabled:
+		state = "OFF"
+		col = Color(0.6, 0.6, 0.6)
+	elif p.systems.is_offline("pdc"):
+		state = "OFFLINE"
+		col = Color(1.0, 0.45, 0.3)
+	elif pd.ammo == 0:
+		state = "NO ROUNDS"
+		col = Color(1.0, 0.45, 0.3)
+	elif pd.firing < 0.3:
+		state = "FIRING"
+		col = Color(1.0, 0.9, 0.45)
+	var n := pd.mounts.size()
+	var text := "%s  PDC%s %s" % [Keybinds.short_text("pdc_toggle"), (" x%d" % n) if n > 1 else "", state]
+	if pd.ammo_max > 0:
+		text += "   %d rds" % pd.ammo
+	if pd.shot_down > 0:
+		text += "   %d shot down" % pd.shot_down
+	draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, 285, 13, col)
 
 
 func _draw_target(p: Ship, vp: Vector2) -> void:
@@ -1100,6 +1129,7 @@ func _draw_help(vp: Vector2) -> void:
 		["%s - %s" % [Keybinds.short_text("weapon_group_1"), Keybinds.short_text("weapon_group_4")], "select weapon group 1 - 4"],
 		[_keys("weapon_group_next"), "next weapon group"], [_keys("cloak"), "jammer on your target"],
 		[_keys("ping"), "pulse radar ping"], [_keys("silent_running"), "silent running"],
+		[_keys("pdc_toggle"), "point defence (PDC) on / off"],
 		["", ""],
 		["TARGETS AND NAVIGATION", ""],
 		[_keys("target_next"), "next target"], [_keys("target_nearest"), "nearest enemy"], ["Shift+click", "target a ship, world info"],

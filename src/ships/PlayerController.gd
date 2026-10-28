@@ -68,6 +68,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			Net.client_command("silent")
 		else:
 			ship.set_silent(not ship.sensors.emcon)
+	elif event.is_action_pressed("pdc_toggle"):
+		if Net.is_client():
+			Net.client_command("pdc")
+			ship.pdc.enabled = not ship.pdc.enabled   # our own picture; the host flips its copy
+		else:
+			ship.set_pdc(not ship.pdc.enabled)
 	elif event.is_action_pressed("shield_focus"):
 		if Net.is_client():
 			Net.client_command("shield_focus")

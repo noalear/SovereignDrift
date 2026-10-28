@@ -131,8 +131,10 @@ const MODULES := {
 	"5201": {"name": "Repair bay I", "vol": 80, "mass": 900, "power": -100, "hp": 150, "func": "repair", "p": [10]},
 	"5202": {"name": "Repair bay II", "vol": 160, "mass": 1500, "power": -150, "hp": 250, "func": "repair", "p": [22]},
 	"5601": {"name": "Ram prow", "vol": 120, "mass": 2500, "power": 0, "hp": 400, "func": "ram", "p": [3]},
-	# point defence: a light auto-turret that shoots down incoming munitions
-	"4022": {"name": "PDC", "vol": 25, "mass": 60, "power": -150, "hp": 80, "func": "tube", "p": [10, 600, 800, "022"]},
+	# point defence: an internal part, not a weapon mount.  Each one puts a
+	# small gatling turret on the hull that shoots down incoming munitions
+	# by itself (PointDefence holds its numbers)
+	"4022": {"name": "PDC", "vol": 60, "mass": 150, "power": -150, "hp": 60, "func": "pdc", "p": []},
 	"4020": {"name": "Disruptor", "vol": 45, "mass": 120, "power": -400, "hp": 120, "func": "tube", "p": [40, 5000, 600, "020"]},
 	"4021": {"name": "Drone bay", "vol": 50, "mass": 200, "power": -300, "hp": 150, "func": "tube", "p": [40, 4000, 40, "021"]},
 }
@@ -220,19 +222,21 @@ const HULL_MATERIALS := {
 # range, max speed (fraction of light), life (seconds), radius.  Optional:
 # "sys" scales the damage to the systems near the hit (ShipSystems), and
 # "heat" seekers home on the exhaust, so their hits go into the engines.
+# "shootable" munitions can be shot down by gun rounds (PDCs above all);
+# "tough" ones take that many rounds.
 
 const MISSILES := {
 	"001": {"dtype": "kinetic", "name": "bolt", "warhead": 150, "fire_v": 0.75, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.20, "life": 14.0, "radius": 4, "look": "bolt"},
-	"002": {"dtype": "explosive", "name": "mine", "shootable": true, "blast": 127, "warhead": 2500, "fire_v": 0.05, "guided": false, "trigger": "prox", "prox": 58, "seek_range": 0, "max_v": 0.05, "life": 60.0, "radius": 9, "look": "mine"},
+	"002": {"dtype": "explosive", "name": "mine", "shootable": true, "tough": 2, "blast": 127, "warhead": 2500, "fire_v": 0.05, "guided": false, "trigger": "prox", "prox": 58, "seek_range": 0, "max_v": 0.05, "life": 60.0, "radius": 9, "look": "mine"},
 	"003": {"dtype": "plasma", "name": "plasma", "warhead": 500, "fire_v": 0.35, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "plasma"},
-	"004": {"dtype": "explosive", "name": "torpedo", "shootable": true, "blast": 90, "warhead": 700, "fire_v": 0.30, "guided": true, "trigger": "prox", "prox": 64, "seek_range": 600, "max_v": 0.90, "life": 4.5, "radius": 7, "look": "grenade", "turn": 0.6, "accel": 240},
+	"004": {"dtype": "explosive", "name": "torpedo", "shootable": true, "tough": 2, "blast": 90, "warhead": 700, "fire_v": 0.30, "guided": true, "trigger": "prox", "prox": 64, "seek_range": 600, "max_v": 0.90, "life": 4.5, "radius": 7, "look": "grenade", "turn": 0.6, "accel": 240},
 	"008": {"dtype": "explosive", "name": "missile", "shootable": true, "warhead": 300, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 8.0, "radius": 4, "look": "missile", "turn": 3.5, "accel": 220},
 	"009": {"dtype": "explosive", "name": "seeker", "shootable": true, "warhead": 400, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 5, "look": "missile", "turn": 2.5, "accel": 220, "heat": true},
 	"010": {"dtype": "kinetic", "name": "rapid bolt", "spread": 4.0, "warhead": 45, "fire_v": 0.70, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.80, "life": 3.2, "radius": 3, "look": "bolt"},
 	"011": {"dtype": "plasma", "name": "rapid plasma", "warhead": 150, "fire_v": 0.80, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.00, "life": 3.2, "radius": 5, "look": "plasma"},
 	"018": {"dtype": "kinetic", "name": "cannon shell", "recoil": 2.0, "pierce": 0.5, "warhead": 750, "fire_v": 0.40, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "shell"},
 	"020": {"dtype": "ion", "name": "disruptor bolt", "warhead": 160, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320, "sys": 2.5},
-	"022": {"dtype": "kinetic", "name": "point defence round", "pdc": true, "warhead": 12, "fire_v": 1.2, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.4, "life": 0.6, "radius": 2, "look": "bolt"},
+	"022": {"dtype": "kinetic", "name": "point defence round", "pdc": true, "warhead": 12, "fire_v": 1.2, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.4, "life": 0.6, "radius": 2, "look": "tracer"},
 	"021": {"dtype": "explosive", "name": "drone", "shootable": true, "warhead": 120, "fire_v": 0.25, "guided": true, "trigger": "impact", "seek_range": 900, "max_v": 0.5, "life": 12.0, "radius": 4, "look": "drone", "turn": 4.5, "accel": 260},
 }
 
@@ -350,7 +354,7 @@ static func stacks(id: String) -> bool:
 ## Seconds between shots for each tube missile.
 const TUBE_COOLDOWN := {
 	"001": 0.45, "002": 1.0, "003": 0.5, "004": 0.9, "008": 1.0, "009": 0.9,
-	"010": 0.09, "011": 0.09, "018": 1.2, "020": 0.4, "021": 1.0, "022": 0.07,
+	"010": 0.09, "011": 0.09, "018": 1.2, "020": 0.4, "021": 1.0,
 }
 
 # ------------------------------------------------------- ship designs
@@ -808,6 +812,8 @@ static func price(id: String) -> int:
 	if m["func"] == "tube":
 		var md: Dictionary = MISSILES[m["p"][3]]
 		base += md["warhead"] * 0.12 + (120.0 if md["guided"] else 0.0)
+	elif m["func"] == "pdc":
+		base += 160.0
 	base *= 1.0 + 0.35 * (tier(id) - 1)
 	if part_race(id) >= 0:
 		base *= 1.2
@@ -818,8 +824,8 @@ static func price(id: String) -> int:
 ## weapon joins a group by what it is (Kyle: weapons grouped by type):
 ## 1 guns (mass driver, rapid tube, cannon), 2 energy (lasers,
 ## disruptor), 3 launchers (torpedo, missile, seeker, drone), 4 mines.
-## The PDC fires on its own, whatever its group.  The shipyard lets the
-## pilot change a group.
+## The shipyard lets the pilot change a group.  (The PDC is not a weapon
+## mount: it fires on its own, see PointDefence.)
 const WEAPON_GROUPS := 4
 
 static func default_weapon_group(id: String) -> int:
@@ -828,7 +834,7 @@ static func default_weapon_group(id: String) -> int:
 		return 2
 	if m["func"] == "tube":
 		match str(m["p"][3]):
-			"001", "010", "011", "018", "022":
+			"001", "010", "011", "018":
 				return 1
 			"003", "020":
 				return 2
@@ -891,11 +897,44 @@ static func stock_design(hull: String, race_id: int = -1) -> Dictionary:
 		if i < fit.size() and weapon_class(fit[i]) <= hull_hardpoints(hull)[i][5]:
 			w[0] = fit[i]      # the empire's own gun on the hull's mount
 		weapons.append(w)
+	var modules: Array = d["modules"].duplicate()
+	for i in int(STOCK_PDC.get(race_id, {}).get(hull, 0)):
+		modules.append("4022")
 	return {
 		"name": hull, "rank": d["rank"], "speed": d["speed"], "turn": d["turn"], "size": d["size"],
-		"dock": d.get("dock", [180, 0]), "modules": d["modules"].duplicate(), "weapons": weapons,
+		"dock": d.get("dock", [180, 0]), "modules": modules, "weapons": weapons,
 		"pirate": d.get("pirate", false), "aces": d.get("aces", false),
 	}
+
+
+## PDCs in each empire's stock ships, by hull (in the bays, so no gun is
+## given up for them).  Terrans trust point defence most, Arceans fit it
+## on the big ships, Drengin only on the Dreadnought, pirates never.
+const STOCK_PDC := {
+	0: {"Cruiser": 1, "BattleCruiser": 1, "Battleship": 1, "Dreadnought": 2},
+	1: {"Cruiser": 1, "BattleCruiser": 1, "Battleship": 2, "Dreadnought": 2, "DropShip": 1},
+	2: {"Dreadnought": 1},
+}
+
+
+## A design from before the PDC moved into the bays (it was briefly a
+## weapon mount): each PDC on a mount goes into the bays, and the mount
+## gets the hull's own gun back.
+static func fix_design(design: Dictionary) -> Dictionary:
+	var moved := false
+	for w in design.get("weapons", []):
+		if MODULES.has(w[0]) and MODULES[w[0]]["func"] == "pdc":
+			moved = true
+	if not moved:
+		return design
+	var d := design.duplicate(true)
+	var hull: Array = SHIPS[d["name"]]["weapons"] if SHIPS.has(d["name"]) else []
+	for i in d["weapons"].size():
+		var w: Array = d["weapons"][i]
+		if MODULES[w[0]]["func"] == "pdc":
+			d["modules"].append(w[0])
+			w[0] = hull[i][0] if i < hull.size() else "4001"
+	return d
 
 
 ## Each empire's stock guns, by hull: one module id per mount of the hull
@@ -911,20 +950,20 @@ const STOCK_LOADOUTS := {
 	0: {   # Arcean
 		"Scout": ["4501", "4021", "4002"],
 		"Destroyer": ["4501", "4021", "4021", "4002"],
-		"Cruiser": ["4022", "4021", "4501", "4501", "4002"],
+		"Cruiser": ["4501", "4021", "4501", "4501", "4002"],
 		"BattleCruiser": ["4501", "4021", "4501", "4501", "4002"],
-		"Battleship": ["4022", "4021", "4501", "4501", "4002"],
-		"Dreadnought": ["4022", "4502", "4502", "4021", "4002"],
+		"Battleship": ["4501", "4021", "4501", "4501", "4002"],
+		"Dreadnought": ["4501", "4502", "4502", "4021", "4002"],
 		"Freighter": ["4501"], "DropShip": ["4501"],
 	},
 	1: {   # Terran
 		"Scout": ["4001", "4009", "4002"],
 		"Destroyer": ["4008", "4001", "4001", "4002"],
-		"Cruiser": ["4022", "4008", "4010", "4010", "4002"],
-		"BattleCruiser": ["4022", "4010", "4008", "4008", "4002"],
-		"Battleship": ["4022", "4003", "4008", "4008", "4002"],
-		"Dreadnought": ["4022", "4018", "4018", "4008", "4002"],
-		"Freighter": ["4001"], "DropShip": ["4022"],
+		"Cruiser": ["4001", "4008", "4010", "4010", "4002"],
+		"BattleCruiser": ["4001", "4010", "4008", "4008", "4002"],
+		"Battleship": ["4010", "4003", "4008", "4008", "4002"],
+		"Dreadnought": ["4010", "4018", "4018", "4008", "4002"],
+		"Freighter": ["4001"], "DropShip": ["4001"],
 	},
 	2: {   # Drengin
 		"Scout": ["4001", "4020", "4002"],
@@ -1009,7 +1048,7 @@ static func stats_for(design: Dictionary) -> Dictionary:
 	var st := {
 		"mass": 0.0, "energy_max": 0.0, "energy_regen": 0.0, "shield_max": 0.0, "shield_regen": 0.0,
 		"hull_max": 0.0, "armor": 0.0, "sensor_range": 0.0, "sensors": {}, "can_jam": false, "jam_reach": 0.0,
-		"heat_sink": 0.0, "has_boost": false,
+		"heat_sink": 0.0, "has_boost": false, "pdc": 0,
 		"qdrv": 0.0, "brake_power": 0.6, "regen": 0.0, "repair": 0.0, "ram": 0.0,
 		"power_gen": 0.0, "power_draw": 0.0, "overload": 1.0, "module_levels": {}, "bay_used": 0,
 		"coat": "", "armor_mass": 0.0, "armor_sig": 1.0, "thermal_lag": 1.0, "shield_family": "deflector", "shield_draw": 0.0,
@@ -1058,6 +1097,8 @@ static func stats_for(design: Dictionary) -> Dictionary:
 				st["jam_reach"] = float(m["p"][0])
 			"heatsink":
 				st["heat_sink"] = maxf(st["heat_sink"], float(m["p"][0]))
+			"pdc":
+				st["pdc"] += 1
 			"boost":
 				st["has_boost"] = true
 			"qdrv":

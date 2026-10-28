@@ -12,7 +12,7 @@ signal session_ended(reason: String)
 signal round_restarted()       # the host started the next Conquest round (client)
 
 const PORT := 7777
-const PROTOCOL := 21   # 21: shield halves and lowered shields (armor and shields)
+const PROTOCOL := 22   # 22: point defence (the PDC is a bay part with its own turrets)
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -414,6 +414,8 @@ func _rpc_command(cmd: String) -> void:
 			s.ping()
 		"silent":
 			s.set_silent(not s.sensors.emcon)
+		"pdc":
+			s.set_pdc(not s.pdc.enabled)
 		"shield_focus":
 			s.cycle_shield_focus()
 		"shields":
@@ -898,7 +900,12 @@ func _rpc_shot(mid: int, owner_id: int, race: int, missile_id: String, pos: Vect
 			"002": snd = "mine"
 			"018": snd = "cannon"
 			"022": snd = "rapid"
-		Sfx.play(snd, pos, 0.35 if missile_id == "022" else 0.7, randf_range(0.95, 1.05))
+		if missile_id != "022":
+			Sfx.play(snd, pos, 0.7, randf_range(0.95, 1.05))
+		elif Time.get_ticks_msec() - int(owner.get_meta("pdc_sound", 0)) > int(PointDefence.SOUND_GAP * 1000.0):
+			# a PDC's stream: one rattle now and then, not one per round
+			owner.set_meta("pdc_sound", Time.get_ticks_msec())
+			Sfx.play(snd, pos, 0.3, randf_range(1.15, 1.3))
 	else:
 		owner = null
 	world.spawn_missile(owner if owner != null else _race_stub(race), missile_id, pos, vel, angle, null)

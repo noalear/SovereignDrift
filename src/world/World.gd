@@ -1139,8 +1139,15 @@ func _shoot_down_munitions() -> void:
 				continue
 			var reach: float = g.radius + t.radius + 2.0
 			if Geometry2D.get_closest_point_to_segment(t.global_position, a, b).distance_to(t.global_position) <= reach:
-				t.shoot_down()
 				g.shoot_down()
+				# a tough munition (a torpedo) takes more than one round
+				t.toughness -= 1
+				if t.toughness > 0:
+					fx.spark(t.global_position, 3, t.color)
+					break
+				t.shoot_down()
+				if g.missile_id == PointDefence.ROUND and g.owner_ship is Ship and is_instance_valid(g.owner_ship):
+					g.owner_ship.pdc.shot_down += 1
 				break
 
 

@@ -43,6 +43,7 @@ const STEPS := [
 	{"id": "shield_focus", "chapter": 3, "goal": "Press {shield_focus} to swing your shield forward, then press it until it's Balanced again", "focus": "status"},
 	{"id": "shields_down", "chapter": 3, "goal": "Press {shields_toggle} to lower your shields, then {shields_toggle} to raise them", "focus": "status"},
 	{"id": "stealth", "chapter": 3, "goal": "Press {silent_running} for silent running, then {silent_running} again", "focus": "signature"},
+	{"id": "pdc", "chapter": 3, "goal": "Let your PDC shoot down %d missiles, then press {pdc_toggle} to turn it off and {pdc_toggle} again" % PDC_KILLS, "focus": "weapons_radar"},
 	{"id": "jammer", "chapter": 3, "goal": "Target the pirate ({target_nearest}) and press {cloak} to jam it", "mark": "pirate"},
 	{"id": "spar", "chapter": 3, "goal": "Destroy or capture the pirate", "mark": "pirate"},
 	{"id": "loot", "chapter": 3, "goal": "Fly over a pickup to collect it", "mark": "loot"},
@@ -78,6 +79,8 @@ const TEXT_SIZE := 19
 const LINE_H := 25.0
 const BEACON_REACH := 260.0
 const THRUST_OUT := 1300.0        # how far from the starbase the first flight goes
+const PDC_KILLS := 3              # missiles the PDC lesson's launcher sends in
+const PDC_SALVO_GAP := 1.6        # seconds between them
 
 var world: World
 var main: Node
@@ -102,6 +105,10 @@ var time := 0.0
 var beacon_offset := Vector2.ZERO  # from Earth's centre
 var drone: Ship = null
 var pirate: Ship = null
+var launcher: Ship = null          # the PDC lesson's missile launcher
+var pdc_fired := 0
+var pdc_next := 0.0
+var pdc_kills_at := 0
 var drone_taken := false
 var pirate_down := false
 var seen := {}                    # flags seen during the lesson
@@ -287,6 +294,8 @@ func _track(p: Ship, delta: float) -> void:
 		seen["silent"] = true
 	if p.sensors.jam_active():
 		seen["jamming"] = true
+	if p.pdc.fitted() and not p.pdc.enabled:
+		seen["pdc_off"] = true
 	if p.shield_focus == 1:
 		seen["focus_forward"] = true
 	if not p.shields_raised:
@@ -504,9 +513,60 @@ func _done_shields_down() -> bool:
 	return seen.has("shields_down") and _player().shields_raised
 
 
+# --- point defence
+
+## The yard fits a PDC in the scout's bays (the cadet keeps it), and an
+## unmanned launcher off the bow sends missiles in one at a time.
+func _enter_pdc() -> void:
+	var p := _player()
+	if not p.pdc.fitted():
+		var d: Dictionary = p.design.duplicate(true)
+		d["modules"].append("4022")
+		var pos := p.global_position
+		var vel := p.velocity
+		var rot := p.rotation
+		p.refit(d)
+		p.global_position = pos
+		p.velocity = vel
+		p.rotation = rot
+		p.body.pos = pos
+		p.body.vel = vel
+		p.body.angle = rot
+	p.pdc.enabled = true
+	pdc_kills_at = p.pdc.shot_down
+	pdc_fired = 0
+	pdc_next = 4.0                  # let Hale get going first
+	_remove_launcher()
+	var a := p.rotation + randf_range(-0.5, 0.5)
+	launcher = world.spawn_ship("Training launcher", 3, "Scout", "Target Launcher", p.global_position + Vector2(cos(a), sin(a)) * 1100.0, p.velocity, -1)
+	launcher.rotation = a + PI
+	launcher.reset_physics_interpolation()
+
+
+func _done_pdc() -> bool:
+	var p := _player()
+	var downed := p.pdc.shot_down - pdc_kills_at
+	if launcher != null and is_instance_valid(launcher) and not launcher.dead and downed < PDC_KILLS and step_time >= pdc_next:
+		# one missile at a time, until enough are down
+		pdc_next = step_time + PDC_SALVO_GAP
+		pdc_fired += 1
+		var from: Vector2 = launcher.global_position
+		var dir: Vector2 = (p.global_position - from).normalized()
+		var md: Dictionary = GameData.MISSILES["008"]
+		world.spawn_missile(launcher, "008", from + dir * 30.0, launcher.velocity + dir * md["fire_v"] * GameData.LIGHT_SPEED, dir.angle(), p)
+	return downed >= PDC_KILLS and seen.has("pdc_off") and p.pdc.enabled
+
+
+func _remove_launcher() -> void:
+	if launcher != null and is_instance_valid(launcher) and not launcher.dead:
+		world.remove_ship(launcher)
+	launcher = null
+
+
 # --- the sparring pirate
 
 func _enter_jammer() -> void:
+	_remove_launcher()
 	_ensure_pirate()
 
 

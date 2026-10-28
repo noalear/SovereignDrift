@@ -22,6 +22,7 @@ var target: Node2D = null
 var armed := 0.0
 var color := Color.WHITE
 var exploded := false
+var toughness := 1               # gun rounds it takes to shoot it down
 
 
 func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vector2, p_vel: Vector2, p_angle: float, p_target: Node2D) -> void:
@@ -39,6 +40,7 @@ func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vecto
 	radius = data["radius"]
 	warhead = data["warhead"] * GameData.DAMAGE_SCALE
 	target = p_target
+	toughness = int(data.get("tough", 1))
 	armed = 0.35 if data["trigger"] == "prox" else 0.05
 	if p_id == "002":
 		armed = 1.5
@@ -65,6 +67,7 @@ func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vecto
 		"shell": color = Color(1.0, 0.6, 0.2)
 		"disruptor": color = Color(0.7, 0.4, 1.0)
 		"drone": color = rc.lerp(Color.WHITE, 0.2)
+		"tracer": color = Color(1.0, 0.92, 0.6)
 
 
 func _physics_process(delta: float) -> void:
@@ -187,6 +190,9 @@ func _draw() -> void:
 		"bolt":
 			draw_line(Vector2(-radius * 3.0, 0), Vector2(radius * 1.5, 0), color, radius * 0.9, true)
 			draw_circle(Vector2(radius, 0), radius * 0.8, Color.WHITE)
+		"tracer":
+			# a point defence round: a thin streak, read as a stream of fire
+			draw_line(Vector2(-radius * 7.0, 0), Vector2(radius, 0), Color(color.r, color.g, color.b, 0.75), radius * 0.7, true)
 		"plasma":
 			draw_circle(Vector2.ZERO, radius * 1.8, Color(color.r, color.g, color.b, 0.35))
 			draw_circle(Vector2.ZERO, radius, color)
