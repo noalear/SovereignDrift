@@ -5,6 +5,9 @@ extends Node
 var ship: Ship
 var world: Node
 var mouse_steer := false
+## Mouse buttons fire only when the press reached the game: a click that a
+## menu or panel took never starts the guns.  Keys and the pad are polled.
+var mouse_fire := {"fire_primary": false, "fire_secondary": false}
 
 
 func setup(p_ship: Ship, p_world: Node) -> void:
@@ -13,9 +16,29 @@ func setup(p_ship: Ship, p_world: Node) -> void:
 	ship.flight_assist = Settings.flight_assist
 
 
+## Releases are watched here, before the menus, so a button let go over a
+## panel still stops the guns.
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and not event.pressed:
+		for action in mouse_fire:
+			if event.is_action(action):
+				mouse_fire[action] = false
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		for action in mouse_fire:
+			mouse_fire[action] = false
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if ship == null or ship.dead or world.paused or ship.docked:
 		return
+	if event is InputEventMouseButton and event.pressed and not ship.is_landing() \
+			and not (event.button_index == MOUSE_BUTTON_LEFT and event.shift_pressed):   # Shift+click picks a target
+		for action in mouse_fire:
+			if event.is_action(action):
+				mouse_fire[action] = true
 	if event.is_action_pressed("land"):
 		world.try_land(ship)
 		return
@@ -135,10 +158,8 @@ func _physics_process(_delta: float) -> void:
 	else:
 		ship.aim_point = Vector2.INF
 	# weapon groups: Fire shoots the selected group, Alt-fire its own group
-	var fire := Input.is_action_pressed("fire_primary")
-	if fire and Input.is_key_pressed(KEY_SHIFT) and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-		fire = _down_without_mouse("fire_primary")   # Shift+click picks a target
-	var alt := Input.is_action_pressed("fire_secondary")
+	var fire := _fire_held("fire_primary")
+	var alt := _fire_held("fire_secondary")
 	for k in Ship.GROUP_INPUTS:
 		i[k] = false
 	i["fire_beam"] = false
@@ -175,6 +196,21 @@ func select_group(g: int) -> void:
 	else:
 		world.notify(ship, "Group %d: %s." % [g, ", ".join(names)])
 	Sfx.play_ui("click", 0.3)
+
+
+## Is the fire action held by a key or the pad, or by a mouse button
+## whose press went to the game rather than a menu?
+func _fire_held(action: String) -> bool:
+	if not Input.is_action_pressed(action):
+		mouse_fire[action] = false    # a release we never saw
+		return false
+	if mouse_fire[action] or _down_without_mouse(action):
+		return true
+	# held by neither a key we know nor the mouse: another pad, a script
+	for ev in InputMap.action_get_events(action):
+		if ev is InputEventMouseButton and Input.is_mouse_button_pressed(ev.button_index):
+			return false
+	return true
 
 
 ## Is the action held by anything but the mouse?

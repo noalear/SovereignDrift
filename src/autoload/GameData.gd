@@ -9,6 +9,9 @@ extends Node
 const LIGHT_SPEED := 600.0
 ## Radius of the solar system in pixels (Pluto orbits at 0.46 of it).
 const UNIVERSE_RADIUS := 24000.0
+## Every ship's energy regeneration is scaled by this (Kyle, 2026-10-28:
+## about 15% faster overall).
+const ENERGY_REGEN_SCALE := 1.15
 
 # ---------------------------------------------------------------- races
 
@@ -813,6 +816,7 @@ static func stats_for(design: Dictionary) -> Dictionary:
 		st["energy_regen"] /= st["overload"]
 	elif st["power_gen"] <= 0.0:
 		st["overload"] = 3.0
+	st["energy_regen"] *= ENERGY_REGEN_SCALE
 	# mass against the hull's stock fit decides handling
 	var ratio: float = stock_mass(design["name"]) / maxf(st["mass"], 1.0)
 	st["turn"] = design["turn"] * clampf(pow(ratio, 0.5), 0.55, 1.25)

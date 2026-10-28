@@ -90,6 +90,33 @@ func _start() -> void:
 	_key(KEY_1)
 	await physics_frame
 	_check(p.weapon_group == 1, "pressing 1 selects group 1")
+	# the mouse fires in flight, but a click on a menu or panel does not
+	await _mouse(true)
+	_check(p.inputs["fire_primary"], "a left click in flight fires")
+	await _mouse(false)
+	_check(not p.inputs["fire_primary"], "letting go stops")
+	for panel in ["ledger", "tactical_map"]:
+		_action_key(panel)
+		await process_frame
+		var opened = main.ledger if panel == "ledger" else main.tactical
+		_check(opened != null, "%s opened" % panel)
+		await _mouse(true)
+		_check(not p.inputs["fire_primary"], "a click on the %s does not fire the guns" % panel)
+		_action_key(panel)
+		await process_frame
+		await physics_frame
+		_check(not p.inputs["fire_primary"], "nor does holding it after the %s closes" % panel)
+		await _mouse(false)
+	await _mouse(true, MOUSE_BUTTON_RIGHT)
+	_check(p.inputs[p.GROUP_INPUTS[settings.alt_fire_group - 1]], "a right click in flight alt-fires")
+	_action_key("ledger")
+	await process_frame
+	await _mouse(false, MOUSE_BUTTON_RIGHT)
+	await _mouse(true, MOUSE_BUTTON_RIGHT)
+	_check(not p.inputs[p.GROUP_INPUTS[settings.alt_fire_group - 1]], "a right click on the ledger does not alt-fire")
+	await _mouse(false, MOUSE_BUTTON_RIGHT)
+	_action_key("ledger")
+	await process_frame
 	# a group from the shipyard sticks to the launched ship
 	var base = w.starbase_of(p.race_id)
 	p.global_position = base.global_position + Vector2(base.size + 80, 0)
@@ -157,6 +184,27 @@ func _key(code: int) -> void:
 	var up := _key_event(code)
 	up.pressed = false
 	root.push_input(up, true)
+
+
+## A real mouse press or release through Input, as the OS sends it.
+func _mouse(down: bool, button := MOUSE_BUTTON_LEFT) -> void:
+	var ev := InputEventMouseButton.new()
+	ev.button_index = button
+	ev.position = Vector2(32, 32)
+	ev.global_position = ev.position
+	ev.pressed = down
+	Input.parse_input_event(ev)
+	Input.flush_buffered_events()
+	await process_frame
+	await physics_frame
+	await physics_frame
+
+
+func _action_key(action: String) -> void:
+	for ev in InputMap.action_get_events(action):
+		if ev is InputEventKey:
+			_key(ev.physical_keycode)
+			return
 
 
 func _click(at: Vector2) -> void:
