@@ -184,7 +184,7 @@ func _port_rows(s: Ship, port, y: float) -> float:
 		var aboard: float = s.cargo.get(k, 0.0)
 		var here: float = stock.get(k, 0.0)
 		var room: float = world.port_room(port, k)
-		draw_string(font, Vector2(16, y + 20), Economy.NAMES[k], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Economy.COLORS[k])
+		draw_string(font, Vector2(Economy.draw_icon(self, k, 16, y + 14), y + 20), Economy.NAMES[k], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Economy.COLORS[k])
 		draw_string(font, Vector2(130, y + 20), str(int(aboard)), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, TEXT if aboard >= 1.0 else DIM)
 		if frame:
 			var need: float = GameData.STATIONS[port.design_name]["cost"][k]
@@ -229,7 +229,7 @@ func _market_rows(s: Ship, m: Ship, y: float) -> float:
 		var buy := Economy.buy_price(m, k, s)
 		var sell := Economy.sell_price(m, k, s)
 		var base_price: float = GameData.RESOURCE_PRICE.get(k, 1.0)
-		draw_string(font, Vector2(16, y + 20), Economy.NAMES[k], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Economy.COLORS[k])
+		draw_string(font, Vector2(Economy.draw_icon(self, k, 16, y + 14), y + 20), Economy.NAMES[k], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Economy.COLORS[k])
 		draw_string(font, Vector2(116, y + 20), str(int(aboard)), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, TEXT if aboard >= 1.0 else DIM)
 		draw_string(font, Vector2(176, y + 20), str(int(here)), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, TEXT if here >= 1.0 else DIM)
 		# cheap to buy in green, dear to sell in gold
