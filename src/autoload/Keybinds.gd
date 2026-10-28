@@ -99,26 +99,38 @@ func _ready() -> void:
 
 
 ## An update patch can't change the project settings the game started
-## with, so an older installer's input map lacks actions added since.  Add
-## them from the copy of project.godot that each build ships.
+## with, so an older installer's input map lacks actions added since, and
+## keeps old default controls for the rest.  Bring it in line with the copy
+## of project.godot that each build ships.
 func _add_new_actions() -> void:
 	var cfg := ConfigFile.new()
 	if not FileAccess.file_exists("res://project_settings.cfg") or cfg.load("res://project_settings.cfg") != OK or not cfg.has_section("input"):
 		return
-	var added := 0
+	var changed := 0
 	for action in cfg.get_section_keys("input"):
-		if InputMap.has_action(action):
-			continue
 		var v: Variant = cfg.get_value("input", action)
 		if typeof(v) != TYPE_DICTIONARY:
 			continue
-		InputMap.add_action(action, float(v.get("deadzone", 0.2)))
-		for e in v.get("events", []):
-			if e is InputEvent:
-				InputMap.action_add_event(action, e)
-		added += 1
-	if added > 0:
-		print("Keybinds: %d new actions from the update" % added)
+		var events: Array = v.get("events", []).filter(func(e): return e is InputEvent)
+		if not InputMap.has_action(action):
+			InputMap.add_action(action, float(v.get("deadzone", 0.2)))
+		elif _same_events(InputMap.action_get_events(action), events):
+			continue
+		InputMap.action_erase_events(action)
+		for e in events:
+			InputMap.action_add_event(action, e)
+		changed += 1
+	if changed > 0:
+		print("Keybinds: %d actions brought up to date by the update" % changed)
+
+
+static func _same_events(a: Array, b: Array) -> bool:
+	if a.size() != b.size():
+		return false
+	for i in a.size():
+		if a[i].get_class() != b[i].get_class() or a[i].as_text() != b[i].as_text():
+			return false
+	return true
 
 
 func actions() -> Array:
