@@ -952,7 +952,7 @@ func _sun_hazard(delta: float) -> void:
 		# that turning away in a few seconds always saves you
 		if heat > 0.35:
 			var t := (heat - 0.35) / 0.65
-			a.take_damage((15.0 + 320.0 * t * t) * delta, sun)
+			a.take_damage((15.0 + 320.0 * t * t) * delta, sun, Vector2.ZERO, 1.0, "", 1.0, "plasma")
 		var min_d := sun.radius + a.size * 0.7
 		if d < min_d:
 			var n := (a.global_position - sun.global_position).normalized() if d > 0.001 else Vector2.RIGHT
@@ -960,7 +960,7 @@ func _sun_hazard(delta: float) -> void:
 			var vn := a.velocity.dot(n)
 			if vn < 0.0:
 				a.velocity -= n * vn * 1.6
-			a.take_damage(400.0 * delta, sun)
+			a.take_damage(400.0 * delta, sun, Vector2.ZERO, 1.0, "", 1.0, "plasma")
 	for d in debris.duplicate():
 		if d.global_position.distance_to(sun.global_position) < sun.radius:
 			remove_debris(d)
@@ -1109,9 +1109,9 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		if hit != null:
 			var at := m.hit_point if m.hit_point != Vector2.INF else pos
 			if hit is Ship:
-				hit.take_damage(m.warhead, attacker if attacker is Ship else m.owner_ship, at, m.data.get("sys", 1.0), "engines" if m.data.get("heat", false) else "")
+				hit.take_damage(m.warhead, attacker if attacker is Ship else m.owner_ship, at, m.data.get("sys", 1.0), "engines" if m.data.get("heat", false) else "", 1.0, m.data.get("dtype", "kinetic"))
 			else:
-				hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else m.owner_ship, at)
+				hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else m.owner_ship, at, m.data.get("dtype", "kinetic"))
 			if hit is Ship and m.data.has("drain"):
 				hit.energy = maxf(hit.energy - m.data["drain"], 0.0)
 				if hit.cloaked:
@@ -1129,12 +1129,12 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		if d < splash:
 			var f := 1.0 - maxf(d, 0.0) / splash
 			# the blast hits the side of the hull that faces it
-			s.take_damage(m.warhead * f, attacker if attacker is Ship else null, s.body.closest_surface_point(pos), m.data.get("sys", 1.0))
+			s.take_damage(m.warhead * f, attacker if attacker is Ship else null, s.body.closest_surface_point(pos), m.data.get("sys", 1.0), "", 1.0, m.data.get("dtype", "kinetic"))
 	for p in planets:
 		var d := pos.distance_to(p.global_position) - p.radius
 		if d < splash and p.is_colonised():
 			var f := 1.0 - maxf(d, 0.0) / splash
-			p.take_damage(m.warhead * f * 0.5, attacker if attacker is Ship else null)
+			p.take_damage(m.warhead * f * 0.5, attacker if attacker is Ship else null, Vector2.ZERO, m.data.get("dtype", "kinetic"))
 	for d: Debris in debris:
 		var dd: float = pos.distance_to(d.global_position) - d.rock_radius
 		if dd < splash:

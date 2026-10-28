@@ -89,7 +89,7 @@ func post_step(delta: float) -> void:
 
 
 ## Weapons chip at the rock until it splits.
-func take_damage(amount: float, _attacker: Node, at: Vector2 = Vector2.ZERO) -> void:
+func take_damage(amount: float, _attacker: Node, at: Vector2 = Vector2.ZERO, _dtype: String = "kinetic") -> void:
 	hp -= amount
 	flash = 1.0
 	if world != null:

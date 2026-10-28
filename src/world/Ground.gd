@@ -482,7 +482,7 @@ func _flak(p: Planet, delta: float) -> void:
 		if s.dead or s.land_body != p or s.race_id == p.owner_race or s.race_id == GameData.NEUTRAL:
 			continue
 		if s.landing == Ship.Landing.DESCENDING or s.landing == Ship.Landing.ASCENDING:
-			s.take_damage(FLAK_DPS * delta, p, s.global_position)
+			s.take_damage(FLAK_DPS * delta, p, s.global_position, 1.0, "", 1.0, "explosive")
 
 
 func _queues(p: Planet, delta: float) -> void:

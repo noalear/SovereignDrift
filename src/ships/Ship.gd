@@ -1362,11 +1362,13 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 	var end: Vector2 = hit["point"]
 	if hit["body"] != null and not Net.is_client():   # damage is the host's
 		if hit["body"] is Ship:
-			hit["body"].take_damage(w["dps"] * delta * systems.weapon_efficiency(w["index"]), self, end, 1.0, "", 0.1)
+			hit["body"].take_damage(w["dps"] * delta * systems.weapon_efficiency(w["index"]), self, end, 1.0, "", 0.1, "beam")
 		else:
-			hit["body"].take_damage(w["dps"] * delta * systems.weapon_efficiency(w["index"]), self, end)
+			hit["body"].take_damage(w["dps"] * delta * systems.weapon_efficiency(w["index"]), self, end, "beam")
 		# a beam leans on what it burns
 		world.push_node(hit["body"], Vector2.RIGHT.rotated(ang) * w["dps"] * delta * World.IMPULSE_PER_DAMAGE * 0.5, end)
+	if hit["body"] != null:
+		_beam_burn(w, hit["body"], end, delta)
 	beam_targets.append([origin, end])
 	# the beam itself is drawn by the world's Fx, so a laser is seen as well as felt
 	if world != null and world.has_method("add_beam"):
@@ -1375,12 +1377,35 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 	Sfx.beam(self, clampf(1.3 - size / 80.0, 0.7, 1.2), int(str(w["id"]).right(1)))
 
 
+## A beam's damage lands a sliver a frame, too small for take_damage's hit
+## sparks and sounds, so the burn shows here: sparks where it touches and
+## a shield or hull hit sound a few times a second.
+const BEAM_BURN_EVERY := 0.12
+
+func _beam_burn(w: Dictionary, body: Node, at: Vector2, delta: float) -> void:
+	w["burn"] = float(w.get("burn", 0.0)) - delta
+	if w["burn"] > 0.0 or world == null:
+		return
+	w["burn"] = BEAM_BURN_EVERY
+	var shielded: bool = body is Ship and body.shield > 0.0
+	if body is Ship:
+		var col: Color = Color(0.6, 0.85, 1.0) if shielded else body.race_color()
+		world.spawn_sparks(at, 3, col)
+		if shielded:
+			Sfx.play(Sfx.leveled("shield", body.module_levels.get("shield", 1)), at, 0.3, randf_range(0.95, 1.1))
+		else:
+			var armor_level: int = body.module_levels.get("armor", 0)
+			Sfx.play(Sfx.leveled("hit_armor", armor_level) if armor_level > 0 else "hit", at, 0.3, randf_range(1.0, 1.2))
+	else:
+		world.spawn_sparks(at, 2, race_color())
+
+
 # --------------------------------------------------------------- damage
 
 ## `at` is where the hit landed (Vector2.ZERO: nowhere in particular);
 ## `sys_mult` and `focus` say how hard it is on the ship's systems (see
 ## ShipSystems.hit).
-func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_mult: float = 1.0, focus: String = "", crew_mult: float = 1.0) -> void:
+func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_mult: float = 1.0, focus: String = "", crew_mult: float = 1.0, dtype: String = "kinetic") -> void:
 	if dead or invulnerable > 0.0 or race_id == GameData.NEUTRAL:
 		return                         # (the free port is under every empire's protection)
 	if land_scale < 0.5:
@@ -1405,10 +1430,13 @@ func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_
 	var remaining := amount
 	var bleed := 0.0
 	if shield > 0.0:
-		var absorbed := minf(shield, remaining)
+		# the shield takes the hit at its damage type's rate (GameData.DAMAGE_TYPES)
+		var ms := maxf(GameData.damage_mult(dtype, "shield"), 0.001)
+		var absorbed := minf(shield, remaining * ms)
 		shield -= absorbed
-		remaining -= absorbed
+		remaining -= absorbed / ms
 		bleed = absorbed * ShipSystems.SHIELD_BLEED
+	remaining *= GameData.damage_mult(dtype, "hull")
 		if absorbed > 4.0:
 			Sfx.play(Sfx.leveled("shield", module_levels.get("shield", 1)), global_position, 0.5, randf_range(0.92, 1.08))
 	if remaining > 0.0:
