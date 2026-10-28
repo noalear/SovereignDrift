@@ -72,6 +72,8 @@ var governors := {}               # race -> Governor: each empire's economy, con
 var job_board: Array = []         # a client's copy of its empire's board (Governor.pack_board rows)
 var duel := false                # an online free-for-all (Duel); Main sets it on the host
 var duel_rules: Duel = null       # its rules; the host runs them, a client's mirror comes from Net
+var mode := ""                   # "survival" or "skirmish"; Main sets it before _ready
+var mode_rules = null            # their rules (Survival or Skirmish); the host runs them, a client's mirror comes from Net
 var practice := false            # Practice duel: you, your starbase, one pirate at a time
 var practice_opponent := true    # false: Free flight, practice with no pirate at all
 var tutorial := false            # the voiced tutorial (practice too): a calm Sol with the economy running (Tutorial)
@@ -143,6 +145,12 @@ func _ready() -> void:
 		duel_rules = Duel.new()
 		duel_rules.setup(self)
 		duel_rules.spawn_all()
+		if Net.is_host():
+			Net.host_attach(self)
+	elif mode != "":
+		mode_rules = Survival.new() if mode == "survival" else Skirmish.new()
+		mode_rules.setup(self)
+		mode_rules.spawn_all()
 		if Net.is_host():
 			Net.host_attach(self)
 	else:
@@ -661,6 +669,11 @@ func _physics_process(delta: float) -> void:
 	_update_sensor_links()
 	if Net.is_client():
 		Net.client_tick(delta)   # the host collides, scores and respawns
+		# what the HUD shows from local state: the Sun's heat and the
+		# planet tally (the host burns and counts for real)
+		sun_heat = heat_at(player.global_position) if player != null and not player.dead else 0.0
+		_sun_warning(delta)
+		_count_planets()
 		_follow_camera(delta)
 		return
 	sun_heat = 0.0
@@ -697,6 +710,8 @@ func _physics_process(delta: float) -> void:
 	capture.tick(delta)
 	if duel_rules != null:
 		duel_rules.tick(delta)
+	elif mode_rules != null:
+		mode_rules.tick(delta)
 	elif not practice or tutorial:
 		economy.tick(delta)
 		ground.tick(delta)
@@ -836,7 +851,7 @@ func nearest_known_enemy(viewer: Ship, range_px: float = 16000.0) -> Ship:
 		var d := viewer.global_position.distance_to(s.global_position)
 		if d >= best_d:
 			continue
-		var seen := duel_rules != null or (s.visible_to(viewer) and d <= viewer.sensor_range * 1.5)
+		var seen := is_arena() or (s.visible_to(viewer) and d <= viewer.sensor_range * 1.5)
 		if not seen:
 			for f in ships:
 				if f.dead or f.team() != viewer.team():
@@ -848,6 +863,12 @@ func nearest_known_enemy(viewer: Ship, range_px: float = 16000.0) -> Ship:
 			best_d = d
 			best = s
 	return best
+
+
+## The node, or null once it is freed (a shooter that left the game while
+## its shot was in flight).
+static func _live(n: Variant) -> Variant:
+	return n if n != null and is_instance_valid(n) else null
 
 
 func ship_at(pos: Vector2, tolerance: float) -> Ship:
@@ -932,6 +953,13 @@ func _impact(victim: PhysicsBody, other: PhysicsBody, v: float, point: Vector2) 
 		node.take_damage(dmg * 0.5, other.node, point)
 
 
+## Heavy armor is thermal mass: an armored hull heats up slower near the Sun.
+static func _thermal_mass(a: Node) -> float:
+	if not a is Ship:
+		return 1.0
+	return 1.0 / (1.0 + float(a.stats.get("armor_mass", 0.0)) / 8000.0)
+
+
 ## The sun burns anything that comes close and swallows what touches it.
 func _sun_hazard(delta: float) -> void:
 	if sun == null:
@@ -943,14 +971,14 @@ func _sun_hazard(delta: float) -> void:
 		# heat ramps up over the radii above the surface: a warning first,
 		# then real damage, then a scorching bounce off the corona rather
 		# than an instant death
-		var heat := clampf(1.0 - (d - sun.radius) / (sun.radius * SUN_HEAT_RADII), 0.0, 1.0)
+		var heat := heat_at(a.global_position)
 		if a == player:
 			sun_heat = heat
 		# the outer third only warns; inside it heat builds slowly enough
 		# that turning away in a few seconds always saves you
 		if heat > 0.35:
 			var t := (heat - 0.35) / 0.65
-			a.take_damage((15.0 + 320.0 * t * t) * delta, sun, Vector2.ZERO, 1.0, "", 1.0, "plasma")
+			a.take_damage((15.0 + 320.0 * t * t) * delta * _thermal_mass(a), sun, Vector2.ZERO, 1.0, "", 1.0, "plasma")
 		var min_d := sun.radius + a.size * 0.7
 		if d < min_d:
 			var n := (a.global_position - sun.global_position).normalized() if d > 0.001 else Vector2.RIGHT
@@ -958,7 +986,7 @@ func _sun_hazard(delta: float) -> void:
 			var vn := a.velocity.dot(n)
 			if vn < 0.0:
 				a.velocity -= n * vn * 1.6
-			a.take_damage(400.0 * delta, sun, Vector2.ZERO, 1.0, "", 1.0, "plasma")
+			a.take_damage(400.0 * delta * _thermal_mass(a), sun, Vector2.ZERO, 1.0, "", 1.0, "plasma")
 	for d in debris.duplicate():
 		if d.global_position.distance_to(sun.global_position) < sun.radius:
 			remove_debris(d)
@@ -968,6 +996,14 @@ func _sun_hazard(delta: float) -> void:
 
 
 ## Beep and say so while the player is in the Sun's heat.
+## 0..1: how hot the Sun is at this point (0 beyond the warning band).
+func heat_at(pos: Vector2) -> float:
+	if sun == null:
+		return 0.0
+	var d := pos.distance_to(sun.global_position)
+	return clampf(1.0 - (d - sun.radius) / (sun.radius * SUN_HEAT_RADII), 0.0, 1.0)
+
+
 func _sun_warning(delta: float) -> void:
 	if player == null or player.dead or sun_heat <= 0.0:
 		_heat_alarm = 0.0
@@ -1140,9 +1176,9 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		if hit != null:
 			var at := m.hit_point if m.hit_point != Vector2.INF else pos
 			if hit is Ship:
-				hit.take_damage(m.warhead, attacker if attacker is Ship else m.owner_ship, at, m.data.get("sys", 1.0), "engines" if m.data.get("heat", false) else "", 1.0, m.data.get("dtype", "kinetic"))
+				hit.take_damage(m.warhead, attacker if attacker is Ship else _live(m.owner_ship), at, m.data.get("sys", 1.0), "engines" if m.data.get("heat", false) else "", 1.0, m.data.get("dtype", "kinetic"), m.data.get("pierce", 0.0))
 			else:
-				hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else m.owner_ship, at, m.data.get("dtype", "kinetic"))
+				hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else _live(m.owner_ship), at, m.data.get("dtype", "kinetic"))
 			if hit is Ship and m.data.has("drain"):
 				hit.energy = maxf(hit.energy - m.data["drain"], 0.0)
 				hit.jam_off(3.0)              # a disruptor knocks the jammer out
@@ -1159,7 +1195,7 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		if d < splash:
 			var f := 1.0 - maxf(d, 0.0) / splash
 			# the blast hits the side of the hull that faces it
-			s.take_damage(m.warhead * f, attacker if attacker is Ship else null, s.body.closest_surface_point(pos), m.data.get("sys", 1.0), "", 1.0, m.data.get("dtype", "kinetic"))
+			s.take_damage(m.warhead * f, attacker if attacker is Ship else null, s.body.closest_surface_point(pos), m.data.get("sys", 1.0), "", 1.0, m.data.get("dtype", "kinetic"), m.data.get("pierce", 0.0))
 	for p in planets:
 		var d := pos.distance_to(p.global_position) - p.radius
 		if d < splash and p.is_colonised():
@@ -1236,7 +1272,7 @@ const CREW_FROM_COLONY := 0.5     # hands a second from a colony
 func _refuel(delta: float) -> void:
 	for s in ships:
 		s.refuelling = false
-		if s.dead or (s.fuel >= s.fuel_max and s.crew >= s.crew_max and not s.needs_rearm()):
+		if s.dead or (s.fuel >= s.fuel_max and s.crew >= s.crew_max and not s.needs_rearm() and not s.armor_spent()):
 			continue
 		var rate := 0.0
 		var hands := 0.0
@@ -1248,6 +1284,8 @@ func _refuel(delta: float) -> void:
 			if p.is_colonised() and p.owner_race == s.race_id and p.global_position.distance_to(s.global_position) < p.radius + 220.0:
 				rate = maxf(rate, 0.04)
 				hands = maxf(hands, CREW_FROM_COLONY)
+		if hands > 0.0 and s.armor_spent():
+			s.restock_armor()          # a fresh ablative layer, the reactive tiles re-armed
 		if hands > 0.0 and s.crew < s.crew_max and s.boarded_by == null:
 			var was_crew := s.crew
 			s.crew = minf(s.crew + hands * delta, s.crew_max)
@@ -1255,7 +1293,7 @@ func _refuel(delta: float) -> void:
 				notify(s, "Crew at full strength (%d)." % s.crew_max)
 		if s.is_landed() and s.land_body.is_colonised() and s.land_body.owner_race == s.race_id:
 			rate = maxf(rate, 0.15)       # the colony's spaceport fills the tanks
-		if duel_rules != null:
+		if is_arena():
 			rate = maxf(rate, 0.02)       # a duel has no bases: tanks top up slowly anywhere
 		if rate > 0.0 and s.needs_rearm():
 			s.rearm(rate * delta)           # magazines refill at the same rate as the tanks
@@ -1331,6 +1369,12 @@ func _on_ship_damaged(s: Ship, amount: float) -> void:
 	if s.is_player:
 		last_player_damage = elapsed
 		add_shake(clampf(amount * 0.04, 1.0, 10.0))
+	if s.is_station and not Net.is_client() and s.is_breached() != s.get_meta("breached", false):
+		# tell whoever broke it open that it can be boarded now
+		s.set_meta("breached", s.is_breached())
+		var by: Ship = s.last_attacker as Ship
+		if s.is_breached() and by != null and is_instance_valid(by) and Capture.why_not(by, s) in ["", "far"]:
+			notify(by, "The %s %s is breached: shields down, hull broken. Close in and press %s to board." % [GameData.race(s.race_id)["adj"], s.ship_name, Keybinds.short_text("board")])
 
 
 func _on_ship_died(s: Ship, killer: Node) -> void:
@@ -1348,13 +1392,13 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 		if near > 0.0:
 			add_shake((16.0 if big else 8.0) * near)
 			Music.duck_for((0.8 if big else 0.5) * near)
-		if killer == player and not s.is_player and duel_rules == null:
+		if killer == player and not s.is_player and not is_arena():
 			# (not in a duel: kills come every few seconds there, and the
 			# host's slow motion would slow the fight for everyone)
 			Engine.time_scale = 0.25
 			slowmo = 0.12
-	if duel_rules != null and s.is_player:
-		duel_rules.killed_by = killer.pilot_name if killer is Ship and killer != s else ""
+	if is_arena() and s.is_player:
+		arena_rules().killed_by = killer.pilot_name if killer is Ship and killer != s else ""
 	if Net.is_client():
 		if s.is_player:
 			player_died.emit()
@@ -1369,6 +1413,14 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 			player_died.emit()
 		respawn_queue.append([s, elapsed + RESPAWN_DELAY])
 		return
+	if mode_rules != null:
+		mode_rules.on_death(s, killer as Ship)
+		if mode == "skirmish":
+			# like a duel, no loot: every ship there is ready-built
+			if s.is_player:
+				player_died.emit()
+			respawn_queue.append([s, elapsed + 2.0])   # the rules hold it for the hull's launch time
+			return
 	# the wreck leaves modules floating
 	var drops := 1 + (2 if big else 0) + (1 if randf() < 0.5 else 0)
 	var candidates := []
@@ -1528,8 +1580,10 @@ func _respawns() -> void:
 		var s: Ship = entry[0]
 		if not is_instance_valid(s):
 			continue
-		if elapsed >= entry[1] and (s.is_prize or s.has_meta("ordered") or s.has_meta("tutorial") or (s.is_station and not s.is_starbase())):
-			remove_ship(s)        # a prize's crew does not come back, nor a built station or an ordered ship
+		if elapsed >= entry[1] and (s.is_prize or s.has_meta("ordered") or s.has_meta("tutorial") or s.has_meta("wave") or (s.is_station and not s.is_starbase())):
+			remove_ship(s)        # a prize's crew does not come back, nor a built station, an ordered ship or a Survival raider
+		elif elapsed >= entry[1] and mode_rules != null and not mode_rules.may_relaunch(s):
+			keep.append(entry)    # Survival after the starbase fell, a Skirmish hull still launching
 		elif elapsed >= entry[1]:
 			var home := _home_planet(s.race_id)
 			if s.is_station:
@@ -1540,6 +1594,9 @@ func _respawns() -> void:
 				s.respawn(s.global_position, s.velocity)
 			elif duel_rules != null:
 				duel_rules.place(s)
+				s.respawn(s.global_position, s.velocity)
+			elif mode == "skirmish":
+				mode_rules.place(s)
 				s.respawn(s.global_position, s.velocity)
 			elif s.is_player or s.net_id in Net.seats.values():
 				_place_at_home(s)
@@ -1554,17 +1611,29 @@ func _respawns() -> void:
 			if s.is_player:
 				player_respawned.emit()
 				var base := starbase_of(s.race_id)
-				if duel_rules == null:
+				if duel_rules == null and mode != "skirmish":
 					notify(s, ("Launched from the %s starbase at %s." % [GameData.race(s.race_id)["name"], home.body_name]) if base != null else ("Launched from %s." % home.body_name))
 		else:
 			keep.append(entry)
 	respawn_queue = keep
 
 
-## Practice duels, free flight and online duels are off the record:
-## nothing earned there reaches the pilot's profile.
+## Practice duels, free flight, duels, Survival and Skirmish are off the
+## record: nothing earned there reaches the pilot's rank.
 func records_career() -> bool:
-	return not practice and not duel and duel_rules == null
+	return not practice and not duel and not is_arena()
+
+
+## A duel, Survival or Skirmish: a fight with rules of its own, no
+## economy, no landing or boarding, colonies holding their fire and every
+## ship on the map.
+func is_arena() -> bool:
+	return duel_rules != null or mode_rules != null
+
+
+## Whichever of those rules is running.
+func arena_rules() -> RefCounted:
+	return duel_rules if duel_rules != null else mode_rules
 
 
 func _on_rank_changed(s: Ship, level: int) -> void:
@@ -1601,12 +1670,16 @@ func planet_captured(p: Planet, winner: int, attacker: Node, people: float = -1.
 		round_rules.decide(winner)
 
 
-func _score_planets(delta: float) -> void:
+func _count_planets() -> void:
 	planet_counts = {0: 0, 1: 0, 2: 0, 3: 0}
 	for p in planets:
 		if p.is_colonised():
 			planet_counts[p.owner_race] = planet_counts.get(p.owner_race, 0) + 1
-	if game_over or duel_rules != null:
+
+
+func _score_planets(delta: float) -> void:
+	_count_planets()
+	if game_over or is_arena():
 		return
 	# held planets pay their empire's pilots every minute, double in the
 	# final phase
@@ -1664,8 +1737,8 @@ func landing_body(s: Ship) -> Planet:
 func try_land(s: Ship, onto: Planet = null) -> void:
 	if s.dead:
 		return
-	if duel_rules != null:
-		notify(s, "No landing in a duel: the fight stays in space.")
+	if is_arena():
+		notify(s, "No landing in %s: the fight stays in space." % ("a duel" if duel_rules != null else mode.capitalize()))
 		return
 	if Net.is_client():
 		Net.client_command("land")
@@ -1673,6 +1746,7 @@ func try_land(s: Ship, onto: Planet = null) -> void:
 	if s.is_landed():
 		_settle_cargo(s)
 		s.start_takeoff()
+		Net.host_landing(s)
 		notify(s, "Lifting off from %s." % s.land_body.body_name)
 		return
 	if s.is_landing():

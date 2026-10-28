@@ -74,6 +74,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			ship.pdc.enabled = not ship.pdc.enabled   # our own picture; the host flips its copy
 		else:
 			ship.set_pdc(not ship.pdc.enabled)
+	elif event.is_action_pressed("shield_focus"):
+		if Net.is_client():
+			Net.client_command("shield_focus")
+		ship.cycle_shield_focus()
+	elif event.is_action_pressed("shields_toggle"):
+		if Net.is_client():
+			Net.client_command("shields")
+		ship.set_shields_raised(not ship.shields_raised)
 	elif event.is_action_pressed("target_next"):
 		world.cycle_target(ship)
 	elif event.is_action_pressed("target_nearest"):

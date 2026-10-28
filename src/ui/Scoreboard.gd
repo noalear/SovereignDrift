@@ -7,6 +7,7 @@ signal play_again()
 signal to_menu()
 
 var result := {}
+var online := ""            # "host": Next round keeps the friends, "client": the host starts it
 var player_race := 1
 var font: Font
 var time := 0.0
@@ -54,7 +55,7 @@ func _gui_input(event: InputEvent) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_accept"):
-		if focus < buttons.size():
+		if focus < buttons.size() and online != "client":
 			buttons[focus][1].call()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("ui_cancel") or event.is_action_pressed("pause_menu"):
@@ -161,5 +162,10 @@ func _draw() -> void:
 	# career line and buttons
 	var c: Dictionary = Settings.career
 	draw_string(font, Vector2(x, vp.y - 72), "Career: %d rounds, %d won   ·   %d kills, %d deaths" % [c.get("rounds", 0), c.get("wins", 0), c.get("kills", 0), c.get("deaths", 0)], HORIZONTAL_ALIGNMENT_CENTER, w, 14, DIM)
-	_button(Rect2(vp.x * 0.5 - 250, vp.y - 56, 230, 44), "Play again  (Enter)", func(): play_again.emit())
+	if online == "client":
+		# the host decides when the next round starts; Enter does nothing here
+		draw_string(font, Vector2(x, vp.y - 92), "Waiting for the host to start the next round" + ".".repeat(1 + int(time * 2.0) % 3), HORIZONTAL_ALIGNMENT_CENTER, w, 16, Color(1, 0.95, 0.7))
+		_button(Rect2(vp.x * 0.5 - 115, vp.y - 56, 230, 44), "Leave the game  (Esc)", func(): to_menu.emit())
+		return
+	_button(Rect2(vp.x * 0.5 - 250, vp.y - 56, 230, 44), "Next round  (Enter)" if online == "host" else "Play again  (Enter)", func(): play_again.emit())
 	_button(Rect2(vp.x * 0.5 + 20, vp.y - 56, 230, 44), "Main menu  (Esc)", func(): to_menu.emit())

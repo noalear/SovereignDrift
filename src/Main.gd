@@ -32,11 +32,13 @@ func _ready() -> void:
 	Net.trade_updated.connect(func(d): if trade != null: trade.update(d))
 	Net.trade_closed.connect(_close_trade)
 	Net.status.connect(_on_net_status)
+	Net.round_restarted.connect(_next_round)
 	_start_from_command_line()
 
 
-## `--host` hosts a game on port 7777, `--host-duel` a free-for-all duel;
-## `--join=1.2.3.4` joins either (after `--` when run from the editor
+## `--host` hosts a game on port 7777, `--host-duel` a free-for-all duel,
+## `--host-survival` and `--host-skirmish` those modes;
+## `--join=1.2.3.4` joins any of them (after `--` when run from the editor
 ## binary).  The Play online screen replaces this.
 func _start_from_command_line() -> void:
 	var args := OS.get_cmdline_user_args() + OS.get_cmdline_args()
@@ -47,6 +49,9 @@ func _start_from_command_line() -> void:
 			Net.mode = "duel" if a == "--host-duel" else ""
 			if Net.host() == OK:
 				_start_game(false, true, "", a == "--host-duel")
+			return
+		if a == "--host-survival" or a == "--host-skirmish":
+			_host_mode(a.substr(7))
 			return
 		if a.begins_with("--join="):
 			Settings.use_profile("online")
@@ -90,6 +95,17 @@ func _host_game(duel := false) -> void:
 		menu.online_status = "Could not open port %d. Is another game hosting?" % Net.PORT
 
 
+## Survival or Skirmish over the network: friends join with the address.
+func _host_mode(which: String) -> void:
+	Settings.use_profile("online")
+	Net.callsign = Settings.pilot_name
+	Net.mode = which
+	if Net.host() == OK:
+		_start_game(false, true, "", false, false, which)
+	elif menu != null:
+		menu.online_status = "Could not open port %d. Is another game hosting?" % Net.PORT
+
+
 func _join_game(address: String) -> void:
 	Settings.use_profile("online")
 	Net.callsign = Settings.pilot_name
@@ -108,8 +124,9 @@ func _join_game(address: String) -> void:
 		Net.session_started.connect(_start_game, CONNECT_ONE_SHOT)
 
 
-func _show_menu() -> void:
-	Net.leave()
+## Everything of the game in progress goes: the world, the HUD and every
+## panel over them.  The online session stays (Next round keeps it).
+func _close_game() -> void:
 	if builder != null:
 		builder.queue_free()
 		builder = null
@@ -131,6 +148,11 @@ func _show_menu() -> void:
 	if hud != null:
 		hud.queue_free()
 		hud = null
+
+
+func _show_menu() -> void:
+	Net.leave()
+	_close_game()
 	menu_camera = Camera2D.new()
 	# the menu camera drifts every frame, not on physics ticks
 	menu_camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
@@ -149,6 +171,11 @@ func _show_menu() -> void:
 	menu.campaign_continue_pressed.connect(func(): _start_game(false, true, "continue"))
 	menu.host_pressed.connect(_host_game)
 	menu.duel_pressed.connect(_host_game.bind(true))
+	menu.mode_pressed.connect(func(which: String, online: bool):
+		if online:
+			_host_mode(which)
+		else:
+			_start_game(false, true, "", false, false, which))
 	menu.join_pressed.connect(_join_game)
 	menu.quit_pressed.connect(func(): get_tree().quit())
 
@@ -173,8 +200,9 @@ func _start_tutorial() -> void:
 
 ## `campaign` is "" for a Conquest round, "new" for a fresh campaign or
 ## "continue" for the saved one; `duel` hosts a free-for-all; `tutorial`
-## starts the voiced tutorial (a practice world).
-func _start_game(practice := false, opponent := true, campaign := "", duel := false, tutorial_mode := false) -> void:
+## starts the voiced tutorial (a practice world); `arena` is "survival" or
+## "skirmish" for those modes, alone or hosted.
+func _start_game(practice := false, opponent := true, campaign := "", duel := false, tutorial_mode := false, arena := "") -> void:
 	if not Net.is_active():
 		Settings.use_profile("single")
 	Settings.save_settings()
@@ -200,6 +228,7 @@ func _start_game(practice := false, opponent := true, campaign := "", duel := fa
 	world.practice = practice
 	world.practice_opponent = opponent
 	world.duel = duel
+	world.mode = arena
 	world.tutorial = tutorial_mode
 	world.campaign = campaign != ""
 	world.campaign_data = saved
@@ -234,7 +263,10 @@ func _start_game(practice := false, opponent := true, campaign := "", duel := fa
 		# two short lines: a long one would run under the leaderboard
 		world.notify_all("Free-for-all duel: everyone is your enemy, and everyone flies a %s." % Duel.HULL, Color(0.8, 0.9, 1.0))
 		world.notify_all("First to %d kills wins the round. Computer pilots fill in until friends join." % Duel.KILLS_TO_WIN, Color(0.8, 0.9, 1.0))
-	if campaign == "continue" or duel:
+	if world.mode_rules != null:
+		for line in world.mode_rules.intro():
+			world.notify_all(line, Color(0.8, 0.9, 1.0))
+	if campaign == "continue" or duel or world.mode_rules != null:
 		return
 	world.notify_all("Welcome, %s. You launch from the %s starbase at %s. Press H for the controls." % [Settings.pilot_name, GameData.race(Settings.race_id)["name"], GameData.STARBASES.get(Settings.race_id, "home")], Color(1, 0.95, 0.8))
 
@@ -441,11 +473,26 @@ func _on_round_over(result: Dictionary) -> void:
 	Engine.time_scale = 1.0
 	scoreboard = Scoreboard.new()
 	scoreboard.open(result, world.player.race_id if world.player != null else Settings.race_id)
+	scoreboard.online = "host" if Net.is_host() else ("client" if Net.is_client() else "")
 	ui_layer.add_child(scoreboard)
 	scoreboard.play_again.connect(func():
-		_show_menu()
-		_start_game())
+		if Net.is_host():
+			_next_round()        # the friends stay: everyone goes into the next round
+		else:
+			_show_menu()
+			_start_game())
 	scoreboard.to_menu.connect(_show_menu)
+
+
+## Online, the next Conquest round in the same session.  The host builds a
+## fresh system and calls everyone in; a client (Net.round_restarted)
+## builds its own and says hello again, which seats it like a new joiner.
+func _next_round() -> void:
+	_close_pause()
+	Net.host_clear_round()
+	_close_game()
+	_start_game()
+	Net.host_round_restarted()
 
 
 ## A trade the host opened for our pilot: a window over the running round.

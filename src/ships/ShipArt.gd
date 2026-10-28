@@ -8,11 +8,16 @@
 ## the empire's style (assets/parts/socket_<empire>.png), and the fitted
 ## parts are drawn on top from the parts sheet (assets/parts/*.png): a
 ## turret model per weapon, seated in its socket, that turns with the
-## pilot's aim, one nozzle per engine, armour plates, shield
+## pilot's aim, one nozzle per engine, shield
 ## domes, the sensor dish, the reactor core, jammer spine, booster pods,
 ## warp fins and so on, so a loadout can be read from the ship itself.
 ## Engine flames, hit flashes and battle damage are live effects
 ## drawn around the model each frame.  Ships point along +X.
+##
+## An armor coat restyles the whole painting (coat_texture): plate panels,
+## mirror chrome, ceramic tiles, reactive bricks, a dark shroud or heavy
+## ribs, worked out from each empire's own painting and laid out in its
+## style, so every hull, empire and coat looks different.
 class_name ShipArt
 extends RefCounted
 
@@ -68,6 +73,11 @@ static var _masks := {}
 static var _spots := {}
 static var _models := {}
 static var _engines := {}
+static var _coats := {}            # "<painting path>|<coat id>" -> Texture2D, or the Image a worker baked
+static var _coat_jobs := {}        # the same keys -> WorkerThreadPool task, while it bakes
+static var _coat_lock := Mutex.new()
+## Bake coats on the spot instead of on a worker (screenshot tools).
+static var bake_now := false
 
 
 # ---------------------------------------------------------------- public
@@ -448,6 +458,7 @@ static func build_model(design: Variant, race_id: int, size: float) -> Dictionar
 		"tex": hull_texture(hull_name, race_id), "rect": Rect2(), "nozzles": [], "overlays": [], "turrets": [], "sockets": [], "pdc": [],
 		"glow": glow_color(race_id), "tint": part_tint(race_id), "station": GameData.is_station_hull(hull_name)}
 	var tex: Texture2D = m["tex"]
+	m["coat"] = _coat_of(fit)
 	m["rect"] = _hull_rect(tex, size, m["station"])
 	m["mask"] = hull_mask(tex)
 	# every hardpoint spot is kept clear of system parts, fitted or not
@@ -467,6 +478,253 @@ static func build_model(design: Variant, race_id: int, size: float) -> Dictionar
 		_turret_overlay(m, weapons[i], i, spots[i])
 	_models[key] = m
 	return m
+
+
+static func _coat_of(fit: Dictionary) -> String:
+	if fit.is_empty():
+		return ""
+	for id in fit.get("modules", []):
+		if GameData.ARMOR.has(id):
+			return id
+	return ""
+
+
+# ------------------------------------------------------------ armor coats
+
+## The painting `tex` wearing armor coat `coat_id`, or null with no coat
+## (or while it is still being baked: the bare painting shows until then).
+## Baked once per painting and coat on a worker thread.
+static func coat_texture(tex: Texture2D, coat_id: String, race_id: int) -> Texture2D:
+	if tex == null or coat_id == "" or not GameData.ARMOR.has(coat_id):
+		return null
+	var key := "%s|%s" % [tex.resource_path, coat_id]
+	_coat_lock.lock()
+	var got: Variant = _coats.get(key)
+	_coat_lock.unlock()
+	if got is Texture2D:
+		return got
+	if got is Image:
+		var t := ImageTexture.create_from_image(got)
+		_coat_lock.lock()
+		_coats[key] = t
+		_coat_lock.unlock()
+		_coat_jobs.erase(key)
+		return t
+	if _coat_jobs.has(key) or (DisplayServer.get_name() == "headless" and not bake_now):
+		return null                    # (a headless server draws nothing)
+	var img := tex.get_image()
+	if img == null:
+		return null
+	if img.is_compressed():
+		img.decompress()
+	img.convert(Image.FORMAT_RGBA8)
+	var mask := hull_mask(tex)
+	var coat: String = GameData.ARMOR[coat_id]["coat"]
+	var tier := GameData.tier(coat_id)
+	if bake_now:
+		_coats[key] = ImageTexture.create_from_image(bake_coat(img, coat, tier, race_id, mask))
+		return _coats[key]
+	_coat_jobs[key] = WorkerThreadPool.add_task(_bake_job.bind(key, img, coat, tier, race_id, mask), false, "coat " + key)
+	return null
+
+
+## (on a worker: touches nothing but its own arguments)
+static func _bake_job(key: String, img: Image, coat: String, tier: int, race_id: int, mask: Dictionary) -> void:
+	var out := bake_coat(img, coat, tier, race_id, mask)
+	_coat_lock.lock()
+	_coats[key] = out
+	_coat_lock.unlock()
+
+
+static func _hash2(x: float, y: float) -> float:
+	var h := sin(x * 127.1 + y * 311.7) * 43758.5453
+	return h - floorf(h)
+
+
+## Repaint `img` (RGBA8, a hull painting) in armor coat `coat` (a
+## GameData.ARMOR "coat"; `tier` for plate).  Each coat has
+## its own finish and pattern; each empire lays the pattern out its own
+## way: Terran straight and square, Arcean flowing in curves, Drengin
+## raked at an angle, pirates patchy, with cells missing and mismatched.
+##  Plate: steel panels, smaller with each tier, rivets from Plate II.
+##  Reflective: mirror chrome with raking highlights, bright edges.
+##  Ablative: pale ceramic tiles, mottled, the rims heat-stained.
+##  Reactive: a matte hull with rounded explosive cassettes bolted round
+##   the rim.
+##  Shroud: near black, with faint radar-scattering facets.
+##  Bulkheads: barely shows outside (it is inside work): a duller skin,
+##   faint frame lines and a thicker rim.
+static func bake_coat(img: Image, coat: String, tier: int, race_id: int, mask: Dictionary) -> Image:
+	var w := img.get_width()
+	var h := img.get_height()
+	var data := img.get_data()
+	var tint := part_tint(race_id)
+	var glow := glow_color(race_id)
+	var s := clampf(h / 6.0, 10.0, 34.0)       # pattern cell, in painting pixels
+	var gw: int = mask.get("gw", 0)
+	var gh: int = mask.get("gh", 0)
+	var depth: PackedFloat32Array = mask.get("depth", PackedFloat32Array())
+	var cx := float(gw) / w
+	var cy := float(gh) / h
+	var rake := 0.5                           # Drengin pattern angle
+	var cr := cos(rake)
+	var sr := sin(rake)
+	for y in h:
+		for x in w:
+			var i := (y * w + x) * 4
+			var al := data[i + 3]
+			if al == 0:
+				continue
+			var r := data[i] / 255.0
+			var g := data[i + 1] / 255.0
+			var b := data[i + 2] / 255.0
+			var lum := 0.3 * r + 0.59 * g + 0.11 * b
+			# depth into the hull, in mask cells (0 at the edge)
+			var dep := 0.0
+			if gw > 0:
+				dep = depth[mini(int(y * cy), gh - 1) * gw + mini(int(x * cx), gw - 1)]
+			# the pattern's coordinates, laid out in the empire's style
+			var u := float(x)
+			var v := float(y)
+			match race_id:
+				0:
+					u += sin(v * 0.06) * s * 0.35
+					v += sin(u * 0.045) * s * 0.3
+				2:
+					var uu := u * cr - v * sr
+					v = u * sr + v * cr
+					u = uu
+			var patchy := race_id == 3 and _hash2(floorf(u / (s * 2.0)), floorf(v / (s * 2.0))) < 0.22
+			var nr := r
+			var ng := g
+			var nb := b
+			match coat:
+				"plate":
+					# steel grey at the painting's own brightness
+					var k := 0.18 + 0.1 * tier
+					var st := lum * 1.08 + 0.02
+					nr = lerpf(r, st * 0.95 * tint.r, k)
+					ng = lerpf(g, st * 1.0 * tint.g, k)
+					nb = lerpf(b, st * 1.1 * tint.b, k)
+					var pw := s * (1.25 - 0.15 * tier)
+					var ph := pw * 0.72
+					var col := floorf(u / pw)
+					var fu := u / pw - col
+					var fv := v / ph + 0.5 * fmod(absf(col), 2.0)
+					fv -= floorf(fv)
+					var du := minf(fu, 1.0 - fu) * pw
+					var dv := minf(fv, 1.0 - fv) * ph
+					var seam := 0.9 + 0.4 * tier
+					var f := 1.0
+					if minf(du, dv) < seam:
+						f *= 0.72
+					elif dv < seam + 1.2 and fv < 0.5:
+						f *= 1.12
+					if tier >= 2 and du < 3.0 + tier and dv < 3.0 + tier and du > seam and dv > seam:
+						f *= 1.35         # rivets at the panel corners
+					if patchy:
+						f *= 0.85
+					nr *= f
+					ng *= f
+					nb *= f
+				"reflective":
+					var cv := minf(lum * 1.25, 1.0)
+					nr = lerpf(r, cv * (0.85 + 0.15 * glow.r), 0.6)
+					ng = lerpf(g, cv * (0.85 + 0.15 * glow.g), 0.6)
+					nb = lerpf(b, cv * (0.85 + 0.15 * glow.b), 0.6)
+					nr = (nr - 0.5) * 1.2 + 0.47
+					ng = (ng - 0.5) * 1.2 + 0.47
+					nb = (nb - 0.5) * 1.2 + 0.47
+					var t := (u * 0.55 + v) / s
+					var streak := pow(0.5 + 0.5 * sin(t * 2.1), 18.0) * 0.4 + pow(0.5 + 0.5 * sin(t * 0.63 + 1.3), 40.0) * 0.3
+					if dep > 0.0 and dep < 1.6:
+						streak += 0.22
+					if patchy:
+						streak *= 0.3
+					nr += streak
+					ng += streak
+					nb += streak
+				"ablative":
+					var lv := 0.55 + 0.6 * lum
+					nr = lerpf(r, 0.82 * lv, 0.62)
+					ng = lerpf(g, 0.75 * lv, 0.62)
+					nb = lerpf(b, 0.64 * lv, 0.62)
+					var tw := s * 0.48
+					var row := floorf(v / tw)
+					var tu := u / tw + 0.5 * fmod(absf(row), 2.0)
+					var col := floorf(tu)
+					var fu := tu - col
+					var fv := v / tw - row
+					var f := 0.94 + 0.12 * _hash2(col, row) + 0.04 * _hash2(u, v)
+					if minf(minf(fu, 1.0 - fu), minf(fv, 1.0 - fv)) * tw < 0.9:
+						f *= 0.62
+					if dep > 0.0 and dep < 2.2:
+						f *= 0.62 + 0.17 * dep   # heat-stained rims
+					if patchy:
+						f *= 0.8
+					nr *= f
+					ng *= f
+					nb *= f
+				"reactive":
+					# a matte, darker hull with explosive cassettes bolted on
+					# round the rim: separate rounded pads, hull between them
+					var lv := 0.6 + 0.55 * lum
+					nr = lerpf(r, 0.5 * lv * tint.r, 0.3)
+					ng = lerpf(g, 0.48 * lv * tint.g, 0.3)
+					nb = lerpf(b, 0.42 * lv * tint.b, 0.3)
+					if dep > 0.3 and dep < 2.0 and not patchy:
+						var sp := s * 0.95
+						var row := floorf(v / sp)
+						var pu := u / sp + 0.5 * fmod(absf(row), 2.0)
+						var qx := (pu - floorf(pu) - 0.5) * 2.0       # -1..1 across the pad's cell
+						var qy := (v / sp - row - 0.5) * 2.0
+						var d := pow(pow(absf(qx), 4.0) + pow(absf(qy), 4.0), 0.25)   # rounded square
+						if d < 0.62:
+							var lit := clampf(1.0 - 0.45 * (qx + qy), 0.55, 1.4)     # lit from the upper left
+							var f := lit * (0.75 if d > 0.52 else 1.0)
+							var face := 0.5 * lv
+							nr = lerpf(nr, face * 0.92, 0.75) * f
+							ng = lerpf(ng, face * 0.9, 0.75) * f
+							nb = lerpf(nb, face * 0.78, 0.75) * f
+						elif d < 0.72:
+							nr *= 0.55                                    # its shadow on the hull
+							ng *= 0.55
+							nb *= 0.55
+				"shroud":
+					var dk := 0.09 + 0.24 * lum
+					nr = lerpf(r, dk * (0.9 + 0.1 * tint.r), 0.84)
+					ng = lerpf(g, dk * (0.92 + 0.1 * tint.g), 0.84)
+					nb = lerpf(b, dk * (1.0 + 0.12 * tint.b), 0.84)
+					var a1 := (u + v) / (s * 1.4)
+					var a2 := (u - v * 0.6) / (s * 1.7)
+					var e := minf(absf(a1 - roundf(a1)) * s * 1.4, absf(a2 - roundf(a2)) * s * 1.7)
+					if e < 0.8:
+						nr += 0.05
+						ng += 0.055
+						nb += 0.065
+					if patchy:
+						nr += 0.04
+						ng += 0.03
+				"bulkheads":
+					# inside work, so the hull barely shows it: a heavier,
+					# slightly duller skin with faint frame lines and a
+					# thickened rim
+					var st := lum * 1.05
+					nr = lerpf(r, st * 0.85 * tint.r, 0.12)
+					ng = lerpf(g, st * 0.87 * tint.g, 0.12)
+					nb = lerpf(b, st * 0.9 * tint.b, 0.12)
+					var pitch := s * 2.2
+					var fu := u / pitch - floorf(u / pitch)
+					var f := 0.93 if fu < 0.05 else 1.0
+					if dep > 0.0 and dep < 1.0:
+						f *= 0.88
+					nr *= f
+					ng *= f
+					nb *= f
+			data[i] = clampi(int(nr * 255.0), 0, 255)
+			data[i + 1] = clampi(int(ng * 255.0), 0, 255)
+			data[i + 2] = clampi(int(nb * 255.0), 0, 255)
+	return Image.create_from_data(w, h, false, Image.FORMAT_RGBA8, data)
 
 
 static func _count_funcs(fit: Dictionary) -> Dictionary:
@@ -567,14 +825,7 @@ static func _system_overlays(m: Dictionary, size: float, counts: Dictionary) -> 
 		var x := s * (0.15 - 0.4 * k)
 		_overlay(m, "shield", Vector2(x, -hw * 0.6), s * 0.16, 0.0, 0.95)
 		_overlay(m, "shield", Vector2(x, hw * 0.6), s * 0.16, 0.0, 0.95)
-	# armour plates on the edges, one per plate, bigger by tier
-	var plates: int = counts.get("armor", 0)
-	var at: int = counts.get("armor_tier", 1)
-	for k in plates:
-		var x := s * (0.45 - 0.5 * k)
-		var w := s * (0.2 + 0.04 * at)
-		_overlay(m, "armor", Vector2(x, -hw * 0.82), w, 0.0, 0.95)
-		_overlay(m, "armor", Vector2(x, hw * 0.82), w, PI, 0.95)
+	# (armor is a coat over the whole painting: coat_texture)
 	# sensor dish forward, bigger by tier
 	var st: int = counts.get("sensor_tier", 0)
 	if st > 0:
@@ -658,7 +909,7 @@ static func _turret_overlay(m: Dictionary, w: Array, index: int, mount: Vector2)
 ## `broken` maps a part icon, "engines" or "t<weapon index>" to how badly
 ## that system is damaged (0..1, 1 offline): those parts are drawn dark.
 static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: float, alpha: float, damage: float,
-		xform: Transform2D = Transform2D.IDENTITY, aims: Array = [], flash: float = 0.0, broken: Dictionary = {}, pdc_aims: Array = []) -> void:
+		xform: Transform2D = Transform2D.IDENTITY, aims: Array = [], flash: float = 0.0, broken: Dictionary = {}, coat_wear: float = 1.0, pdc_aims: Array = []) -> void:
 	var a := alpha
 	var size: float = m["size"]
 	var rect: Rect2 = m["rect"]
@@ -680,6 +931,11 @@ static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: flo
 	var tex: Texture2D = m["tex"]
 	if tex != null:
 		c.draw_texture_rect(tex, rect, false, mod)
+		# the armor coat over it, thinning as an ablative layer or the
+		# reactive tiles are spent
+		var coat_tex := coat_texture(tex, m.get("coat", ""), m["race"])
+		if coat_tex != null and coat_wear > 0.0:
+			c.draw_texture_rect(coat_tex, rect, false, Color(mod.r, mod.g, mod.b, a * clampf(coat_wear, 0.0, 1.0)))
 	else:
 		c.draw_rect(rect, Color(base.r, base.g, base.b, a))
 	# the weapon sockets, part of the hull

@@ -79,12 +79,34 @@ var refuelling := false            # near a friendly base or colony this frame
 var energy := 1000.0
 var energy_max := 1000.0
 var energy_regen := 200.0
-var shield := 0.0
+## The shield is two halves, front and rear (see GameData.SHIELD_FOCUS);
+## `shield` is their sum, and setting it spreads the charge by the focus.
+var shield: float:
+	get:
+		return shield_front + shield_rear
+	set(value):
+		set_shield_split(value, shield_share)
+var shield_front := 0.0
+var shield_rear := 0.0
 var shield_max := 0.0
-var shield_regen := 0.0
+var shield_regen := 0.0            # charge a second with both halves recharging
+var shield_share := 0.5            # the front half's share of the shield
+var shield_share_rate := 0.0       # how fast the share moves to the focus
+var shield_focus := 0              # GameData.SHIELD_FOCUS index
+var shield_pause := [0.0, 0.0]     # front, rear: seconds before the half recharges
+var shields_raised := true         # lowered shields draw nothing and give nothing off
+var shield_boot := 0.0             # seconds left raising them
+var shield_family := "deflector"   # GameData.SHIELD_FAMILIES
 var hull := 100.0
 var hull_max := 100.0
-var armor := 0.0
+var armor := 0.0                   # 1 with an armor coat on
+var coat := ""                     # the armor coat's module id (GameData.ARMOR)
+var coat_kind := ""                # its GameData.ARMOR "coat"
+var ablative := 0.0                # what is left of an ablative layer
+var ablative_max := 0.0
+var reactive_tiles := 0            # reactive tiles still armed
+var reactive_max := 0
+var reactive_rearm := 0.0          # seconds towards re-arming the next tile
 var sensor_range := 1200.0          # the longest lock range against a signature of 100 (see Sensors)
 var sensors := Sensors.new()       # signatures, contacts, ping, silent running, the jammer
 var can_jam := false
@@ -110,6 +132,7 @@ var stats: Dictionary = {}
 # the pilot's purse and salvage, used at the shipyard
 var credits := 0
 var hold: Array = []               # module ids salvaged from wrecks
+var hold_stock: Dictionary = {}    # id -> how many of those in the hold came off a stock fit (they sell for scrap)
 var blueprints: Array = []         # enemy parts this pilot may buy
 const HOLD_SIZE := 16
 # this round's record, for the scoreboard
@@ -248,7 +271,8 @@ func setup(p_world: Node, p_design: String, p_race: int, p_pilot: String, p_ship
 ## dictionary from the shipyard), keeping career and name.
 func refit(p_design: Variant) -> void:
 	if p_design is String:
-		design = GameData.stock_design(p_design, race_id)
+		# computer pilots fly their empire's armor coat (GameData.RACE_COAT)
+		design = GameData.stock_design(p_design, race_id) if is_player or support else GameData.race_fit(p_design, race_id)
 	else:
 		design = GameData.fix_design(p_design)
 	design_name = design["name"]
@@ -266,6 +290,9 @@ func refit(p_design: Variant) -> void:
 	shield_regen = stats["shield_regen"]
 	hull_max = stats["hull_max"]
 	armor = stats["armor"]
+	coat = stats["coat"]
+	coat_kind = str(GameData.ARMOR.get(coat, {}).get("coat", ""))
+	shield_family = stats["shield_family"]
 	sensor_range = stats["sensor_range"]
 	can_jam = stats["can_jam"]
 	if sensors.ship == null:
@@ -304,8 +331,15 @@ func refit(p_design: Variant) -> void:
 	crew = crew_max
 	accel = thrust_force / wet_mass()
 	energy = energy_max
-	shield = shield_max
 	hull = hull_max
+	ablative_max = hull_max * GameData.ABLATIVE_LAYER if coat_kind == "ablative" else 0.0
+	ablative = ablative_max
+	reactive_max = GameData.reactive_tiles(size) if coat_kind == "reactive" else 0
+	reactive_tiles = reactive_max
+	shield_share = GameData.SHIELD_FOCUS[shield_focus]
+	shield_pause = [0.0, 0.0]
+	shield_boot = 0.0
+	shield = shield_max
 	_build_weapons()
 	art_model = ShipArt.build_model(design, hull_race, size)
 	pdc.build(int(stats.get("pdc", 0)), ShipArt.pdc_spots(art_model), is_station)
@@ -330,11 +364,11 @@ func apply_systems() -> void:
 	thrust_force = b["thrust_force"] * eng
 	max_speed = b["max_speed"] * (0.6 + 0.4 * eng if eng > 0.0 else 1.0)
 	has_boost = b["has_boost"] and eng >= 1.0
-	energy_regen = b["energy_regen"] * systems.efficiency("reactor")
+	energy_regen = b["energy_regen"] * systems.efficiency("reactor") * _lowered_shield_bonus()
 	var sh := systems.efficiency("shields")
 	shield_max = b["shield_max"] * sh
 	shield_regen = b["shield_regen"] * sh
-	shield = minf(shield, shield_max)
+	_fit_shield_halves()
 	var sn := systems.efficiency("sensors")
 	sensors.efficiency = lerpf(ShipSystems.BLIND_SENSORS, 1.0, sn)
 	sensor_range = b["sensor_range"] * sensors.efficiency
@@ -356,12 +390,27 @@ func is_disabled() -> bool:
 	return systems.disabled() or (crew < 0.5 and not is_station)
 
 
+## A station whose shields are down and whose hull is broken open: a
+## boarding party can get in (see Capture).  Ships are boarded when
+## disabled instead.
+func is_breached() -> bool:
+	return is_station and not is_starbase() and shield <= shield_max * Capture.STATION_BREACH_SHIELD \
+		and hull <= hull_max * Capture.STATION_BREACH_HULL
+
+
+## Open to a boarding party: a ship dead in space, or a breached station.
+func boardable() -> bool:
+	return is_breached() if is_station else is_disabled()
+
+
 ## Whose side the ship is on: its empire's, except in a free-for-all
 ## duel, where every pilot fights alone.  Compare sides with this, not
 ## race_id, when deciding friend or foe.
 func team() -> int:
 	if world != null and world.get("duel_rules") != null and not is_station:
 		return get_instance_id()
+	if world != null and world.get("mode_rules") != null:
+		return world.mode_rules.team_of(self)
 	return race_id
 
 
@@ -742,7 +791,7 @@ func _fly(delta: float) -> void:
 	# --- fuel: engines burn by thrust, boost burns hotter, RCS sips
 	var burn := engine_level * burn_rate * (2.5 if boosting else 1.0) + rcs_level * RCS_BURN
 	if burn > 0.0:
-		if fuel < burn * delta and world != null and is_player and fuel > 0.0:
+		if fuel < burn * delta and world != null and is_player and fuel > 0.0 and not Net.is_client():   # a client replays inputs; the host says it
 			world.notify(self, "Fuel exhausted. Drift to a friendly base or colony to refuel.")
 		fuel = maxf(fuel - burn * delta, 0.0)
 	if boosting:
@@ -1290,12 +1339,8 @@ func _systems(delta: float) -> void:
 	# the reactor cracks a trickle of propellant, so nobody is stranded for good
 	if fuel < fuel_max and energy > energy_max * 0.3 and not refuelling:
 		fuel = minf(fuel + fuel_max * 0.0025 * delta, fuel_max)
-	if shield < shield_max and energy > 2.0 and not sensors.emcon:
-		var regen := minf(shield_regen * delta, shield_max - shield)
-		var cost := regen * 1.5
-		if energy >= cost:
-			shield += regen
-			energy -= cost
+	_tick_shields(delta)
+	_tick_armor(delta)
 	sensors.tick(delta)
 	# self-repair: regenerators work on their own once the shooting stops,
 	# repair bays always, for energy
@@ -1542,7 +1587,7 @@ func _beam_burn(w: Dictionary, body: Node, at: Vector2, delta: float) -> void:
 ## `at` is where the hit landed (Vector2.ZERO: nowhere in particular);
 ## `sys_mult` and `focus` say how hard it is on the ship's systems (see
 ## ShipSystems.hit).
-func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_mult: float = 1.0, focus: String = "", crew_mult: float = 1.0, dtype: String = "kinetic") -> void:
+func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_mult: float = 1.0, focus: String = "", crew_mult: float = 1.0, dtype: String = "kinetic", pierce: float = 0.0) -> void:
 	if dead or invulnerable > 0.0 or race_id == GameData.NEUTRAL:
 		return                         # (the free port is under every empire's protection)
 	if land_scale < 0.5:
@@ -1564,22 +1609,41 @@ func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_
 		last_hit_angle = (attacker.global_position - global_position).angle() - rotation
 	var remaining := amount
 	var bleed := 0.0
-	if shield > 0.0:
-		# the shield takes the hit at its damage type's rate (GameData.DAMAGE_TYPES)
-		var ms := maxf(GameData.damage_mult(dtype, "shield"), 0.001)
-		var absorbed := minf(shield, remaining * ms)
-		shield -= absorbed
-		remaining -= absorbed / ms
-		bleed = absorbed * ShipSystems.SHIELD_BLEED
-		if absorbed > 4.0:
-			Sfx.play(Sfx.leveled("shield", module_levels.get("shield", 1)), global_position, 0.5, randf_range(0.92, 1.08))
+	# the shield half on the side the hit came from takes it
+	var front := cos(last_hit_angle) >= 0.0
+	var half := 0 if front else 1
+	if shields_raised and shield_boot <= 0.0 and shield_max > 0.0:
+		var fam: Dictionary = GameData.SHIELD_FAMILIES[shield_family]
+		var charge: float = shield_front if front else shield_rear
+		if charge > 0.0:
+			# a Flicker shield lets part of some hits straight through
+			var leak := 0.0
+			if fam["leak"] > 0.0 and randf() < fam["leak_chance"]:
+				leak = remaining * fam["leak"]
+				remaining -= leak
+			# the shield takes the hit at its damage type's rate (GameData.DAMAGE_TYPES)
+			var ms := maxf(GameData.damage_mult(dtype, "shield"), 0.001)
+			var absorbed := minf(charge, remaining * ms)
+			charge -= absorbed
+			if front:
+				shield_front = charge
+			else:
+				shield_rear = charge
+			remaining -= absorbed / ms
+			remaining += leak
+			bleed = absorbed * ShipSystems.SHIELD_BLEED
+			if absorbed > 4.0:
+				Sfx.play(Sfx.leveled("shield", module_levels.get("shield", 1)), global_position, 0.5, randf_range(0.92, 1.08))
+		# every hit holds that half's recharge back, longer once it is down
+		shield_pause[half] = maxf(shield_pause[half], fam["zero_pause"] if charge <= 0.01 else fam["pause"])
 	remaining *= GameData.damage_mult(dtype, "hull")
 	if remaining > 0.0:
-		remaining = maxf(remaining - armor * 0.02 * remaining, remaining * 0.6)
+		remaining = _armor_cut(remaining, dtype, pierce, at)
 		hull -= remaining
-		_hit_systems(remaining + bleed, attacker, at, sys_mult, focus)
-		if not Net.is_client() and not is_station:
-			crew = maxf(crew - crew_max * remaining / maxf(hull_max, 1.0) * CREW_LOSS * crew_mult, 0.0)
+		var bulk := coat_kind == "bulkheads"
+		_hit_systems((remaining + bleed) * (GameData.BULKHEAD_SYSTEMS if bulk else 1.0), attacker, at, sys_mult, focus)
+		if not Net.is_client() and not is_starbase():
+			crew = maxf(crew - crew_max * remaining / maxf(hull_max, 1.0) * CREW_LOSS * crew_mult * (GameData.BULKHEAD_CREW if bulk else 1.0), 0.0)
 		if remaining > 4.0:
 			var armor_level: int = module_levels.get("armor", 0)
 			Sfx.play(Sfx.leveled("hit_armor", armor_level) if armor_level > 0 else "hit", global_position, 0.55, randf_range(0.85, 1.15))
@@ -1609,6 +1673,186 @@ func _hit_systems(amount: float, attacker: Node, at: Vector2, sys_mult: float, f
 			world.spawn_sparks(global_position + (e["pts"][0] as Vector2).rotated(rotation), 10, Color(1.0, 0.6, 0.2))
 	if not was_disabled and systems.disabled():
 		Sfx.play("hit", global_position, 0.8, 0.55)
+
+
+## What reaches the hull of a hit after the armor coat (GameData.ARMOR).
+func _armor_cut(dmg: float, dtype: String, pierce: float, at: Vector2) -> float:
+	if coat == "":
+		return dmg
+	var r := GameData.armor_resist(coat, dtype) * (1.0 - clampf(pierce, 0.0, 1.0))
+	match coat_kind:
+		"reflective":
+			if hull < hull_max * GameData.REFLECTIVE_SCORCHED:
+				r *= 0.5                  # scorched and cratered
+		"ablative":
+			if ablative <= 0.0:
+				return dmg
+			var stopped := minf(dmg * r, ablative)
+			ablative -= stopped
+			return dmg - stopped
+		"reactive":
+			if dmg < GameData.REACTIVE_TRIGGER or reactive_tiles <= 0 or r <= 0.0:
+				return dmg
+			reactive_tiles -= 1
+			reactive_rearm = 0.0
+			_reactive_blast(at)
+	return dmg * (1.0 - r)
+
+
+## A reactive tile goes off: a flash on the hull that infrared sees.
+func _reactive_blast(at: Vector2) -> void:
+	add_signature("heat", 150.0, 2.0)  # the blast shows on infrared
+	if world != null:
+		world.spawn_sparks(at if at != Vector2.ZERO else global_position, 14, Color(1.0, 0.75, 0.35))
+	Sfx.play("hit", global_position, 0.7, 1.35)
+
+
+## The front or rear half's share of the shield's size.
+func shield_cap(front: bool) -> float:
+	return shield_max * (shield_share if front else 1.0 - shield_share)
+
+
+## Set the shield's charge, `total`, with `front_share` of it in the front
+## half (each half capped at its size); lowered shields hold nothing.
+func set_shield_split(total: float, front_share: float) -> void:
+	if not shields_raised or shield_boot > 0.0:
+		shield_front = 0.0
+		shield_rear = 0.0
+		return
+	total = clampf(total, 0.0, shield_max)
+	shield_front = minf(total * clampf(front_share, 0.0, 1.0), shield_cap(true))
+	shield_rear = minf(total - shield_front, shield_cap(false))
+	shield_front = minf(total - shield_rear, shield_cap(true))
+
+
+## Keep each half inside its size, passing what spills over to the other.
+func _fit_shield_halves() -> void:
+	var cf := shield_cap(true)
+	var cr := shield_cap(false)
+	if shield_front > cf:
+		shield_rear = minf(shield_rear + shield_front - cf, cr)
+		shield_front = cf
+	if shield_rear > cr:
+		shield_front = minf(shield_front + shield_rear - cr, cf)
+		shield_rear = cr
+
+
+## Focus the shield: 0 balanced, 1 forward, 2 aft.  The charge moves over
+## GameData.SHIELD_FOCUS_TIME, so it can't be flipped at the last moment.
+func set_shield_focus(f: int) -> void:
+	shield_focus = posmod(f, GameData.SHIELD_FOCUS.size())
+	shield_share_rate = absf(GameData.SHIELD_FOCUS[shield_focus] - shield_share) / GameData.SHIELD_FOCUS_TIME
+
+
+func cycle_shield_focus() -> void:
+	set_shield_focus(shield_focus + 1)
+	if is_player and world != null:
+		world.notify(self, "Shields: %s." % GameData.SHIELD_FOCUS_NAMES[shield_focus])
+
+
+## Lower the shields (no draw, nothing given off) or raise them again: they
+## take GameData.SHIELD_BOOT to come up, at a share of full.
+func set_shields_raised(on: bool) -> void:
+	if on == shields_raised or float(stats.get("shield_max", 0.0)) <= 0.0:
+		return
+	shields_raised = on
+	shield_front = 0.0
+	shield_rear = 0.0
+	shield_boot = GameData.SHIELD_BOOT if on else 0.0
+	shield_pause = [0.0, 0.0]
+	Sfx.play("cloak" if not on else "uncloak", global_position, 0.45, 1.4)
+	if is_player and world != null:
+		world.notify(self, "Shields raising." if on else "Shields lowered: running quiet.")
+	apply_systems()
+
+
+## Lowered shields free their share of the reactor: an overloaded ship
+## recharges its batteries that much faster.
+func _lowered_shield_bonus() -> float:
+	if shields_raised or overload <= 1.0 or power_gen <= 0.0:
+		return 1.0
+	var without := maxf((power_draw - float(stats.get("shield_draw", 0.0))) / power_gen, 1.0)
+	return overload / without
+
+
+func _tick_shields(delta: float) -> void:
+	if shield_boot > 0.0:
+		shield_boot -= delta
+		if shield_boot <= 0.0:
+			shield_boot = 0.0
+			shield_front = shield_cap(true) * GameData.SHIELD_BOOT_CHARGE
+			shield_rear = shield_cap(false) * GameData.SHIELD_BOOT_CHARGE
+		return
+	if not shields_raised:
+		return
+	# the charge follows the focus
+	var want: float = GameData.SHIELD_FOCUS[shield_focus]
+	if shield_share != want:
+		shield_share = move_toward(shield_share, want, maxf(shield_share_rate, 0.05) * delta)
+		_fit_shield_halves()
+	for i in 2:
+		if shield_pause[i] > 0.0:
+			shield_pause[i] = maxf(shield_pause[i] - delta, 0.0)
+			continue
+		var cap := shield_cap(i == 0)
+		var have: float = shield_front if i == 0 else shield_rear
+		if have >= cap or energy <= 2.0 or sensors.emcon:
+			continue                   # (silent running holds the recharge too)
+		var regen := minf(shield_regen * (cap / maxf(shield_max, 1.0)) * delta, cap - have)
+		var cost := regen * 1.5
+		if energy < cost:
+			continue
+		energy -= cost
+		if i == 0:
+			shield_front += regen
+		else:
+			shield_rear += regen
+
+
+## Is a shield half recharging (sensors hear a charging shield louder)?
+func shield_recharging() -> bool:
+	return shields_raised and shield_boot <= 0.0 and shield < shield_max - 0.5 and (shield_pause[0] <= 0.0 or shield_pause[1] <= 0.0)
+
+
+func _tick_armor(delta: float) -> void:
+	if reactive_tiles < reactive_max and (Time.get_ticks_msec() / 1000.0) - last_attacked_at > 4.0:
+		reactive_rearm += delta
+		if reactive_rearm >= GameData.REACTIVE_REARM:
+			reactive_rearm = 0.0
+			reactive_tiles += 1
+	# a repair bay mends an ablative layer as it mends the hull
+	if ablative < ablative_max and repair_rate > 0.0 and hull >= hull_max:
+		ablative = minf(ablative + repair_rate * delta, ablative_max)
+
+
+## A friendly base or colony refills the ablative layer and re-arms the
+## reactive tiles.
+func restock_armor() -> void:
+	ablative = ablative_max
+	reactive_tiles = reactive_max
+	reactive_rearm = 0.0
+
+
+func armor_spent() -> bool:
+	return ablative < ablative_max or reactive_tiles < reactive_max
+
+
+## How much of the armor coat still shows on the hull: an ablative layer
+## burns away, spent reactive tiles leave gaps, scorched mirror dulls.
+func _coat_wear() -> float:
+	match coat_kind:
+		"ablative":
+			return ablative / maxf(ablative_max, 1.0)
+		"reactive":
+			return 0.35 + 0.65 * float(reactive_tiles) / maxi(reactive_max, 1)
+		"reflective":
+			return 0.55 if hull < hull_max * GameData.REFLECTIVE_SCORCHED else 1.0
+	return 1.0
+
+
+## How much harder defenders fight off boarders (Bulkheads).
+func board_defence() -> float:
+	return GameData.BULKHEAD_BOARD if coat_kind == "bulkheads" else 1.0
 
 
 func _die(killer: Node) -> void:
@@ -1691,19 +1935,22 @@ func try_pickup(module_id: String) -> bool:
 		hold.append(module_id)
 		return true
 	var m: Dictionary = GameData.MODULES[module_id]
-	var level := int(module_id.substr(3, 1))
+	var level := GameData.tier(module_id)
 	var f: String = m["func"]
 	var have: int = module_levels.get(f, 0)
 	# the systems' whole numbers change; apply_systems derates them again
 	var b := systems.base
 	match f:
 		"shield":
-			if level <= have:
+			if level <= have or (have > 0 and GameData.shield_family(module_id) != shield_family):
 				return false
 			var add: float = m["p"][0] - (b["shield_max"] if have > 0 else 0.0)
+			shield_family = GameData.shield_family(module_id)
 			b["shield_max"] = m["p"][0]
-			b["shield_regen"] = b["shield_max"] * 0.06
-			shield = minf(shield + maxf(add, 0.0), b["shield_max"])
+			b["shield_regen"] = b["shield_max"] * GameData.SHIELD_FAMILIES[shield_family]["rate"]
+			var was := shield
+			shield_max = b["shield_max"]
+			shield = minf(was + maxf(add, 0.0), b["shield_max"])
 		"eng":
 			if level <= have:
 				return false
@@ -1733,11 +1980,15 @@ func try_pickup(module_id: String) -> bool:
 				return false
 			b["has_boost"] = true
 		"armor":
-			if level <= have:
+			# a computer pilot only bolts on thicker plate
+			if GameData.ARMOR[module_id]["coat"] != "plate" or (coat != "" and (coat_kind != "plate" or level <= have)):
 				return false
-			armor = m["p"][0]
-			hull_max += m["p"][0] * 2
-			hull += m["p"][0] * 2
+			var gain: float = m["hp"] - (GameData.MODULES[coat]["hp"] if coat != "" else 0.0)
+			coat = module_id
+			coat_kind = "plate"
+			armor = 1.0
+			hull_max += gain
+			hull += gain
 		_:
 			return false
 	apply_systems()
@@ -1809,7 +2060,7 @@ func _draw() -> void:
 	if art_model.is_empty():
 		art_model = ShipArt.build_model(design, hull_race, size)
 	var broken := systems.broken_map()
-	ShipArt.draw_model(self, art_model, base, thrust_level, (0.4 if building else 1.0), dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0), broken, pdc.aims())
+	ShipArt.draw_model(self, art_model, base, thrust_level, (0.4 if building else 1.0), dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0), broken, _coat_wear(), pdc.aims())
 	# PDC muzzle flashes
 	for mt in pdc.mounts:
 		if mt["flash"] > 0.0:
@@ -1820,7 +2071,7 @@ func _draw() -> void:
 		_draw_frame()
 	if not broken.is_empty():
 		_draw_system_damage()
-	if is_disabled():
+	if is_disabled() or is_breached():
 		# a dead ship's running light blinks red, so it can be found and boarded
 		var blink := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 1000.0 * 5.0)
 		draw_arc(Vector2.ZERO, size * 1.25, 0, TAU, 40, Color(1.0, 0.25, 0.15, 0.25 + 0.3 * blink), 1.5, true)

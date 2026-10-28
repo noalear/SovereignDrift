@@ -5,6 +5,9 @@
 class_name ShieldBubble
 extends Node2D
 
+## Which look the shader gives each shield family.
+const FAMILY_LOOK := {"deflector": 0, "barrier": 1, "flicker": 2}
+
 static var _shader: Shader = null
 static var _white: ImageTexture = null
 
@@ -112,9 +115,14 @@ func _process(delta: float) -> void:
 			packed.append(Vector4(0, 0, 9.0, 0.0))
 	mat.set_shader_parameter("hits", packed)
 	mat.set_shader_parameter("strength", s)
+	var down := not ship.shields_raised or ship.shield_boot > 0.0
+	mat.set_shader_parameter("strength_front", 0.0 if down else ship.shield_front / maxf(ship.shield_cap(true), 1.0))
+	mat.set_shader_parameter("strength_rear", 0.0 if down else ship.shield_rear / maxf(ship.shield_cap(false), 1.0))
 	mat.set_shader_parameter("collapse", collapse)
 	mat.set_shader_parameter("guard", clampf(ship.invulnerable, 0.0, 1.0))
 	mat.set_shader_parameter("alpha", 1.0)
+	mat.set_shader_parameter("family", FAMILY_LOOK.get(ship.shield_family, 0))
+	mat.set_shader_parameter("boot", clampf(ship.shield_boot / GameData.SHIELD_BOOT, 0.0, 1.0) if ship.shields_raised else 0.0)
 
 
 func _draw() -> void:

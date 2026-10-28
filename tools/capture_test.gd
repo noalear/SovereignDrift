@@ -225,6 +225,9 @@ func _start_ai_boarding(w) -> void:
 		victim.inputs[k] = false if typeof(victim.inputs[k]) == TYPE_BOOL else 0.0
 	victim.global_position = p.global_position + Vector2(0, 2500)
 	victim.velocity = p.velocity
+	# a plain hull: a pirate's Shroud with its reactor dead hides it from
+	# the wingman's sensors, and this checks boarding, not stealth
+	victim.refit(root.get_node("GameData").stock_design("Scout", 3))
 	var e: Dictionary = victim.systems.get_system("reactor")
 	e["hp"] = 0.0
 	e["offline"] = true
