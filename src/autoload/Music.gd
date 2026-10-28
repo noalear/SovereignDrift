@@ -1,6 +1,6 @@
-## Music -- plays the soundtrack: the eight genre remixes and the ten new
-## tracks.  In "follows the fight" mode the game reports an intensity
-## (cruise, tension, battle) and the music crossfades to a track of that
+## Music -- plays the soundtrack: the eight genre remixes and the
+## eighteen new tracks.  In "follows the fight" mode the game reports an
+## intensity (cruise, tension, battle) and the music crossfades to a track of that
 ## energy; otherwise everything plays on shuffle.  Explosions duck it for
 ## a beat.
 extends Node
@@ -32,6 +32,14 @@ const NEW_TRACKS := [
 	["new08-long-haul-to-kepler-gate", "Long Haul to Kepler Gate", "Detroit techno", Intensity.TENSION],
 	["new09-far-sun-meridian", "Far Sun Meridian", "space synth", Intensity.CRUISE],
 	["new10-lantern-orbit", "Lantern Orbit", "ambient techno", Intensity.CRUISE],
+	["new11-dead-reckoning", "Dead Reckoning", "dub techno", Intensity.CRUISE],
+	["new12-solar-wind-archive", "Solar Wind Archive", "Berlin-school sequencer", Intensity.CRUISE],
+	["new13-reactor-hall", "Reactor Hall", "industrial techno", Intensity.TENSION],
+	["new14-cold-signal", "Cold Signal", "Detroit electro", Intensity.TENSION],
+	["new15-hull-breach", "Hull Breach", "hard industrial techno", Intensity.BATTLE],
+	["new16-kill-vector", "Kill Vector", "neurofunk drum & bass", Intensity.BATTLE],
+	["new17-iron-armada", "Iron Armada", "orchestral industrial", Intensity.BATTLE],
+	["new18-quiet-drive", "Quiet Drive", "ambient breaks", Intensity.CRUISE],
 ]
 
 const CROSSFADE := 2.5

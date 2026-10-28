@@ -150,7 +150,7 @@ The executable has the game data embedded. `build/` is ignored by git.
 | remix8-dubstep.ogg | 8 | Dubstep |
 | remix8-darkwave.ogg | 8 | Darkwave (alternative) |
 
-`assets/music/new/`: ten new tracks built from unused fragments of the
+`assets/music/new/`: eighteen new tracks built from unused fragments of the
 original songs.
 
 | File | Style |
@@ -165,13 +165,25 @@ original songs.
 | new08-long-haul-to-kepler-gate.ogg | Detroit techno |
 | new09-far-sun-meridian.ogg | Jarre-style space synth |
 | new10-lantern-orbit.ogg | Ambient techno |
+| new11-dead-reckoning.ogg | Dub techno |
+| new12-solar-wind-archive.ogg | Berlin-school sequencer |
+| new13-reactor-hall.ogg | Industrial techno |
+| new14-cold-signal.ogg | Detroit electro |
+| new15-hull-breach.ogg | Hard industrial techno |
+| new16-kill-vector.ogg | Neurofunk drum & bass |
+| new17-iron-armada.ogg | Orchestral industrial |
+| new18-quiet-drive.ogg | Ambient breaks |
 
 All tracks are Ogg Vorbis at about -16 LUFS and end on a strong final chord
-so they loop cleanly. The scripts that generated them stay on the `improved`
-branch under `tools/music/edm/`.
+so they loop cleanly. `src/autoload/Music.gd` tags each one cruise, tension or
+battle for the dynamic music. The scripts that generated them are in
+`tools/music/edm/` (shared toolkit `synth.py`, one script per track; the
+original MIDIs are in `tools/music/enhanced_mid/`). Some need the VSCO-2 CE
+samples (CC0): clone https://github.com/sgossner/VSCO-2-CE and set `VSCO_DIR`.
 
-Open music notes: new06's shipyard hammer is to be subdued and locked to the
-groove; song 8 still needs a pick between dubstep and darkwave.
+Open music notes: new06 v2 (shipyard hammer subdued and locked to the groove)
+is in `tools/music/candidates/` waiting for a listen; song 8 still needs a
+pick between dubstep and darkwave.
 
 ## License
 
