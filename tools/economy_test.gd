@@ -11,7 +11,7 @@ var failed := false
 ## The design doc's table: body -> [metals, ice, fuel, food, exotics].
 const EXPECTED := {
 	"Sol": [0, 0, 0, 0, 5], "Mercury": [5, 0, 0, 0, 2], "Venus": [3, 0, 0, 0, 3],
-	"Earth": [3, 3, 0, 5, 0], "Luna": [3, 1, 0, 1, 0], "Mars": [3, 1, 0, 1, 0],
+	"Earth": [3, 3, 1, 5, 0], "Luna": [3, 1, 0, 1, 0], "Mars": [3, 1, 0, 1, 0],
 	"Phobos": [4, 0, 0, 0, 1], "Deimos": [4, 0, 0, 0, 1],
 	"Ceres": [4, 1, 0, 0, 3], "Pallas": [4, 1, 0, 0, 3], "Vesta": [4, 1, 0, 0, 3], "Juno": [4, 1, 0, 0, 1],
 	"Jupiter": [0, 0, 5, 0, 0], "Io": [2, 0, 0, 0, 4], "Europa": [1, 5, 0, 2, 0],
