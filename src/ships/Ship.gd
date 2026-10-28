@@ -729,7 +729,7 @@ func _fly(delta: float) -> void:
 	# --- fuel: engines burn by thrust, boost burns hotter, RCS sips
 	var burn := engine_level * burn_rate * (2.5 if boosting else 1.0) + rcs_level * RCS_BURN
 	if burn > 0.0:
-		if fuel < burn * delta and world != null and is_player and fuel > 0.0:
+		if fuel < burn * delta and world != null and is_player and fuel > 0.0 and not Net.is_client():   # a client replays inputs; the host says it
 			world.notify(self, "Fuel exhausted. Drift to a friendly base or colony to refuel.")
 		fuel = maxf(fuel - burn * delta, 0.0)
 	if boosting:

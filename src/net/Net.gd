@@ -312,6 +312,9 @@ func _rpc_hello(name: String, protocol: int, career_score: int = 0, career_kills
 	if world.duel_rules != null:
 		_rpc_duel.rpc_id(peer_id, world.duel_rules.pack())   # before the welcome: the client is in a duel from its first frame
 	_rpc_welcome.rpc_id(peer_id, s.net_id, world.elapsed, _roster(), _planet_owners(), _powerup_list())
+	for o in world.ships:
+		if o.landing != 0 and o.net_id != 0:     # ships already going down or parked on a world
+			_rpc_landing.rpc_id(peer_id, o.net_id, o.landing, world.planets.find(o.land_body))
 	_rpc_stats.rpc_id(peer_id, _stats(), _round_state())
 	if world.round_rules != null and world.round_rules.over:
 		# the round is decided: the joiner sees the scoreboard and waits for the next
@@ -539,8 +542,9 @@ func host_colony_changed(p: Node) -> void:
 func _colony_state() -> Array:
 	var out := []
 	for p in world.planets:
-		# with the ground war: buildings, garrison, planetary shield, battle
-		out.append([p.owner_race, p.colony_design, p.population, p.silenced, Ground.pack(p)])
+		# with the ground war: buildings, garrison, planetary shield, battle;
+		# then the guns' shield and hull, and how long it counts as under attack
+		out.append([p.owner_race, p.colony_design, p.population, p.silenced, Ground.pack(p), p.shield, p.hull, p.under_attack])
 	return out
 
 
@@ -1026,6 +1030,10 @@ func _rpc_colonies(state: Array) -> void:
 		p.silenced = row[3]
 		if row.size() > 4:
 			Ground.unpack(p, row[4])
+		if row.size() > 7:
+			p.shield = row[5]
+			p.hull = row[6]
+			p.under_attack = row[7]
 
 
 ## The stockpiles, every couple of seconds (the Resources update).
@@ -1113,6 +1121,17 @@ func _rpc_convoys(rows: Array) -> void:
 func _rpc_jobs(rows: Array) -> void:
 	if world != null:
 		world.job_board = rows
+
+
+## The own ship's fuel and whether a base or colony is filling it: the host
+## burns and refuels, the client only shows the gauge.
+@rpc("authority", "unreliable_ordered", "call_remote", 3)
+func _rpc_tanks(fuel: float, refuelling: bool) -> void:
+	var s: Node = ships_by_id.get(local_net_id, null)
+	if s == null or not is_instance_valid(s):
+		return
+	s.fuel = fuel
+	s.refuelling = refuelling
 
 
 @rpc("authority", "reliable")
@@ -1571,6 +1590,10 @@ func _physics_process(delta: float) -> void:
 		systems_timer = SYSTEMS_EVERY
 		systems_sends += 1
 		_send_systems(systems_sends % SYSTEMS_FULL_EVERY == 0)
+		for peer_id in seats:
+			var s: Node = ships_by_id.get(seats[peer_id], null)
+			if s != null and is_instance_valid(s):
+				_rpc_tanks.rpc_id(peer_id, s.fuel, s.refuelling)
 	stats_timer -= delta
 	if stats_timer <= 0.0:
 		stats_timer = STATS_EVERY

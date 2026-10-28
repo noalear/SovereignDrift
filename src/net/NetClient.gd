@@ -38,6 +38,7 @@ func reconcile(ship: Node, ack_seq: int, pos: Vector2, vel: Vector2, rot: float)
 	var saved_inputs: Dictionary = ship.inputs.duplicate()
 	var saved_aim: Vector2 = ship.aim_point
 	var saved_energy: float = ship.energy
+	var saved_fuel: float = ship.fuel
 	ship.global_position = pos
 	ship.velocity = vel
 	ship.rotation = rot
@@ -54,7 +55,8 @@ func reconcile(ship: Node, ack_seq: int, pos: Vector2, vel: Vector2, rot: float)
 	for k in saved_inputs:
 		ship.inputs[k] = saved_inputs[k]
 	ship.aim_point = saved_aim
-	ship.energy = saved_energy            # energy is the host's gauge, set elsewhere
+	ship.energy = saved_energy            # energy and fuel are the host's gauges, set elsewhere
+	ship.fuel = saved_fuel
 	var err := before.distance_to(ship.global_position)
 	correction_px = err
 	if err < SNAP_DISTANCE and err > 0.5:
