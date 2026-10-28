@@ -57,9 +57,9 @@ const MODULES := {
 	"3002": {"name": "Quantum drive II", "vol": 200, "mass": 200, "power": -200, "hp": 150, "func": "qdrv", "p": [2, 35000]},
 	"3003": {"name": "Quantum drive III", "vol": 300, "mass": 300, "power": -1000, "hp": 200, "func": "qdrv", "p": [3, 35000]},
 	# tube: [energy frames, energy per shot, ammo, missile id]
-	"4001": {"name": "Torpedo tube", "vol": 30, "mass": 50, "power": -200, "hp": 100, "func": "tube", "p": [60, 4000, 800, "001"]},
+	"4001": {"name": "Mass driver", "vol": 30, "mass": 50, "power": -200, "hp": 100, "func": "tube", "p": [60, 4000, 800, "001"]},
 	"4002": {"name": "Mine layer", "vol": 10, "mass": 50, "power": -500, "hp": 100, "func": "tube", "p": [15, 20000, 10, "002"]},
-	"4003": {"name": "Grenade launcher", "vol": 45, "mass": 50, "power": -400, "hp": 100, "func": "tube", "p": [15, 6000, 800, "004"]},
+	"4003": {"name": "Torpedo launcher", "vol": 45, "mass": 50, "power": -400, "hp": 100, "func": "tube", "p": [15, 6000, 800, "004"]},
 	"4004": {"name": "Mine layer", "vol": 100, "mass": 50, "power": -1000, "hp": 100, "func": "tube", "p": [100, 99999, 4, "002"]},
 	"4008": {"name": "Smart missile rack", "vol": 40, "mass": 50, "power": -300, "hp": 200, "func": "tube", "p": [40, 6000, 300, "008"]},
 	"4009": {"name": "Seeker rack", "vol": 40, "mass": 50, "power": -300, "hp": 200, "func": "tube", "p": [40, 6000, 32, "009"]},
@@ -155,13 +155,13 @@ const HULL_MATERIALS := {
 # "heat" seekers home on the exhaust, so their hits go into the engines.
 
 const MISSILES := {
-	"001": {"dtype": "kinetic", "name": "torpedo", "warhead": 150, "fire_v": 0.60, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.20, "life": 3.2, "radius": 4, "look": "bolt"},
+	"001": {"dtype": "kinetic", "name": "bolt", "warhead": 150, "fire_v": 0.60, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.20, "life": 3.2, "radius": 4, "look": "bolt"},
 	"002": {"dtype": "explosive", "name": "mine", "warhead": 2500, "fire_v": 0.05, "guided": false, "trigger": "prox", "prox": 50, "seek_range": 0, "max_v": 0.05, "life": 32.0, "radius": 9, "look": "mine"},
 	"003": {"dtype": "plasma", "name": "plasma", "warhead": 500, "fire_v": 0.35, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "plasma"},
-	"004": {"dtype": "explosive", "name": "grenade", "warhead": 1500, "fire_v": 0.30, "guided": false, "trigger": "prox", "prox": 64, "seek_range": 0, "max_v": 0.95, "life": 3.2, "radius": 7, "look": "grenade"},
+	"004": {"dtype": "explosive", "name": "torpedo", "warhead": 1500, "fire_v": 0.30, "guided": false, "trigger": "prox", "prox": 64, "seek_range": 0, "max_v": 0.95, "life": 3.2, "radius": 7, "look": "grenade"},
 	"008": {"dtype": "explosive", "name": "smart missile", "warhead": 180, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 4, "look": "missile", "turn": 3.5, "accel": 220},
 	"009": {"dtype": "explosive", "name": "seeker", "warhead": 400, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 5, "look": "missile", "turn": 2.5, "accel": 220, "heat": true},
-	"010": {"dtype": "kinetic", "name": "rapid torpedo", "warhead": 100, "fire_v": 0.70, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.80, "life": 3.2, "radius": 3, "look": "bolt"},
+	"010": {"dtype": "kinetic", "name": "rapid bolt", "warhead": 100, "fire_v": 0.70, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.80, "life": 3.2, "radius": 3, "look": "bolt"},
 	"011": {"dtype": "plasma", "name": "rapid plasma", "warhead": 400, "fire_v": 0.80, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.00, "life": 3.2, "radius": 5, "look": "plasma"},
 	"018": {"dtype": "kinetic", "name": "cannon shell", "warhead": 750, "fire_v": 0.40, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "shell"},
 	"020": {"dtype": "ion", "name": "disruptor bolt", "warhead": 220, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320, "sys": 1.8},
