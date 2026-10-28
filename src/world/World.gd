@@ -40,6 +40,7 @@ var fx: Fx
 var starfield: Starfield
 var player: Ship = null
 var paused := false
+var menu_open := false     # the pause menu is up: online the round goes on, but the player's ship takes no input
 var elapsed := 0.0
 var respawn_queue: Array = []   # [ship, time]
 var planet_by_name := {}

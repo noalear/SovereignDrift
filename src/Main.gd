@@ -9,6 +9,7 @@ var world: World = null
 var hud: HUD = null
 var ui_layer: CanvasLayer
 var pause_panel: Control = null
+var settings_menu: MainMenu = null   # the title screen's Settings page, opened from the pause menu
 var builder: Builder = null
 var trade: Trade = null
 var tactical: TacticalMap = null
@@ -281,6 +282,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _open_pause() -> void:
 	if not Net.is_active():
 		world.set_paused(true)   # online the round goes on behind the menu
+	world.menu_open = true       # either way the ship ignores the keys and clicks meant for the menu
 	pause_panel = Control.new()
 	pause_panel.process_mode = Node.PROCESS_MODE_ALWAYS
 	ui_layer.add_child(pause_panel)
@@ -317,11 +319,9 @@ func _open_pause() -> void:
 	b2.pressed.connect(func(): Music.next_track())
 	box.add_child(b2)
 	var b3 := Button.new()
-	b3.text = "Switch to window" if Settings.fullscreen else "Switch to full screen"
+	b3.text = "Settings"
 	b3.add_theme_font_size_override("font_size", 20)
-	b3.pressed.connect(func():
-		Settings.toggle_fullscreen()
-		b3.text = "Switch to window" if Settings.fullscreen else "Switch to full screen")
+	b3.pressed.connect(_open_settings.bind(b3))
 	box.add_child(b3)
 	if world.campaign:
 		var bs := Button.new()
@@ -348,6 +348,29 @@ func _open_pause() -> void:
 		get_tree().quit())
 	box.add_child(b5)
 	b1.grab_focus()
+
+
+## Graphics, sound and controls without leaving the game: the title
+## screen's own Settings page over the pause menu.
+func _open_settings(from: Button) -> void:
+	if settings_menu != null or pause_panel == null:
+		return
+	pause_panel.visible = false
+	settings_menu = MainMenu.new()
+	settings_menu.in_game = true
+	settings_menu.world = world
+	ui_layer.add_child(settings_menu)
+	settings_menu.closed.connect(func():
+		_close_settings()
+		if pause_panel != null:
+			pause_panel.visible = true
+			from.grab_focus())
+
+
+func _close_settings() -> void:
+	if settings_menu != null:
+		settings_menu.queue_free()
+		settings_menu = null
 
 
 func _close_tactical() -> void:
@@ -435,11 +458,13 @@ func open_builder(ship: Ship, base: Ship) -> void:
 
 
 func _close_pause() -> void:
+	_close_settings()
 	if pause_panel != null:
 		pause_panel.queue_free()
 		pause_panel = null
 	if world != null:
 		world.set_paused(false)
+		world.menu_open = false
 
 
 ## Leaving or quitting: the career, and in a campaign the war itself.
