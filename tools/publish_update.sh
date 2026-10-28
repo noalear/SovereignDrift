@@ -5,9 +5,9 @@
 # The installer's game data is the base.  Each later build ships as one patch
 # pack of the files changed since that base, so players download only that.
 # A new base (and so a new installer) is cut on the first run, with
-# --new-base, when project.godot, the export presets, Updater.gd or the
-# engine changed (they load before any patch), or when the patch grows past
-# 60 MB.  BASES keeps the base pack the patches are made against.
+# --new-base, when Updater.gd, the autoload list, the display or rendering
+# settings or the engine changed (they load before any patch), or when the
+# patch grows past 60 MB.  BASES keeps the base pack the patches are made against.
 # Prints NEW_INSTALLER=build/StellarFrontierRemake-Setup.exe when the
 # installer has to be handed out again.
 set -euo pipefail
@@ -20,7 +20,10 @@ INSTALLER_URL="${INSTALLER_URL:-https://drive.google.com/file/d/1xAcmV3v4agDk25Q
 MAX_PATCH=$((60 * 1024 * 1024))
 VERSION=$(sed -n 's/^config\/version="\(.*\)"/\1/p' project.godot)
 BUILD=$(git rev-parse --short HEAD)
-FP=$( (cat project.godot export_presets.cfg src/autoload/Updater.gd; "$GODOT" --version) | sha256sum | cut -d' ' -f1)
+# what a patch can't change: the updater itself, the autoload list, the
+# window and renderer setup, the engine (new input actions are fine: the
+# patched Keybinds adds them from project_settings.cfg)
+FP=$( (cat src/autoload/Updater.gd; awk '/^\[/{keep = ($0 ~ /^\[(autoload|display|rendering)\]/)} keep' project.godot; "$GODOT" --version) | sha256sum | cut -d' ' -f1)
 mkdir -p "$BASES" "$UPDATES/patches"
 BASE=$(cat "$BASES/current" 2>/dev/null || true)
 NEW_BASE=0
@@ -29,7 +32,8 @@ if [[ "${1:-}" == "--new-base" || -z "$BASE" || ! -f "$BASES/$BASE.pck" || "$(ca
 fi
 
 printf '{"build": "%s", "version": "%s"}\n' "$BUILD" "$VERSION" > build.json
-trap 'rm -f build.json' EXIT
+cp project.godot project_settings.cfg
+trap 'rm -f build.json project_settings.cfg' EXIT
 "$GODOT" --headless --path . --import >/dev/null 2>&1 || true
 
 if [[ $NEW_BASE == 0 ]]; then

@@ -88,11 +88,35 @@ var custom := {}     # only what the pilot changed
 
 
 func _ready() -> void:
+	_add_new_actions()
 	for row in ACTIONS:
 		if InputMap.has_action(row[0]):
 			defaults[row[0]] = _read_map(row[0])
 	load_binds()
 	apply_all()
+
+
+## An update patch can't change the project settings the game started
+## with, so an older installer's input map lacks actions added since.  Add
+## them from the copy of project.godot that each build ships.
+func _add_new_actions() -> void:
+	var cfg := ConfigFile.new()
+	if not FileAccess.file_exists("res://project_settings.cfg") or cfg.load("res://project_settings.cfg") != OK or not cfg.has_section("input"):
+		return
+	var added := 0
+	for action in cfg.get_section_keys("input"):
+		if InputMap.has_action(action):
+			continue
+		var v: Variant = cfg.get_value("input", action)
+		if typeof(v) != TYPE_DICTIONARY:
+			continue
+		InputMap.add_action(action, float(v.get("deadzone", 0.2)))
+		for e in v.get("events", []):
+			if e is InputEvent:
+				InputMap.action_add_event(action, e)
+		added += 1
+	if added > 0:
+		print("Keybinds: %d new actions from the update" % added)
 
 
 func actions() -> Array:
