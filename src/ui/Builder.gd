@@ -178,6 +178,9 @@ func _mount(id: String) -> void:
 	if not from_hold and cost > credits:
 		_say("Not enough credits: %s costs %d." % [GameData.MODULES[id]["name"], cost])
 		return
+	if not GameData.fits_hull(id, hull):
+		_say("%s will not fit a %s." % [GameData.MODULES[id]["name"], GameData.hull_label(hull)])
+		return
 	if sel_kind == "hp" and GameData.weapon_class(id) > hardpoints[sel_index][5]:
 		_say("That mount only takes %s weapons." % GameData.class_name_of(hardpoints[sel_index][5]))
 		return
@@ -271,6 +274,8 @@ func _equip_slot(id: String) -> Array:
 			if _same_family(modules[i]["id"], id):
 				return ["bay", i] if _bays_fit(id, i) else []
 		return ["bay", modules.size()] if _bays_fit(id, -1) else []
+	if not GameData.fits_hull(id, hull):
+		return []
 	var cls := GameData.weapon_class(id)
 	for i in hardpoints.size():
 		if mounts[i] != null and _same_family(mounts[i]["id"], id) and hardpoints[i][5] >= cls:
@@ -784,7 +789,8 @@ func _catalogue_rows() -> Array:
 			continue
 		var race := GameData.part_race(id)
 		var locked := race >= 0 and race != base.race_id and not blueprints.has(id)
-		var too_big := not want_bay and GameData.weapon_class(id) > cls
+		var banned := not GameData.fits_hull(id, hull)
+		var too_big := banned or (not want_bay and GameData.weapon_class(id) > cls)
 		var in_hold := hold.has(id)
 		var price := GameData.price(id)
 		var ok := not locked and not too_big and (in_hold or price <= credits)
@@ -794,7 +800,7 @@ func _catalogue_rows() -> Array:
 			ptxt = "%s blueprint" % GameData.race(race)["adj"]
 			pcol = Color(0.4, 0.6, 0.65)
 		elif too_big:
-			ptxt = "too heavy"
+			ptxt = "won't fit" if banned else "too heavy"
 			pcol = Color(0.5, 0.45, 0.45)
 		elif in_hold:
 			ptxt = "in hold"

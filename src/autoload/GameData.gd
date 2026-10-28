@@ -61,7 +61,7 @@ const MODULES := {
 	"4002": {"name": "Mine layer", "vol": 10, "mass": 50, "power": -500, "hp": 100, "func": "tube", "p": [15, 20000, 10, "002"]},
 	"4003": {"name": "Torpedo launcher", "vol": 45, "mass": 50, "power": -400, "hp": 100, "func": "tube", "p": [15, 6000, 800, "004"]},
 	"4004": {"name": "Mine layer", "vol": 100, "mass": 50, "power": -1000, "hp": 100, "func": "tube", "p": [100, 99999, 4, "002"]},
-	"4008": {"name": "Smart missile rack", "vol": 40, "mass": 50, "power": -300, "hp": 200, "func": "tube", "p": [40, 6000, 300, "008"]},
+	"4008": {"name": "Missile rack", "vol": 40, "mass": 50, "power": -300, "hp": 200, "func": "tube", "p": [40, 6000, 300, "008"]},
 	"4009": {"name": "Seeker rack", "vol": 40, "mass": 50, "power": -300, "hp": 200, "func": "tube", "p": [40, 6000, 32, "009"]},
 	"4010": {"name": "Rapid tube", "vol": 80, "mass": 750, "power": -200, "hp": 200, "func": "tube", "p": [60, 1000, 1500, "010"]},
 	"4011": {"name": "Station battery", "vol": 4500, "mass": 20000, "power": -200, "hp": 200, "func": "tube", "p": [60, 1000, 1500, "011"]},
@@ -104,9 +104,16 @@ const MODULES := {
 ## Another empire's part needs a blueprint, salvaged from its wrecks.
 const MODULE_RACE := {
 	"5005": 0, "5006": 0, "7003": 0, "5101": 0, "5102": 0, "4021": 0,
-	"5502": 1, "5503": 1, "4008": 1, "4009": 1, "5201": 1, "5202": 1,
+	"5502": 1, "5503": 1, "4009": 1, "5201": 1, "5202": 1,
 	"9101": 2, "9203": 2, "5601": 2,
 }
+
+## Hulls a part will not fit (Kyle: missile racks on anything but a Scout).
+const PART_HULL_BAN := {"4008": ["Scout"]}
+
+static func fits_hull(id: String, hull: String) -> bool:
+	return not PART_HULL_BAN.get(id, []).has(hull)
+
 
 ## Parts only a station carries.
 const STATION_ONLY := ["0001", "1006", "4011", "4503", "5007", "9301", "2004"]
@@ -159,7 +166,7 @@ const MISSILES := {
 	"002": {"dtype": "explosive", "name": "mine", "warhead": 2500, "fire_v": 0.05, "guided": false, "trigger": "prox", "prox": 50, "seek_range": 0, "max_v": 0.05, "life": 32.0, "radius": 9, "look": "mine"},
 	"003": {"dtype": "plasma", "name": "plasma", "warhead": 500, "fire_v": 0.35, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "plasma"},
 	"004": {"dtype": "explosive", "name": "torpedo", "warhead": 1500, "fire_v": 0.30, "guided": false, "trigger": "prox", "prox": 64, "seek_range": 0, "max_v": 0.95, "life": 3.2, "radius": 7, "look": "grenade"},
-	"008": {"dtype": "explosive", "name": "smart missile", "warhead": 180, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 4, "look": "missile", "turn": 3.5, "accel": 220},
+	"008": {"dtype": "explosive", "name": "missile", "warhead": 180, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 4, "look": "missile", "turn": 3.5, "accel": 220},
 	"009": {"dtype": "explosive", "name": "seeker", "warhead": 400, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 5, "look": "missile", "turn": 2.5, "accel": 220, "heat": true},
 	"010": {"dtype": "kinetic", "name": "rapid bolt", "warhead": 100, "fire_v": 0.70, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.80, "life": 3.2, "radius": 3, "look": "bolt"},
 	"011": {"dtype": "plasma", "name": "rapid plasma", "warhead": 400, "fire_v": 0.80, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.00, "life": 3.2, "radius": 5, "look": "plasma"},
