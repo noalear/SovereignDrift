@@ -6,6 +6,7 @@ extends Control
 signal play_pressed()
 signal practice_pressed()
 signal free_flight_pressed()
+signal tutorial_pressed()
 signal campaign_new_pressed()
 signal campaign_continue_pressed()
 signal host_pressed()
@@ -327,14 +328,15 @@ func _draw_main(vp: Vector2) -> void:
 		draw_string(font, Vector2(x + w + 16, y + 96), campaign_note, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1.0, 0.85, 0.55))
 	elif has_save:
 		draw_string(font, Vector2(x + w + 16, y + 96), _save_line(), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.7, 0.8, 0.95))
-	_button(Rect2(x, y + 128, w * 0.5 - 4, 52), "Practice duel", func(): practice_pressed.emit())
-	_button(Rect2(x + w * 0.5 + 4, y + 128, w * 0.5 - 4, 52), "Free flight", func(): free_flight_pressed.emit())
-	_button(Rect2(x, y + 192, w, 52), "Play online", func(): _set_page("online"))
-	_button(Rect2(x, y + 256, w * 0.5 - 4, 52), "Pilot", func(): _set_page("pilot"))
-	_button(Rect2(x + w * 0.5 + 4, y + 256, w * 0.5 - 4, 52), "Settings", func(): _set_page("settings"))
-	_button(Rect2(x, y + 320, w * 0.5 - 4, 52), "About", func(): _set_page("about"))
-	_button(Rect2(x + w * 0.5 + 4, y + 320, w * 0.5 - 4, 52), "Quit", func(): quit_pressed.emit())
-	draw_string(font, Vector2(0, y + 404), "Arrow keys, D-pad or stick to move   ·   Enter or A to choose   ·   Esc or B to go back", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14, Color(0.6, 0.7, 0.85))
+	_button(Rect2(x, y + 128, w, 52), "Tutorial (voiced, Terran)", func(): tutorial_pressed.emit())
+	_button(Rect2(x, y + 192, w * 0.5 - 4, 52), "Practice duel", func(): practice_pressed.emit())
+	_button(Rect2(x + w * 0.5 + 4, y + 192, w * 0.5 - 4, 52), "Free flight", func(): free_flight_pressed.emit())
+	_button(Rect2(x, y + 256, w, 52), "Play online", func(): _set_page("online"))
+	_button(Rect2(x, y + 320, w * 0.5 - 4, 52), "Pilot", func(): _set_page("pilot"))
+	_button(Rect2(x + w * 0.5 + 4, y + 320, w * 0.5 - 4, 52), "Settings", func(): _set_page("settings"))
+	_button(Rect2(x, y + 384, w * 0.5 - 4, 52), "About", func(): _set_page("about"))
+	_button(Rect2(x + w * 0.5 + 4, y + 384, w * 0.5 - 4, 52), "Quit", func(): quit_pressed.emit())
+	draw_string(font, Vector2(0, y + 468), "Arrow keys, D-pad or stick to move   ·   Enter or A to choose   ·   Esc or B to go back", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14, Color(0.6, 0.7, 0.85))
 
 
 ## A new campaign over a saved one asks first: the second press starts it.
@@ -443,17 +445,18 @@ func _draw_settings(vp: Vector2) -> void:
 		vols.append([v, "%d%%" % int(v * 100)])
 	_choice(y + step * 3, "Music volume", vols, Settings.music_volume, func(v): Music.set_volume(v), vp)
 	_choice(y + step * 4, "Effects volume", vols, Settings.sfx_volume, func(v): Settings.sfx_volume = v, vp)
-	_choice(y + step * 5, "Display", [[true, "Full screen"], [false, "Window"]], Settings.fullscreen,
+	_choice(y + step * 5, "Voice volume", vols, Settings.voice_volume, func(v): Settings.voice_volume = v, vp)
+	_choice(y + step * 6, "Display", [[true, "Full screen"], [false, "Window"]], Settings.fullscreen,
 		func(v):
 			Settings.fullscreen = v
 			Settings.apply(), vp)
-	_choice(y + step * 6, "Camera", [[1.4, "Close"], [1.0, "Normal"], [0.7, "Wide"], [0.5, "Very wide"]], Settings.camera_zoom, _set_camera_zoom, vp)
-	_choice(y + step * 7, "Screen shake", [[0.0, "Off"], [0.5, "Light"], [1.0, "Full"]], Settings.screen_shake, func(v): Settings.screen_shake = v, vp)
-	_choice(y + step * 8, "Mouse-aimed turrets", [[true, "On"], [false, "Off"]], Settings.mouse_aim, func(v): Settings.mouse_aim = v, vp)
-	var rows := 9
+	_choice(y + step * 7, "Camera", [[1.4, "Close"], [1.0, "Normal"], [0.7, "Wide"], [0.5, "Very wide"]], Settings.camera_zoom, _set_camera_zoom, vp)
+	_choice(y + step * 8, "Screen shake", [[0.0, "Off"], [0.5, "Light"], [1.0, "Full"]], Settings.screen_shake, func(v): Settings.screen_shake = v, vp)
+	_choice(y + step * 9, "Mouse-aimed turrets", [[true, "On"], [false, "Off"]], Settings.mouse_aim, func(v): Settings.mouse_aim = v, vp)
+	var rows := 10
 	if not in_game:    # a round's length is set before it starts
-		_choice(y + step * 9, "Round length", [[20, "20 min"], [30, "30 min"], [40, "40 min"], [0, "Until conquest"]], Settings.round_minutes, func(v): Settings.round_minutes = v, vp)
-		rows = 10
+		_choice(y + step * 10, "Round length", [[20, "20 min"], [30, "30 min"], [40, "40 min"], [0, "Until conquest"]], Settings.round_minutes, func(v): Settings.round_minutes = v, vp)
+		rows = 11
 	_button(Rect2(vp.x * 0.5 - 300, y + step * rows + 20, 160, 48), "Back", _back)
 	_button(Rect2(vp.x * 0.5 - 130, y + step * rows + 20, 260, 48), "Controls and keys", func(): _set_page("controls"))
 

@@ -4,8 +4,9 @@
 ##
 ## World sounds play through a pool of 2D players with per-sound voice caps,
 ## retrigger gaps and priorities (a big explosion may steal a rapid-fire
-## voice, never the reverse).  Three buses: "SFX" (near, glued by a
-## compressor), "SFXFar" (distant: dulled and roomier) and "UI".  Bullet
+## voice, never the reverse).  Four buses: "SFX" (near, glued by a
+## compressor), "SFXFar" (distant: dulled and roomier), "UI" and "Voice"
+## (spoken lines, on Settings.voice_volume).  Bullet
 ## time dulls the SFX bus.  A small cockpit monitor watches the player's
 ## ship for lock-on, shield collapse, hull alarm, incoming missiles, etc.
 ##
@@ -147,6 +148,12 @@ func _make_buses() -> void:
 	var ui := AudioServer.bus_count - 1
 	AudioServer.set_bus_name(ui, "UI")
 	AudioServer.set_bus_send(ui, "Master")
+
+	# spoken lines, on their own volume
+	AudioServer.add_bus()
+	var voice := AudioServer.bus_count - 1
+	AudioServer.set_bus_name(voice, "Voice")
+	AudioServer.set_bus_send(voice, "Master")
 
 
 func _load_banks() -> void:
@@ -373,6 +380,7 @@ func _process(delta: float) -> void:
 	var sb := AudioServer.get_bus_index("SFX")
 	AudioServer.set_bus_volume_db(sb, vol_db)
 	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("UI"), vol_db)
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Voice"), linear_to_db(maxf(Settings.voice_volume, 0.0001)))
 	if slowmo_lp != null:
 		var target := 900.0 if Engine.time_scale < 0.99 else 20000.0
 		slowmo_lp.cutoff_hz = lerpf(slowmo_lp.cutoff_hz, target, 1.0 - exp(-delta * 10.0))

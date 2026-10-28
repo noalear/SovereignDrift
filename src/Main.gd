@@ -17,6 +17,7 @@ var ledger: Ledger = null
 var cargo_panel: CargoPanel = null
 var tactical_opened_at := 0
 var scoreboard: Scoreboard = null
+var tutorial: Tutorial = null
 var font: Font
 
 
@@ -118,6 +119,9 @@ func _show_menu() -> void:
 	if scoreboard != null:
 		scoreboard.queue_free()
 		scoreboard = null
+	if tutorial != null:
+		tutorial.queue_free()
+		tutorial = null
 	Engine.time_scale = 1.0
 	get_tree().paused = false
 	_close_trade({})
@@ -140,6 +144,7 @@ func _show_menu() -> void:
 	menu.play_pressed.connect(_start_game)
 	menu.practice_pressed.connect(_start_practice)
 	menu.free_flight_pressed.connect(_start_free_flight)
+	menu.tutorial_pressed.connect(_start_tutorial)
 	menu.campaign_new_pressed.connect(func(): _start_game(false, true, "new"))
 	menu.campaign_continue_pressed.connect(func(): _start_game(false, true, "continue"))
 	menu.host_pressed.connect(_host_game)
@@ -161,9 +166,15 @@ func _start_free_flight() -> void:
 	_start_game(true, false)
 
 
+## The voiced tutorial: always a Terran cadet, off the record like practice.
+func _start_tutorial() -> void:
+	_start_game(true, false, "", false, true)
+
+
 ## `campaign` is "" for a Conquest round, "new" for a fresh campaign or
-## "continue" for the saved one; `duel` hosts a free-for-all.
-func _start_game(practice := false, opponent := true, campaign := "", duel := false) -> void:
+## "continue" for the saved one; `duel` hosts a free-for-all; `tutorial`
+## starts the voiced tutorial (a practice world).
+func _start_game(practice := false, opponent := true, campaign := "", duel := false, tutorial_mode := false) -> void:
 	if not Net.is_active():
 		Settings.use_profile("single")
 	Settings.save_settings()
@@ -189,6 +200,7 @@ func _start_game(practice := false, opponent := true, campaign := "", duel := fa
 	world.practice = practice
 	world.practice_opponent = opponent
 	world.duel = duel
+	world.tutorial = tutorial_mode
 	world.campaign = campaign != ""
 	world.campaign_data = saved
 	add_child(world)
@@ -197,6 +209,16 @@ func _start_game(practice := false, opponent := true, campaign := "", duel := fa
 	hud.attach(world)
 	world.shipyard_requested.connect(open_builder)
 	world.round_over.connect(_on_round_over)
+	if tutorial_mode:
+		# Commander Hale does the talking
+		tutorial = Tutorial.new()
+		tutorial.setup(world, self)
+		var layer := CanvasLayer.new()
+		layer.layer = ui_layer.layer + 1    # the subtitles stay over the shipyard and the maps
+		layer.add_child(tutorial)
+		tutorial.tree_exited.connect(layer.queue_free)
+		add_child(layer)
+		return
 	if campaign == "new":
 		world.notify_all("Campaign: no clock. The war goes on until one empire holds every colony. It saves every 2 minutes, with %s, and when you leave." % Keybinds.short_text("quick_save"), Color(0.8, 0.9, 1.0))
 		world.save_campaign(false)

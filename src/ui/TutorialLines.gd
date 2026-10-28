@@ -1,0 +1,102 @@
+## TutorialLines -- what the tutorial's instructor says, word for word.
+##
+## Each line is voiced: tools/voice/generate.py reads this file (through
+## tools/voice/export_lines.gd) and renders assets/voice/<set>/<id>.ogg with
+## the speaker's voice.  The subtitles show the same words, so the spoken
+## text never names a key: the objective line under it shows the live keys.
+## Change a line here, then run the generator again.
+class_name TutorialLines
+extends RefCounted
+
+## Who speaks.  voice: a Kokoro voice; speed: its pace; fx: "clean" or
+## "radio" (a comm-channel band-pass).  New campaign voices go here too.
+const SPEAKERS := {
+	"hale": {"name": "Commander Hale", "title": "Terran Naval Academy", "voice": "af_heart", "speed": 0.96, "fx": "clean",
+		"color": Color(0.55, 0.8, 1.0)},
+}
+
+## [id, speaker, text]
+const LINES := [
+	# --- welcome and the cockpit
+	["intro", "hale", "Welcome to the Terran Naval Academy, cadet. I'm Commander Hale, and I'll be with you on comms for this flight. Nobody out here is shooting at us today, so take your time."],
+	["intro2", "hale", "By the end of this flight you'll know how to fly, fight, capture ships, move colonists and cargo, and run a war for the Sol system. Let's start with your cockpit."],
+	["hud_status", "hale", "Bottom left are your shields, hull, energy and fuel. Shields soak up hits and recharge on their own. The hull does not, so protect it. The row of lights above shows your ship's systems."],
+	["hud_weapons", "hale", "Beside them is your weapons panel, with your four weapon groups. Bottom right is the radar. Ships show in their empire's colour, Terran blue is us, and enemies get a red ring."],
+	["hud_top", "hale", "Along the top are your rank, score and credits, and how many planets each empire holds. Planets are what this war is about."],
+	# --- flight school
+	["thrust", "hale", "Let's fly. Hold thrust to push forward, and turn to steer. There's no friction in space, so when you let go, you keep drifting. Take her out a little way from the starbase."],
+	["strafe", "hale", "Strafe thrusters slide you sideways without turning, and reverse thrust slows you down or backs you up. Give them both a try."],
+	["brake", "hale", "To stop, use the brake. It fires against your drift until you're holding still beside whatever world you're near."],
+	["boost", "hale", "Boost gives you a burst of speed while you thrust. It eats energy fast, so save it for a chase, or for getting out of one."],
+	["assist", "hale", "Flight assist fires small thrusters to stop you spinning when you let go of the turn. Switch it off and you tumble freely, which some pilots prefer. Turn it off, then back on."],
+	["beacon", "hale", "I've dropped a nav beacon ahead of you. Fly to it using what you've just learned. Follow the arrow if it's off screen."],
+	["gravity", "hale", "Feel that pull? Every planet and moon has gravity, and if you coast near one you'll swing into orbit. Keep well clear of the Sun. Its heat will cook your hull."],
+	# --- navigation
+	["nav", "hale", "Space is big, so let the computer help. Cycle your navigation target until Luna, Earth's moon, is selected."],
+	["autopilot", "hale", "Now engage the autopilot. It steers around planets and the Sun, and brakes for you when you arrive. Touch any flight control to take back manual control."],
+	["warp", "hale", "For long trips, you have a quantum drive. It throws you across the system at many times light speed, but turning or reversing drops you out. Point at open space, jump, then drop out again."],
+	["map", "hale", "Open the system map. It shows every world and who owns it, and every ship your sensors can see. Tap the key to leave it open, or hold it for a quick look."],
+	["info", "hale", "Hold shift and click any planet or moon to open its info card: who lives there, its defences, its resources, and what it earns. Try it on Luna or Earth."],
+	["zoom", "hale", "The mouse wheel zooms the camera, and the radar has its own zoom. Zoom out when you want to see trouble coming."],
+	# --- combat
+	["target", "hale", "Time for target practice. I've put an unmanned drone off your bow. Lock it as your target. You can cycle targets, pick the nearest enemy, or shift click the ship itself."],
+	["fire", "hale", "Your laser turret follows the mouse, and the mass driver fires where your nose points. Open fire on the drone. Shields absorb the first hits. Once they're down, you're hitting hull and systems."],
+	["groups", "hale", "Your weapons are sorted into four groups. On your scout, the laser and mass driver fire together as group one, and the mine layer is group four. The number keys pick what your trigger fires, and alternate fire shoots a second group without switching. Pick group four, then back to group one."],
+	["disable", "hale", "Now the mark of a good captain: don't just blow ships apart. Every hit damages the systems nearest to it. Hit the drone in the stern to knock out its engines, and it's dead in space."],
+	["drone_lost", "hale", "That one's scrap. Easy on the trigger, cadet. Here's another. Aim for the engines at the back."],
+	["board", "hale", "Its engines are out. Come alongside, slow down, and board it. Your crew fights theirs, and if you win, the ship is yours. A captured prize follows you as a wingman."],
+	["cloak", "hale", "Your scout also carries a cloaking device. Cloaked, you're invisible to enemy sensors, but it drains energy and you can't warp. Cloak, then uncloak."],
+	["spar", "hale", "Ready for a live opponent? A rookie pirate in a scout is coming in. This one shoots back. Destroy it, or disable and board it. If you lose your ship, you'll relaunch at the starbase."],
+	["spar_died", "hale", "You'll relaunch from the starbase in a moment. Happens to all of us. Get back out there."],
+	["loot", "hale", "Wrecks spill loot: credit chips, spare parts, and now and then a blueprint for enemy technology. Fly over the pickups to scoop them up."],
+	# --- the starbase
+	["dock", "hale", "Head back to the starbase at Earth. Near a friendly starbase or colony, your fuel, crew and hull are topped up. Follow the green arrow."],
+	["shipyard", "hale", "Slow down and open the shipyard. This is where you change hulls, fit engines, shields and weapons, and set your weapon groups. Better hulls open up as you rise in rank."],
+	["shipyard_tour", "hale", "Click a part to swap it, and watch your speed, power and firepower change. Credits and salvaged parts pay for it. Launch when you're happy, or close the yard to keep your ship as it is."],
+	["base_cargo", "hale", "The starbase also sells station kits and takes orders for new ships. Open the cargo panel here to see them. Kits and orders unlock at Lieutenant Commander."],
+	# --- worlds, colonists and cargo
+	["land", "hale", "Now let's go down to Earth. Get low over the planet, slow down, and land."],
+	["colonists", "hale", "On your own worlds you refuel and repair, and you can take colonists aboard. Your cabin is small, but every million counts. Take some on."],
+	["cargo", "hale", "Every world produces resources: metals, ice, fuel, food and exotics, and refined alloys. Open your cargo hold and load what Luna is short of."],
+	["ground_tabs", "hale", "The other tabs run the ground war. Recruit troops at the barracks, and raise planetary shields, gun batteries, farms and industry. Have a look at them."],
+	["to_luna", "hale", "Lift off and fly to Luna. Use the autopilot if you like, then land there."],
+	["unload", "hale", "Put your colonists down to grow the colony, and unload your cargo. Goods delivered where they're short pay you credits."],
+	["ledger", "hale", "All of this feeds your empire. Open the empire ledger to see every world's stockpile, and the job board, where our governor posts paid hauling and escort work."],
+	# --- the empire, and how to win
+	["haulers", "hale", "You're not alone out here. Terran supply ships haul goods between our worlds, and trade ships sell our surplus. Escort ours, and hunt the enemy's. A starving colony can't build defences."],
+	["stations", "hale", "As you rise in rank you can buy station kits: mining stations, gas skimmers, refineries, supply depots, sensor posts, defence platforms, trade stations and shipyards. Haul a kit to a site, deploy it, then deliver the materials to finish it."],
+	["freeport", "hale", "At Jupiter's leading Trojan point sits the free port, a neutral market every empire can use. Buy where it's cheap, and sell where it's dear."],
+	["invasion", "hale", "To take an enemy world, first silence its guns. Home worlds also sit under a planetary shield, and nothing lands until that shield is down. Then land troops. Armour breaks garrisons, and commandos sabotage from the ground."],
+	["invasion2", "hale", "Drop ships carry whole armies. Colonists alone can only take a world with no defenders, and only twenty to one. The Drengin hold Mars and Venus. The Arceans hold Titan and Jupiter's moons."],
+	["strategy", "hale", "So here's how to win. Early on, carry colonists and goods to grow your worlds, and settle empty moons. Defend the worlds that matter. Pick off enemy supply ships to starve them, and disable rather than destroy, so you keep the prizes."],
+	["strategy2", "hale", "When an enemy world is weak, knock out its shield and guns and send in the troops. In a Conquest round, the empire holding the most planets when time runs out wins, or the first to hold every colony for forty five seconds."],
+	["modes", "hale", "From the main menu you can fight a Conquest round, start a campaign that saves as it goes, or play online, together or in free for all duels. Pirates are rare, but take them seriously."],
+	["outro", "hale", "Last thing. Help shows every control, Settings lets you change any key, and the menu pauses the game. That's everything, cadet. The system is yours. Fly safe."],
+	# --- short replies when an objective is done
+	["good_1", "hale", "Good."],
+	["good_2", "hale", "Nicely done."],
+	["good_3", "hale", "That's it."],
+	["good_4", "hale", "Well flown."],
+	["good_5", "hale", "Perfect."],
+	["good_6", "hale", "Exactly right."],
+]
+
+const SET := "tutorial"
+
+
+static func text(id: String) -> String:
+	for row in LINES:
+		if row[0] == id:
+			return row[2]
+	return ""
+
+
+static func speaker(id: String) -> Dictionary:
+	for row in LINES:
+		if row[0] == id:
+			return SPEAKERS.get(row[1], {})
+	return {}
+
+
+static func audio_path(id: String) -> String:
+	return "res://assets/voice/%s/%s.ogg" % [SET, id]

@@ -21,7 +21,7 @@ func _start() -> void:
 		return
 	root.add_child(main)
 	var settings = root.get_node("/root/Settings")
-	var saved := [settings.sfx_volume, settings.music_volume, settings.camera_zoom, settings.screen_shake]
+	var saved := [settings.sfx_volume, settings.music_volume, settings.camera_zoom, settings.screen_shake, settings.voice_volume]
 	await process_frame
 	main._start_free_flight()
 	await process_frame
@@ -55,16 +55,20 @@ func _start() -> void:
 	_check(not "Until conquest" in labels, "Round length is left out in game (%d buttons)" % labels.size())
 	_check("Full screen" in labels and "Window" in labels and "Wide" in labels and "Off" in labels, "graphics settings are there: display, camera, screen shake")
 	_check("Controls and keys" in labels, "Controls and keys is reachable in game")
-	# effects volume 25%: the second "25%" row (music volume is the first)
+	# effects volume 25%: the second "25%" row (music volume is the first,
+	# the voice the third)
 	var vols := _all(m, "25%")
-	_check(vols.size() == 2, "music and effects volume rows are drawn")
-	if vols.size() == 2:
+	_check(vols.size() == 3, "music, effects and voice volume rows are drawn")
+	if vols.size() == 3:
 		_click(m.buttons[vols[1]][0].get_center())
 		await process_frame
 		_check(is_equal_approx(settings.sfx_volume, 0.25), "clicking 25%% sets the effects volume (%.2f)" % settings.sfx_volume)
 		_click(m.buttons[vols[0]][0].get_center())
 		await process_frame
 		_check(is_equal_approx(settings.music_volume, 0.25), "clicking 25%% sets the music volume (%.2f)" % settings.music_volume)
+		_click(m.buttons[vols[2]][0].get_center())
+		await process_frame
+		_check(is_equal_approx(settings.voice_volume, 0.25), "clicking 25%% sets the voice volume (%.2f)" % settings.voice_volume)
 	var wide := _all(m, "Wide")
 	if not wide.is_empty():
 		_click(m.buttons[wide[0]][0].get_center())
@@ -120,6 +124,7 @@ func _finish(settings, saved: Array) -> void:
 	settings.music_volume = saved[1]
 	settings.camera_zoom = saved[2]
 	settings.screen_shake = saved[3]
+	settings.voice_volume = saved[4]
 	settings.save_settings()
 	print("pause settings test: ", "FAILED" if failed else "passed")
 	quit(1 if failed else 0)
