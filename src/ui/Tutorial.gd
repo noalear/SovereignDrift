@@ -57,6 +57,7 @@ const STEPS := [
 	{"id": "ledger", "chapter": 5, "goal": "Press {ledger} for the empire ledger"},
 	{"id": "haulers", "chapter": 6, "mark": "hauler"},
 	{"id": "stations", "chapter": 6},
+	{"id": "station_capture", "chapter": 6},
 	{"id": "freeport", "chapter": 6, "mark": "freeport"},
 	{"id": "invasion", "chapter": 6, "mark": "Mars"},
 	{"id": "invasion2", "chapter": 6, "mark": "Mars"},

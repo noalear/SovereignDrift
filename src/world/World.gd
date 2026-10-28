@@ -1353,6 +1353,12 @@ func _on_ship_damaged(s: Ship, amount: float) -> void:
 	if s.is_player:
 		last_player_damage = elapsed
 		add_shake(clampf(amount * 0.04, 1.0, 10.0))
+	if s.is_station and not Net.is_client() and s.is_breached() != s.get_meta("breached", false):
+		# tell whoever broke it open that it can be boarded now
+		s.set_meta("breached", s.is_breached())
+		var by: Ship = s.last_attacker as Ship
+		if s.is_breached() and by != null and is_instance_valid(by) and Capture.why_not(by, s) in ["", "far"]:
+			notify(by, "The %s %s is breached: shields down, hull broken. Close in and press %s to board." % [GameData.race(s.race_id)["adj"], s.ship_name, Keybinds.short_text("board")])
 
 
 func _on_ship_died(s: Ship, killer: Node) -> void:

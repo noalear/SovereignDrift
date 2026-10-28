@@ -784,8 +784,8 @@ func _send_systems(full: bool) -> void:
 	var rows := []
 	for id in ships_by_id:
 		var s: Node = ships_by_id[id]
-		if not is_instance_valid(s) or s.is_station:
-			continue
+		if not is_instance_valid(s) or s.is_starbase():
+			continue                   # (other stations have crews to board)
 		var bytes: PackedByteArray = s.systems.pack()
 		var board_id: int = s.boarding.net_id if s.boarding != null and is_instance_valid(s.boarding) else 0
 		var head := PackedByteArray([int(clampf(s.crew_fraction(), 0.0, 1.0) * 255.0), board_id & 255, board_id >> 8, int(s.board_progress * 255.0)])

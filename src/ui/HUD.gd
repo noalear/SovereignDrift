@@ -349,7 +349,8 @@ func _draw_target(p: Ship, vp: Vector2) -> void:
 	# readout
 	var x := vp.x - 330.0
 	var y := 24.0
-	var tall := 112.0 + (60.0 if t is Ship and not t.systems.list.is_empty() else 0.0)
+	var boardable_station: bool = t is Ship and t.is_station and t.team() != p.team() and Capture.why_not(p, t) not in ["starbase", "neutral", "duel", "arena", "friendly"]
+	var tall := 112.0 + (60.0 if t is Ship and not t.systems.list.is_empty() else (24.0 if boardable_station and vis else 0.0))
 	draw_rect(Rect2(x - 10, y - 4, 320, tall), Color(0.02, 0.04, 0.08, 0.6))
 	if t is Ship:
 		draw_string(font, Vector2(x, y + 14), "%s   %s %s" % [t.pilot_name, GameData.race(t.race_id)["adj"], t.design_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, col)
@@ -365,17 +366,35 @@ func _draw_target(p: Ship, vp: Vector2) -> void:
 			var line := "Crew %d/%d" % [int(ceil(t.crew)), t.crew_max]
 			var lcol := Color(0.9, 0.9, 0.9)
 			if p.boarding == t:
-				line += "   BOARDING %d%%   (K calls it off)" % int(p.board_progress * 100.0)
+				line += "   BOARDING %d%%   (%s calls it off)" % [int(p.board_progress * 100.0), Keybinds.short_text("board")]
 				lcol = Color(0.55, 0.9, 1.0)
 				_bar(Vector2(x, y + 132), 300, 10, p.board_progress, Color(0.5, 0.85, 1.0, 0.9), "", "")
 			elif t.is_disabled() and t.team() != p.team():
 				var why := Capture.why_not(p, t)
 				lcol = Color(1.0, 0.6, 0.3) if fmod(time * 2.0, 1.0) < 0.7 else Color(1.0, 0.85, 0.5)
 				if why == "far":
-					line += "   DISABLED: close to %d, then K" % int(Capture.board_range(p, t))
+					line += "   DISABLED: close to %d, then %s" % [int(Capture.board_range(p, t)), Keybinds.short_text("board")]
 				else:
-					line += "   DISABLED: " + ("K to board" if why == "" else Capture.reason_text(why, p, t))
+					line += "   DISABLED: " + (("%s to board" % Keybinds.short_text("board")) if why == "" else Capture.reason_text(why, p, t))
 			draw_string(font, Vector2(x, y + 126), line, HORIZONTAL_ALIGNMENT_LEFT, 300, 13, lcol)
+		elif boardable_station:
+			# an enemy station: its crew, and whether it can be boarded yet
+			var line := "Crew %d/%d" % [int(ceil(t.crew)), t.crew_max]
+			var lcol := Color(0.9, 0.9, 0.9)
+			if p.boarding == t:
+				line += "   BOARDING %d%%   (%s calls it off)" % [int(p.board_progress * 100.0), Keybinds.short_text("board")]
+				lcol = Color(0.55, 0.9, 1.0)
+				_bar(Vector2(x, y + 112), 300, 10, p.board_progress, Color(0.5, 0.85, 1.0, 0.9), "", "")
+			elif t.is_breached():
+				var why := Capture.why_not(p, t)
+				lcol = Color(1.0, 0.6, 0.3) if fmod(time * 2.0, 1.0) < 0.7 else Color(1.0, 0.85, 0.5)
+				if why == "far":
+					line += "   BREACHED: close to %d, then %s" % [int(Capture.board_range(p, t)), Keybinds.short_text("board")]
+				else:
+					line += "   BREACHED: " + (("%s to board" % Keybinds.short_text("board")) if why == "" else Capture.reason_text(why, p, t))
+			else:
+				line += "   board when shields down, hull < %d%%" % int(Capture.STATION_BREACH_HULL * 100.0)
+			draw_string(font, Vector2(x, y + 104), line, HORIZONTAL_ALIGNMENT_LEFT, 300, 13, lcol)
 
 
 func _draw_nav(p: Ship, vp: Vector2) -> void:
@@ -1054,7 +1073,7 @@ func _draw_help(vp: Vector2) -> void:
 		[_keys("ledger"), "empire ledger: resources"],
 		["", ""],
 		["SHIP", ""],
-		[_keys("board"), "board a disabled target"], [_keys("refit"), "shipyard, at your starbase"], [_keys("trade"), "trade with your target (online)"],
+		[_keys("board"), "board a disabled ship or breached station"], [_keys("refit"), "shipyard, at your starbase"], [_keys("trade"), "trade with your target (online)"],
 		[_keys("cargo"), "cargo: colonies, stations, station kits"],
 	]
 	if InputMap.has_action("land"):
@@ -1083,6 +1102,6 @@ func _draw_help(vp: Vector2) -> void:
 			ly += 22
 	var fy := y + 66 + rows * 22.0 + 10
 	draw_string(font, Vector2(x, fy), "Knock out enemy colonies' defences, then land colonists to take them.  Settle empty moons and asteroids.", HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
-	draw_string(font, Vector2(x, fy + 22), "Capture enemy ships: shoot out engines or reactor, then board with %s." % Keybinds.short_text("board"), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
+	draw_string(font, Vector2(x, fy + 22), "Capture enemy ships: shoot out engines or reactor, then board with %s. Stations: shields down, hull under half." % Keybinds.short_text("board"), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
 	draw_string(font, Vector2(x, fy + 44), "Wrecks drop parts and blueprints.  Dock at your starbase (%s) to refit and set weapon groups." % Keybinds.short_text("refit"), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
 	draw_string(font, Vector2(x, fy + 66), "Change any key or gamepad button in Settings > Controls.", HORIZONTAL_ALIGNMENT_CENTER, w, 14, Color(0.7, 0.8, 0.95))
