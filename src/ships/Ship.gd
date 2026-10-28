@@ -1439,9 +1439,9 @@ func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_
 		shield -= absorbed
 		remaining -= absorbed / ms
 		bleed = absorbed * ShipSystems.SHIELD_BLEED
-	remaining *= GameData.damage_mult(dtype, "hull")
 		if absorbed > 4.0:
 			Sfx.play(Sfx.leveled("shield", module_levels.get("shield", 1)), global_position, 0.5, randf_range(0.92, 1.08))
+	remaining *= GameData.damage_mult(dtype, "hull")
 	if remaining > 0.0:
 		remaining = maxf(remaining - armor * 0.02 * remaining, remaining * 0.6)
 		hull -= remaining

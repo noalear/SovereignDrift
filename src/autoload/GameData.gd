@@ -170,7 +170,7 @@ const MISSILES := {
 	"009": {"dtype": "explosive", "name": "seeker", "warhead": 400, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 5, "look": "missile", "turn": 2.5, "accel": 220, "heat": true},
 	"010": {"dtype": "kinetic", "name": "rapid bolt", "warhead": 100, "fire_v": 0.70, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.80, "life": 3.2, "radius": 3, "look": "bolt"},
 	"011": {"dtype": "plasma", "name": "rapid plasma", "warhead": 400, "fire_v": 0.80, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.00, "life": 3.2, "radius": 5, "look": "plasma"},
-	"018": {"dtype": "kinetic", "name": "cannon shell", "recoil": 2.0, "warhead": 750, "fire_v": 0.40, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "shell"},
+	"018": {"dtype": "kinetic", "name": "cannon shell", "recoil": 2.0, "pierce": 0.5, "warhead": 750, "fire_v": 0.40, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "shell"},
 	"020": {"dtype": "ion", "name": "disruptor bolt", "warhead": 220, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320, "sys": 1.8},
 	"021": {"dtype": "explosive", "name": "drone", "warhead": 90, "fire_v": 0.25, "guided": true, "trigger": "impact", "seek_range": 700, "max_v": 0.5, "life": 9.0, "radius": 4, "look": "drone", "turn": 4.5, "accel": 260},
 }
