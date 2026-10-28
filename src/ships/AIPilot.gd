@@ -606,6 +606,9 @@ func _act(delta: float) -> void:
 				_close_on(spot, hb.velocity if hb != null and is_instance_valid(hb) else Vector2.ZERO)
 			else:
 				_steer_to(spot, delta, far < 900.0)
+			if far < 160.0 and order() != "hold":
+				# in our slot: face the way the leader faces
+				i["turn"] = clampf(wrapf(escort.rotation - ship.rotation, -PI, PI) * 2.0, -1.0, 1.0)
 			_avoid_planets(delta)
 			if ship.qdrv > 0.0 and far > 5000.0 and not ship.warping and absf(i["turn"]) < 0.1:
 				ship.start_warp()

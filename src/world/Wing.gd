@@ -232,7 +232,7 @@ func command(leader: Ship, order: String, target: Node2D) -> void:
 ## Bring free computer pilots of the leader's empire onto its wing, the
 ## nearest first, up to `want` called seats.  How many came.
 func call_up(leader: Ship, want: int) -> int:
-	var human: bool = leader.is_player or leader.net_id in Net.seats.values()
+	var human := _human(leader)
 	if world.duel_rules != null or (world.practice and not world.tutorial):
 		if human:
 			_tell(leader, "Nobody to call here: wings fly in Conquest rounds, campaigns and online co-op.")
@@ -246,11 +246,29 @@ func call_up(leader: Ship, want: int) -> int:
 	for s in world.ships:
 		if _free_for(s, leader):
 			pool.append(s)
-	pool.sort_custom(func(a, b): return a.global_position.distance_to(leader.global_position) < b.global_position.distance_to(leader.global_position))
+	var near := func(a, b): return a.global_position.distance_to(leader.global_position) < b.global_position.distance_to(leader.global_position)
+	pool.sort_custom(near)
+	if human and pool.size() < room:
+		# a player's call comes before a computer admiral's: its called pilots come over
+		var borrowed := []
+		for s in world.ships:
+			var ai := _ai(s)
+			if ai == null or not ai.called or ai.escort == null or not is_instance_valid(ai.escort) or _human(ai.escort):
+				continue
+			var lead: Ship = ai.escort
+			ai.escort = null
+			var ok := _free_for(s, leader)
+			ai.escort = lead
+			if ok:
+				borrowed.append(s)
+		borrowed.sort_custom(near)
+		pool.append_array(borrowed)
 	var came := []
 	for s in pool:
 		if came.size() >= room:
 			break
+		if _ai(s).escort != null:
+			_ai(s).leave_wing()
 		_ai(s).join(leader, true)
 		came.append(s)
 	if came.is_empty():
@@ -268,6 +286,10 @@ func call_up(leader: Ship, want: int) -> int:
 		world.notify(leader, "%s join%s your wing (%d / %d called)." % [" and ".join(names), "s" if came.size() == 1 else "", called(leader).size(), seats(leader.rank)])
 	dirty = true
 	return came.size()
+
+
+func _human(s: Ship) -> bool:
+	return s.is_player or s.net_id in Net.seats.values()
 
 
 ## Can `s` be called to `leader`'s wing?  `ignore_rank`: free in every way but rank.

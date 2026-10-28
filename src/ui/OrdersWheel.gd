@@ -13,6 +13,7 @@ extends Control
 const RADIUS := 170.0
 const INNER := 58.0
 const HOLD_MS := 280          # held longer than this, letting go gives the order
+const SHORT := {"attack": "Attack target"}   # what fits on a slice
 
 var world: World
 var font: Font
@@ -183,7 +184,7 @@ func _draw() -> void:
 		var mid := c + Vector2.from_angle((a0 + a1) * 0.5) * (INNER + RADIUS) * 0.5
 		var tcol := Color(1, 1, 1) if not idle else Color(0.55, 0.6, 0.68)
 		_icon(order, mid + Vector2(0, -14), tcol)
-		_centred(mid + Vector2(0, 10), Wing.LABELS[order], 12, tcol, 92.0)
+		_centred(mid + Vector2(0, 10), SHORT.get(order, Wing.LABELS[order]), 12, tcol, 96.0)
 		_centred(mid + Vector2(0, 25), str(i + 1), 11, Color(0.75, 0.85, 1.0, 0.7), 20.0)
 	# the hub: the wing and what the pointed-at order does
 	draw_circle(c, INNER - 4.0, Color(0.02, 0.05, 0.1, 0.95))

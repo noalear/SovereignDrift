@@ -178,8 +178,13 @@ func _start() -> void:
 	# --- the leader dies: the wing goes home and waits
 	p.invulnerable = 0.0
 	p.take_damage(1e7, null)
-	await _wait(20)
-	_check(p.dead and wing.all(func(s): return s.get_node("AI").escort == p and (s.dead or s.get_node("AI").sent_home)), "with the leader down the wing goes home, still its wing")
+	await _wait(45)              # a think or two
+	var gone_home := wing.all(func(s): return s.get_node("AI").escort == p and (s.dead or s.get_node("AI").sent_home))
+	if not gone_home:
+		for s in wing:
+			var a: AIPilot = s.get_node("AI")
+			print("  wingman %s state %d escort %s home %s dead %s landing %s" % [s.pilot_name, a.state, a.escort == p, a.sent_home, s.dead, s.is_landing()])
+	_check(p.dead and gone_home, "with the leader down the wing goes home, still its wing")
 	await _wait(int(World.RESPAWN_DELAY * 60) + 60)
 	p.invulnerable = 1e9
 	_check(not p.dead and w.wing.members(p).size() == wing.size(), "the leader relaunches and has its wing")
@@ -236,5 +241,21 @@ func _start() -> void:
 	# --- dismiss
 	w.wing_command(p, "dismiss")
 	_check(w.wing.called(p).is_empty() and wing.all(func(s): return s.get_node("AI").escort == null), "Dismiss sends the called pilots back to the empire")
+	# --- a player's call comes before a computer admiral's
+	var mates := w.ships.filter(func(s): return s.race_id == p.race_id and not s.dead and not s.is_player and not s.support and not s.is_station and s.get_node_or_null("AI") != null and s.get_node("AI").escort == null)
+	var boss: Ship = mates[0]
+	boss.rank = 12
+	p.rank = 9
+	w.wing.call_up(boss, 2)
+	var taken := w.wing.called(boss)
+	var busy := []
+	for s in mates:
+		if s != boss and not s in taken:
+			s.get_node("AI").hauler = true
+			busy.append(s)
+	w.wing_command(p, "call")
+	_check(w.wing.called(p).size() == taken.size() and taken.size() == 2 and w.wing.called(boss).is_empty(), "with nobody else free the player gets the admiral's called pilots (%d of %d)" % [w.wing.called(p).size(), taken.size()])
+	for s in busy:
+		s.get_node("AI").hauler = false
 	print("wing_test %s" % ("FAILED" if failed else "passed"))
 	quit(1 if failed else 0)

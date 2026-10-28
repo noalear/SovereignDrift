@@ -42,6 +42,10 @@ var saw_ground := false
 var saw_troops := false
 var board_posted := false
 var job_sent := false
+var wing_called := false
+var wing_ordered := false
+var saw_wing := false
+var saw_wing_order := false
 var saw_job := false
 var order_put := false
 
@@ -171,6 +175,18 @@ func _process(_delta: float) -> bool:
 				print("[client] took job: %s" % row[2])
 			if row[4] == p.pilot_name:
 				saw_job = true
+	# the joiner calls a wing and orders it to form up; the mirror shows both
+	if not is_host and w != null and p != null and not p.dead and net.snapshots_received > 60:
+		if not wing_called:
+			wing_called = true
+			w.wing_command(p, "call")
+		elif w.wing.members(p).size() > 0:
+			saw_wing = true
+			if not wing_ordered:
+				wing_ordered = true
+				w.wing_command(p, "form")
+			elif w.wing.order_of(p)["order"] == "form" and w.wing.status(w.wing.members(p)[0]) != "":
+				saw_wing_order = true
 	if not is_host and w != null:
 		for s in w.ships:
 			if s.race_id == 4 and s.design_name == "TradeStation" and s.cargo_total() > 500.0:
@@ -327,5 +343,7 @@ func _finish(w) -> void:
 		_check(saw_ground, "garrisons, a ground battle and the planetary shields arrived")
 		_check(saw_troops, "the marines aboard the joiner's ship arrived")
 		_check(saw_job, "the job board arrived, and the joiner took a haul job (%d jobs)" % w.job_board.size())
+		_check(saw_wing, "the joiner called up a wing (%d)" % w.wing.members(w.player).size())
+		_check(saw_wing_order, "and its order and the wingmen's doings came back")
 		_check(net.client != null and net.client.correction_px < 60.0, "reconciliation error small (%.1f px)" % (net.client.correction_px if net.client else -1.0))
 	print("[%s] %s" % [_tag(), "FAILED" if failed else "passed"])

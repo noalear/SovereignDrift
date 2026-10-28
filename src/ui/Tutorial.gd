@@ -6,7 +6,8 @@
 ## voice (TutorialLines, rendered by tools/voice/generate.py), shows the
 ## same words as subtitles with the objective and its live keys under them,
 ## marks what a lesson is about on the screen, and sets the lessons up: a
-## nav beacon, a target drone to disable and board, a rookie pirate to fight.
+## nav beacon, a target drone to disable and board (it then flies on the
+## cadet's wing and takes orders), a rookie pirate to fight.
 ##
 ## A lesson with a goal waits for the cadet to do it; one without moves on
 ## when the line is spoken.  Enter skips a lesson, Shift+Enter a chapter,
@@ -40,11 +41,14 @@ const STEPS := [
 	{"id": "groups", "chapter": 3, "goal": "Press {weapon_group_4} for the mine layer, then {weapon_group_1} for the guns again", "mark": "drone"},
 	{"id": "disable", "chapter": 3, "goal": "Shoot the drone's stern until its engines go offline", "mark": "drone"},
 	{"id": "board", "chapter": 3, "goal": "Close in, slow down and press {board} to board the drone", "mark": "drone"},
+	{"id": "wing", "chapter": 3, "goal": "Hold {wing_menu} for the orders wheel, point at Form up and let go", "mark": "wingman", "focus": "wing"},
+	{"id": "wing_call", "chapter": 3},
 	{"id": "shield_focus", "chapter": 3, "goal": "Press {shield_focus} to swing your shield forward, then press it until it's Balanced again", "focus": "status"},
 	{"id": "shields_down", "chapter": 3, "goal": "Press {shields_toggle} to lower your shields, then {shields_toggle} to raise them", "focus": "status"},
 	{"id": "stealth", "chapter": 3, "goal": "Press {silent_running} for silent running, then {silent_running} again", "focus": "signature"},
 	{"id": "pdc", "chapter": 3, "goal": "Let your PDC shoot down %d missiles, then press {pdc_toggle} to turn it off and {pdc_toggle} again" % PDC_KILLS, "focus": "weapons_radar"},
 	{"id": "jammer", "chapter": 3, "goal": "Target the pirate ({target_nearest}) and press {cloak} to jam it", "mark": "pirate"},
+	{"id": "wing_attack", "chapter": 3, "goal": "With the pirate as your target ({target_nearest}), press {wing_attack} to send your wing at it", "mark": "pirate"},
 	{"id": "spar", "chapter": 3, "goal": "Destroy or capture the pirate", "mark": "pirate"},
 	{"id": "loot", "chapter": 3, "goal": "Fly over a pickup to collect it", "mark": "loot"},
 	{"id": "dock", "chapter": 4, "goal": "Fly back to the Terran starbase at Earth", "mark": "starbase"},
@@ -501,6 +505,40 @@ func _done_board() -> bool:
 	return drone_taken
 
 
+# --- the wing
+
+func _enter_wing() -> void:
+	_ensure_wingman()
+
+
+## A wingman for the wing lessons: the drone's prize crew, or (when the
+## boarding was skipped) a cadet sent over from the starbase.
+func _ensure_wingman() -> void:
+	var p := _player()
+	if not world.wing.members(p).filter(func(s): return not s.dead).is_empty():
+		return
+	var at := p.global_position - Vector2.RIGHT.rotated(p.rotation) * 300.0
+	var s := world.spawn_ship("Cadet Reyes", p.race_id, "Scout", "Sparrow", at, p.velocity, 0)
+	s.rotation = p.rotation
+	s.reset_physics_interpolation()
+	s.get_node("AI").join(p, false)
+
+
+func _done_wing() -> bool:
+	return world.wing.order_of(_player())["order"] == "form"
+
+
+func _enter_wing_attack() -> void:
+	_ensure_wingman()
+	if not pirate_down:
+		_ensure_pirate()
+
+
+func _done_wing_attack() -> bool:
+	var o: Dictionary = world.wing.order_of(_player())
+	return pirate_down or (o["order"] == "attack" and o["target"] == pirate)
+
+
 func _done_stealth() -> bool:
 	return seen.has("silent") and not _player().sensors.emcon
 
@@ -745,6 +783,9 @@ func _mark() -> Array:
 				if s.race_id == GameData.NEUTRAL and s.design_name == "TradeStation" and not s.dead:
 					return [s.global_position, "Free port", GameData.race(GameData.NEUTRAL)["color"]]
 			return []
+		"wingman":
+			var wm: Array = world.wing.members(_player()).filter(func(s): return not s.dead)
+			return [wm[0].global_position, "Your wingman", HUD.WING_COLOR] if not wm.is_empty() else []
 		"hauler":
 			for s in world.ships:
 				if s.support and s.race_id == 1 and not s.dead:
@@ -906,6 +947,9 @@ func _draw_focus(vp: Vector2) -> void:
 			rects = [Rect2(340, vp.y - 164, 300, 134), Rect2(vp.x - 280, vp.y - 280, 260, 270)]
 		"signature":
 			rects = [Rect2(vp.x - 346, vp.y - 300, 336, 290)]
+		"wing":
+			var n: int = maxi(world.wing.members(_player()).size(), 1)
+			rects = [Rect2(vp.x - 346, vp.y - 306 - 40.0 - n * 20.0, 336, 52.0 + n * 20.0)]
 		"top":
 			rects = [Rect2(14, 6, 600, 48), Rect2(vp.x * 0.5 - 280, 4, 520, 34)]
 	var a := 0.55 + 0.45 * sin(time * 5.0)

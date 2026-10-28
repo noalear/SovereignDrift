@@ -205,17 +205,17 @@ func _draw_wing(p: Ship, vp: Vector2) -> void:
 		return
 	var o: Dictionary = world.wing.order_of(p)
 	var order: String = o.get("order", Wing.DEFAULT)
-	var w := 300.0
-	var x := vp.x - w - 30.0
+	var w := 330.0
+	var x := vp.x - w - 20.0
 	var rows := wing.size()
 	var h := 40.0 + rows * 20.0
-	var y := vp.y - 300.0 - h
+	var y := vp.y - 340.0 - h        # clear of the radar's lock warnings
 	draw_rect(Rect2(x - 10, y, w + 20, h), Color(0.02, 0.04, 0.08, 0.6))
 	var head := "WING  ·  %s" % Wing.LABELS.get(order, order)
 	var t: Node2D = o.get("target", null)
 	if order == "attack" and t != null and is_instance_valid(t):
-		head += ": " + (t.pilot_name if t is Ship else t.body_name)
-	draw_string(font, Vector2(x, y + 18), head, HORIZONTAL_ALIGNMENT_LEFT, w - 60, 15, WING_COLOR)
+		head = "WING  ·  Attacking " + (t.pilot_name if t is Ship else t.body_name)
+	draw_string(font, Vector2(x, y + 18), head, HORIZONTAL_ALIGNMENT_LEFT, w - 70, 15, WING_COLOR)
 	draw_string(font, Vector2(x, y + 18), "%s orders" % Keybinds.short_text("wing_menu"), HORIZONTAL_ALIGNMENT_RIGHT, w, 12, Color(0.7, 0.8, 0.95, 0.8))
 	var ly := y + 38.0
 	for i in wing.size():
@@ -226,7 +226,7 @@ func _draw_wing(p: Ship, vp: Vector2) -> void:
 		draw_rect(Rect2(x, ly - 10, 40 * frac, 6), hc)
 		var kind := "prize" if s.is_prize and not s.has_meta("ordered") else ("escort" if s.has_meta("ordered") else s.design_name)
 		var col := Color(0.92, 0.96, 1.0) if not s.dead else Color(0.55, 0.58, 0.65)
-		draw_string(font, Vector2(x + 48, ly - 2), "W%d %s  %s" % [i + 1, s.pilot_name, kind], HORIZONTAL_ALIGNMENT_LEFT, 150, 13, col)
+		draw_string(font, Vector2(x + 48, ly - 2), "W%d %s  %s" % [i + 1, s.pilot_name, kind], HORIZONTAL_ALIGNMENT_LEFT, 170, 13, col)
 		draw_string(font, Vector2(x + 48, ly - 2), world.wing.status(s), HORIZONTAL_ALIGNMENT_RIGHT, w - 48, 12, Color(0.7, 0.85, 0.95, 0.9))
 		ly += 20.0
 
