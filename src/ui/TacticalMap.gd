@@ -39,7 +39,7 @@ func _scale() -> float:
 	var extent := 0.0
 	for p in world.planets:
 		extent = maxf(extent, p.global_position.length() + 400.0)
-	extent = maxf(extent, GameData.UNIVERSE_RADIUS * 0.47)
+	extent = maxf(extent, GameData.UNIVERSE_RADIUS * 0.47 * world.map_scale)
 	return _map_rect().size.x * 0.5 / extent
 
 
@@ -108,7 +108,7 @@ func _draw() -> void:
 		var centre := to_map(p.parent_body.global_position if p.parent_body != null else Vector2.ZERO)
 		draw_arc(centre, p.orbit_radius * s, 0, TAU, 96, Color(0.3, 0.4, 0.6, 0.18), 1.0, true)
 	# the asteroid belt as one soft band
-	draw_arc(c, GameData.UNIVERSE_RADIUS * 0.268 * s, 0, TAU, 128, Color(0.5, 0.45, 0.35, 0.07), GameData.UNIVERSE_RADIUS * 0.03 * s, true)
+	draw_arc(c, GameData.UNIVERSE_RADIUS * 0.268 * world.map_scale * s, 0, TAU, 128, Color(0.5, 0.45, 0.35, 0.07), GameData.UNIVERSE_RADIUS * 0.03 * world.map_scale * s, true)
 	# planets; labels are placed afterwards so they can dodge each other
 	var labels := []
 	for p in world.planets:
