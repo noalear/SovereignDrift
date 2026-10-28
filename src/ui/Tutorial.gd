@@ -40,7 +40,8 @@ const STEPS := [
 	{"id": "groups", "chapter": 3, "goal": "Press {weapon_group_4} for the mine layer, then {weapon_group_1} for the guns again", "mark": "drone"},
 	{"id": "disable", "chapter": 3, "goal": "Shoot the drone's stern until its engines go offline", "mark": "drone"},
 	{"id": "board", "chapter": 3, "goal": "Close in, slow down and press {board} to board the drone", "mark": "drone"},
-	{"id": "cloak", "chapter": 3, "goal": "Press {cloak} to cloak, then {cloak} again"},
+	{"id": "stealth", "chapter": 3, "goal": "Press {silent_running} for silent running, then {silent_running} again", "focus": "signature"},
+	{"id": "jammer", "chapter": 3, "goal": "Target the pirate ({target_nearest}) and press {cloak} to jam it", "mark": "pirate"},
 	{"id": "spar", "chapter": 3, "goal": "Destroy or capture the pirate", "mark": "pirate"},
 	{"id": "loot", "chapter": 3, "goal": "Fly over a pickup to collect it", "mark": "loot"},
 	{"id": "dock", "chapter": 4, "goal": "Fly back to the Terran starbase at Earth", "mark": "starbase"},
@@ -274,9 +275,13 @@ func _track(p: Ship, delta: float) -> void:
 	if p.flight_assist != last_assist:
 		assist_flips += 1
 		last_assist = p.flight_assist
-	for flag in ["warping", "cloaked", "autopilot"]:
+	for flag in ["warping", "autopilot"]:
 		if p.get(flag):
 			seen[flag] = true
+	if p.sensors.emcon:
+		seen["silent"] = true
+	if p.sensors.jam_active():
+		seen["jamming"] = true
 	if main != null and main.get("tactical") != null:
 		seen["map"] = true
 
@@ -477,13 +482,30 @@ func _done_board() -> bool:
 	return drone_taken
 
 
-func _done_cloak() -> bool:
-	return seen.has("cloaked") and not _player().cloaked
+func _done_stealth() -> bool:
+	return seen.has("silent") and not _player().sensors.emcon
 
 
 # --- the sparring pirate
 
+func _enter_jammer() -> void:
+	_ensure_pirate()
+
+
+func _done_jammer() -> bool:
+	return seen.has("jamming") or pirate_down
+
+
 func _enter_spar() -> void:
+	if not pirate_down:          # it may have gone down in the jammer lesson
+		_ensure_pirate()
+
+
+## The rookie pirate, brought in for the jammer lesson and fought in the
+## spar (one skipped to with Enter brings its own).
+func _ensure_pirate() -> void:
+	if pirate != null and is_instance_valid(pirate) and not pirate.dead:
+		return
 	var p := _player()
 	pirate_down = false
 	var a := p.rotation + randf_range(-0.8, 0.8)
@@ -492,9 +514,9 @@ func _enter_spar() -> void:
 	pirate.rotation = a + PI
 	pirate.reset_physics_interpolation()
 	# a fair first fight: it comes for you (not our supply ships), stays
-	# to the end and never cloaks
-	pirate.systems.base["can_cloak"] = false
-	pirate.can_cloak = false
+	# to the end and never jams you
+	pirate.systems.base["can_jam"] = false
+	pirate.can_jam = false
 	pirate.target = p
 	var ai: AIPilot = pirate.get_node("AI")
 	ai.raid = false
@@ -803,6 +825,8 @@ func _draw_focus(vp: Vector2) -> void:
 			rects = [Rect2(14, vp.y - 210, 320, 184)]
 		"weapons_radar":
 			rects = [Rect2(340, vp.y - 164, 300, 134), Rect2(vp.x - 280, vp.y - 280, 260, 270)]
+		"signature":
+			rects = [Rect2(vp.x - 346, vp.y - 300, 336, 290)]
 		"top":
 			rects = [Rect2(14, 6, 600, 48), Rect2(vp.x * 0.5 - 280, 4, 520, 34)]
 	var a := 0.55 + 0.45 * sin(time * 5.0)

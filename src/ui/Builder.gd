@@ -251,13 +251,15 @@ func _cycle_group(i: int) -> void:
 	_say("%s now fires with group %d (keys %s - %s select a group in flight)." % [GameData.MODULES[mounts[i]["id"]]["name"], g, Keybinds.short_text("weapon_group_1"), Keybinds.short_text("weapon_group_4")])
 
 
-## Two parts of one kind: the same function, and for launch tubes the
-## same ammunition.  An upgrade or an Equip swaps like for like.
+## Two parts of one kind: the same function, for launch tubes the same
+## ammunition, for sensors the same family.  An upgrade or an Equip swaps like for like.
 static func _same_family(a: String, b: String) -> bool:
 	var ma: Dictionary = GameData.MODULES[a]
 	var mb: Dictionary = GameData.MODULES[b]
 	if ma["func"] != mb["func"]:
 		return false
+	if ma["func"] == "sensor":
+		return ma["fam"] == mb["fam"]     # radar for radar, infrared for infrared
 	return ma["func"] != "tube" or ma["p"][3] == mb["p"][3]
 
 
@@ -669,8 +671,14 @@ func _draw_right(r: Rect2) -> void:
 		["Shields", "%d" % was["shield_max"], "%d" % st["shield_max"], st["shield_max"] >= was["shield_max"]],
 		["Hull", "%d" % was["hull_max"], "%d" % st["hull_max"], st["hull_max"] >= was["hull_max"]],
 		["Armor", "%d" % was["armor"], "%d" % st["armor"], st["armor"] >= was["armor"]],
-		["Sensors", "%d" % was["sensor_range"], "%d" % st["sensor_range"], st["sensor_range"] >= was["sensor_range"]],
+		["Lock range", "%d" % was["sensor_range"], "%d" % st["sensor_range"], st["sensor_range"] >= was["sensor_range"]],
 	]
+	# how loud the build is: lower is stealthier
+	var sw := Sensors.fit_signatures(orig_design, was)
+	var sn := Sensors.fit_signatures(design, st)
+	rows.append(["Radar return", "%d" % sw["radar"], "%d" % sn["radar"], sn["radar"] <= sw["radar"]])
+	rows.append(["Heat coast / burn", "%d / %d" % [sw["heat"], sw["burn"]], "%d / %d" % [sn["heat"], sn["burn"]], sn["burn"] <= sw["burn"]])
+	rows.append(["Emissions", "%d" % sw["em"], "%d" % sn["em"], sn["em"] <= sw["em"]])
 	for row in rows:
 		draw_string(font, Vector2(x, y), row[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DIM)
 		draw_string(font, Vector2(r.end.x - 200, y), row[1], HORIZONTAL_ALIGNMENT_RIGHT, 80, 14, Color(0.8, 0.8, 0.85))
@@ -691,8 +699,10 @@ func _draw_right(r: Rect2) -> void:
 		draw_string(font, Vector2(x, y), "Overloaded: weapons cost more and energy comes back slower.", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, BAD)
 		y += 16
 	var flags := []
-	if st["can_cloak"]:
-		flags.append("cloak")
+	if st["can_jam"]:
+		flags.append("jammer")
+	if st["heat_sink"] > 0.0:
+		flags.append("heat sink")
 	if st["has_boost"]:
 		flags.append("booster")
 	if st["qdrv"] > 0.0:
@@ -838,9 +848,12 @@ func _part_info(id: String) -> String:
 		"armor":
 			return "armor %d  hull +%d  mass %d" % [p[0], p[0] * 4, mod["mass"]]
 		"sensor":
-			return "range %d" % (600 + p[0] * 40)
-		"stealth":
-			return "cloak   %d power" % mod["power"]
+			var fam: Dictionary = GameData.SENSOR_FAMILIES[mod["fam"]]
+			return "%s %s   %s   range %d" % [fam["channel"], "lock" if fam["track"] else "contacts", "active" if fam["active"] else "passive", p[0]]
+		"jammer":
+			return "jams your target's sensors   reach %d" % p[0]
+		"heatsink":
+			return "soaks 70%% of your heat, %d heat-seconds" % p[0]
 		"boost":
 			return "booster %s" % ["", "I", "II", "III"][GameData.tier(id)]
 		"qdrv":

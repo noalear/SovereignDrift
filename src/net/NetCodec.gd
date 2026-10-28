@@ -12,9 +12,14 @@ const BTN_BEAM := 64
 const BTN_AIM := 128          # aim_point is set
 
 const FLAG_DEAD := 1
-const FLAG_CLOAKED := 2
+const FLAG_JAMMING := 2       # its jammer is on
 const FLAG_WARPING := 4
 const FLAG_STATION := 8
+const FLAG_JAMMED := 16       # someone's jammer is on it
+const FLAG_SILENT := 32       # silent running
+
+## Signatures go as one byte each, in steps of this.
+const SIG_STEP := 4.0
 
 
 static func _axis(v: float) -> int:
@@ -72,7 +77,9 @@ static func unpack_input(data: PackedByteArray) -> Dictionary:
 	return out
 
 
-## The state of every ship, 27 bytes each, after a 12-byte header.
+## The state of every ship, 30 bytes each, after a 12-byte header: heat,
+## EM and temporal signatures ride along so clients can work out their
+## own contacts (radar return they work out themselves).
 static func pack_snapshot(elapsed: float, ack_seq: int, ships: Array) -> PackedByteArray:
 	var b := StreamPeerBuffer.new()
 	b.put_float(elapsed)
@@ -92,14 +99,18 @@ static func pack_snapshot(elapsed: float, ack_seq: int, ships: Array) -> PackedB
 		b.put_u8(int(clampf(s.thrust_level, 0.0, 1.0) * 255.0))
 		var flags := 0
 		if s.dead: flags |= FLAG_DEAD
-		if s.cloaked: flags |= FLAG_CLOAKED
+		if s.jamming: flags |= FLAG_JAMMING
 		if s.warping: flags |= FLAG_WARPING
 		if s.is_station: flags |= FLAG_STATION
+		if s.sensors.is_jammed(): flags |= FLAG_JAMMED
+		if s.sensors.emcon: flags |= FLAG_SILENT
 		b.put_u8(flags)
+		for ch in ["heat", "em", "temporal"]:
+			b.put_u8(int(clampf(s.sensors.signature(ch) / SIG_STEP, 0.0, 255.0)))
 	return b.data_array
 
 
-## Returns {elapsed, ack_seq, ships: [{net_id, pos, vel, rot, hull, shield, energy, thrust, flags}]}.
+## Returns {elapsed, ack_seq, ships: [{net_id, pos, vel, rot, hull, shield, energy, thrust, flags, sig}]}.
 static func unpack_snapshot(data: PackedByteArray) -> Dictionary:
 	var b := StreamPeerBuffer.new()
 	b.data_array = data
@@ -117,5 +128,6 @@ static func unpack_snapshot(data: PackedByteArray) -> Dictionary:
 		e["energy"] = b.get_u8() / 255.0
 		e["thrust"] = b.get_u8() / 255.0
 		e["flags"] = b.get_u8()
+		e["sig"] = [0.0, b.get_u8() * SIG_STEP, b.get_u8() * SIG_STEP, b.get_u8() * SIG_STEP]
 		out["ships"].append(e)
 	return out

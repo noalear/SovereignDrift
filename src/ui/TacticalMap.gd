@@ -150,6 +150,12 @@ func _draw() -> void:
 		var seen: bool = sh.is_starbase() or sh.race_id == GameData.NEUTRAL or world.duel_rules != null or (player != null and sh.is_station and sh.team() == player.team()) \
 			or (player != null and not player.dead and sh.visible_to(player))
 		if not seen:
+			# a contact without a lock: a ring about where it is
+			if player != null and not player.dead and player.contact_quality(sh) == 2:
+				var cp := to_map(Sensors.estimate(player, sh))
+				if mr.has_point(cp):
+					draw_arc(cp, 6.0, 0, TAU, 12, Color(sh.race_color(), 0.6), 1.2, true)
+					draw_string(font, cp + Vector2(-3, 4), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.75))
 			continue
 		var pos := to_map(sh.global_position)
 		var col := sh.race_color()

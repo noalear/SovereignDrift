@@ -216,16 +216,21 @@ func _process(_delta: float) -> bool:
 			_check(post.sensor_range >= 6000.0, "a sensor station sees 6000 px")
 			var enemy: Ship = null
 			for s in w.ships:
-				if s.race_id == 2 and not s.is_station and not s.dead and not s.support:
+				if s.race_id == 2 and not s.is_station and not s.dead and not s.support and not s.is_landing() and not s.warping:
 					enemy = s
 					break
-			_put(p, post.global_position - Vector2(3000.0, 0), mars.velocity)   # 7000 px from the enemy, well past its own sensors
-			enemy.set_cloak(false)
-			enemy.cloak_alpha = 1.0
-			_put(enemy, post.global_position + Vector2(4000.0, 0), mars.velocity)
-			w._update_sensor_posts()
-			_check(enemy.global_position.distance_to(p.global_position) > p.sensor_range and enemy.visible_to(p), "an enemy 4000 px from it shows to the pilot far away")
+			_put(p, post.global_position - Vector2(3000.0, 0), mars.velocity)   # 5500 px from the enemy, well past its own sensors
+			# (a station's 6000 px dish sees a cruiser-sized return out to about 5000)
+			_put(enemy, post.global_position + Vector2(2500.0, 0), mars.velocity)
+			w._update_sensor_links()
+			for s in w.ships:
+				s.sensors._own.clear()
+				s.sensors._seen.clear()
+			_check(enemy.global_position.distance_to(p.global_position) > p.sensor_range and enemy.visible_to(p), "an enemy 2500 px from it shows to the pilot far away")
 			_put(enemy, post.global_position + Vector2(7000.0, 0), mars.velocity)
+			for s in w.ships:        # what was seen is cached for a moment: look afresh
+				s.sensors._own.clear()
+				s.sensors._seen.clear()
 			_check(not enemy.visible_to(p), "one 7000 px out does not")
 			# a depot refuels; a refinery refines
 			var depot := w.build_station(p.race_id, "SupplyDepot", jupiter, jupiter.global_position + Vector2(jupiter.radius + 700.0, 0), false)

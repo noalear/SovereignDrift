@@ -193,8 +193,12 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 		flags.append("ASSIST OFF")
 	if p.orbit_guard:
 		flags.append("ORBIT GUARD")
-	if p.cloaked:
-		flags.append("CLOAKED")
+	if p.sensors.jam_active():
+		flags.append("JAMMING %s" % p.sensors.jam_target.pilot_name.to_upper())
+	elif p.jamming:
+		flags.append("JAMMER ON")
+	if p.sensors.emcon:
+		flags.append("SILENT RUNNING")
 	if p.warping:
 		flags.append("QUANTUM DRIVE")
 	if p.autopilot:
@@ -286,8 +290,11 @@ func _draw_weapons(p: Ship, vp: Vector2) -> void:
 			draw_string(font, Vector2(x + 250, ly), "ALT", HORIZONTAL_ALIGNMENT_RIGHT, 30, 11, Color(1.0, 0.85, 0.5, 0.9))
 		ly += 18
 	var sys := []
-	if p.can_cloak:
-		sys.append("%s cloak" % Keybinds.short_text("cloak"))
+	if p.can_jam:
+		sys.append("%s jammer" % Keybinds.short_text("cloak"))
+	if p.sensors.has("pulse"):
+		sys.append("%s ping%s" % [Keybinds.short_text("ping"), (" (%d)" % ceili(p.sensors.ping_ready)) if p.sensors.ping_ready > 0.0 else ""])
+	sys.append("%s silent" % Keybinds.short_text("silent_running"))
 	if p.qdrv > 0.0:
 		sys.append("%s quantum drive" % Keybinds.short_text("warp"))
 	if p.has_boost:
@@ -331,7 +338,9 @@ func _draw_target(p: Ship, vp: Vector2) -> void:
 		_bar(Vector2(x, y + 44), 300, 18, t.shield / maxf(t.shield_max, 1.0), Color(0.3, 0.6, 1.0, 0.85), "Shields", "%d" % int(t.shield))
 		_bar(Vector2(x, y + 66), 300, 18, t.hull / maxf(t.hull_max, 1.0), Color(0.95, 0.55, 0.25, 0.85), "Hull", "%d" % int(t.hull))
 		if not vis:
-			draw_string(font, Vector2(x, y + 102), "Contact lost", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 0.7, 0.5))
+			var q := p.contact_quality(t)
+			var why := "Contact lost" if q == 0 else ("Contact: no lock" if q == 2 else "Bearing only: no lock")
+			draw_string(font, Vector2(x, y + 102), why, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1, 0.7, 0.5))
 		elif not t.systems.list.is_empty():
 			_draw_systems(t, Vector2(x, y + 90), 300)
 			var line := "Crew %d/%d" % [int(ceil(t.crew)), t.crew_max]
@@ -442,12 +451,24 @@ func _draw_radar(p: Ship, vp: Vector2) -> void:
 	for s in world.ships:
 		if s.dead or s == p:
 			continue
-		if not s.visible_to(p):
-			continue
-		var d := (s.global_position - p.global_position) * scale
-		if d.length() > r:
+		var q := p.contact_quality(s)
+		if q == 0:
 			continue
 		var col := s.race_color()
+		if q == 1:
+			# a bearing only (an EM or temporal receiver): a tick on the rim
+			var dir := (s.global_position - p.global_position).normalized()
+			draw_line(c + dir * (r - 10.0), c + dir * r, Color(1.0, 0.72, 0.3, 0.85), 2.0)
+			continue
+		var at: Vector2 = s.global_position if q >= 3 else Sensors.estimate(p, s)
+		var d := (at - p.global_position) * scale
+		if d.length() > r:
+			continue
+		if q == 2:
+			# a contact: somewhere about there, no lock
+			draw_arc(c + d, 5.5, 0, TAU, 12, Color(col, 0.55), 1.2)
+			draw_string(font, c + d + Vector2(-3, 4), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.75))
+			continue
 		var hostile := s.team() != p.team() and s.race_id != GameData.NEUTRAL
 		if s.is_station:
 			draw_rect(Rect2(c + d - Vector2(4, 4), Vector2(8, 8)), col)
@@ -457,12 +478,70 @@ func _draw_radar(p: Ship, vp: Vector2) -> void:
 			draw_arc(c + d, 5.0, 0, TAU, 12, Color(1.0, 0.25, 0.2, 0.9), 1.2)
 		if s == p.target:
 			draw_arc(c + d, 7.0, 0, TAU, 16, Color.WHITE, 1.5)
+	# ghosts: where lost contacts were last seen, drifting on as they went
+	var now := p.sensors.now()
+	for id in p.sensors.last_seen.keys():
+		var g: Array = p.sensors.last_seen[id]
+		var age: float = now - g[2]
+		var o := instance_from_id(id)
+		if age > Sensors.GHOST_TIME or o == null or o.dead:
+			p.sensors.last_seen.erase(id)
+			continue
+		if age < Sensors.CACHE_TIME * 2.0:
+			continue
+		var d: Vector2 = (g[0] + g[1] * age - p.global_position) * scale
+		if d.length() > r:
+			continue
+		var fade := 1.0 - age / Sensors.GHOST_TIME
+		for k in 4:
+			var a0 := k * TAU / 4.0 + time
+			draw_arc(c + d, 5.0, a0, a0 + TAU / 8.0, 4, Color(0.8, 0.8, 0.85, 0.6 * fade), 1.2)
+	_draw_signature(p, c, r)
 	# own ship
 	var fwd := Vector2.RIGHT.rotated(p.rotation)
 	draw_line(c, c + fwd * 10.0, Color.WHITE, 2.0)
 	draw_circle(c, 3.0, Color.WHITE)
 	draw_string(font, c + Vector2(-r, r + 22), "Radar %d   +/- zoom" % int(radar_range), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.6, 0.9, 0.7, 0.8))
 
+
+
+const SIG_COLORS := {"radar": Color(0.45, 0.95, 0.6), "heat": Color(1.0, 0.55, 0.25), "em": Color(0.4, 0.8, 1.0), "temporal": Color(0.75, 0.55, 1.0)}
+
+## How loud you are (left of the radar): one bar per channel, full at 200
+## (a battleship's radar return is 100), and the warning receiver.
+func _draw_signature(p: Ship, c: Vector2, r: float) -> void:
+	var x := c.x - r - 58.0
+	var bottom := c.y + r - 10.0
+	var h := 96.0
+	draw_rect(Rect2(x - 8, bottom - h - 26, 54, h + 48), Color(0.02, 0.04, 0.08, 0.6))
+	draw_string(font, Vector2(x - 4, bottom - h - 10), "Signature", HORIZONTAL_ALIGNMENT_LEFT, 50, 10, Color(0.7, 0.85, 0.95, 0.8))
+	var i := 0
+	for ch in Sensors.CHANNELS:
+		var v := p.signature(ch)
+		var f := clampf(v / 200.0, 0.0, 1.0)
+		var bx := x + i * 10.0
+		draw_rect(Rect2(bx, bottom - h, 7, h), Color(1, 1, 1, 0.08))
+		if f > 0.0:
+			draw_rect(Rect2(bx, bottom - h * f, 7, h * f), SIG_COLORS[ch])
+		draw_string(font, Vector2(bx, bottom + 13), ch.substr(0, 1).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, SIG_COLORS[ch])
+		i += 1
+	# the warning receiver: who has a lock on us, and our sensors jammed
+	var warn := []
+	for pt in Sensors.painters(p):
+		var w: String = {"ping": "PINGED", "lidar": "LIDAR LOCK"}.get(pt[1], "PAINTED")
+		if not w in warn:
+			warn.append(w)
+	if p.sensors.is_jammed():
+		warn.append("JAMMED")
+	if warn.is_empty():
+		return
+	var flash := fmod(time * 2.5, 1.0) < 0.65
+	var y := c.y - r - 30.0
+	for w in warn:
+		var tw := font.get_string_size(w, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+		draw_rect(Rect2(c.x - tw * 0.5 - 6, y - 14, tw + 12, 19), Color(0.35, 0.05, 0.03, 0.75) if flash else Color(0.2, 0.04, 0.03, 0.6))
+		draw_string(font, Vector2(c.x - tw * 0.5, y), w, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(1.0, 0.45, 0.3) if flash else Color(1.0, 0.7, 0.55))
+		y -= 22.0
 
 func _draw_messages(vp: Vector2) -> void:
 	var y := 72.0
@@ -832,7 +911,8 @@ func _draw_help(vp: Vector2) -> void:
 		["WEAPONS", ""],
 		[_keys("fire_primary"), "fire the selected group"], [_keys("fire_secondary"), "alt-fire: group %d" % Settings.alt_fire_group],
 		["%s - %s" % [Keybinds.short_text("weapon_group_1"), Keybinds.short_text("weapon_group_4")], "select weapon group 1 - 4"],
-		[_keys("weapon_group_next"), "next weapon group"], [_keys("cloak"), "cloak"],
+		[_keys("weapon_group_next"), "next weapon group"], [_keys("cloak"), "jammer on your target"],
+		[_keys("ping"), "pulse radar ping"], [_keys("silent_running"), "silent running"],
 		["", ""],
 		["TARGETS AND NAVIGATION", ""],
 		[_keys("target_next"), "next target"], [_keys("target_nearest"), "nearest enemy"], ["Shift+click", "target a ship, world info"],

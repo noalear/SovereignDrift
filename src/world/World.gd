@@ -658,7 +658,7 @@ func _physics_process(delta: float) -> void:
 	for p in planets:
 		p.update_orbit(delta)
 		p.sync_body()
-	_update_sensor_posts()
+	_update_sensor_links()
 	if Net.is_client():
 		Net.client_tick(delta)   # the host collides, scores and respawns
 		_follow_camera(delta)
@@ -816,8 +816,6 @@ func nearest_enemy_ship(pos: Vector2, side: int, range_px: float, viewer: Ship =
 		if s.spoken_for(side):
 			continue      # a friend is taking that one alive
 		if viewer != null and not s.visible_to(viewer):
-			continue
-		elif viewer == null and s.cloaked:
 			continue
 		var d := pos.distance_to(s.global_position)
 		if d < best_d:
@@ -1114,8 +1112,7 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 				hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else m.owner_ship, at)
 			if hit is Ship and m.data.has("drain"):
 				hit.energy = maxf(hit.energy - m.data["drain"], 0.0)
-				if hit.cloaked:
-					hit.set_cloak(false)
+				hit.jam_off(3.0)              # a disruptor knocks the jammer out
 			# the shot's momentum and the blast kick the target
 			var dir := m.velocity.normalized() if m.velocity.length_squared() > 1.0 else -m.hit_normal
 			push_node(hit, dir * m.warhead * IMPULSE_PER_DAMAGE + m.momentum(), at)
@@ -1342,7 +1339,7 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 	var candidates := []
 	for id in s.design["modules"]:
 		var f: String = GameData.MODULES[id]["func"]
-		if f in ["shield", "eng", "sensor", "power", "stealth", "boost", "armor"]:
+		if f in ["shield", "eng", "sensor", "power", "jammer", "boost", "armor"]:
 			candidates.append(id)
 	for i in drops:
 		if candidates.is_empty():
@@ -2075,25 +2072,48 @@ func pilot_named(n: String) -> Ship:
 
 # ------------------------------------------------------------- stations
 
-var sensor_posts := {}           # race -> its finished sensor stations, refreshed every frame
+var _links := {}                 # side (Ship.team()) -> its ships that share by data link, refreshed every frame
 
 
-func _update_sensor_posts() -> void:
-	sensor_posts.clear()
+func _update_sensor_links() -> void:
+	_links.clear()
 	for s in ships:
-		if s.design_name == "SensorStation" and not s.building and not s.dead:
-			if not sensor_posts.has(s.race_id):
-				sensor_posts[s.race_id] = []
-			sensor_posts[s.race_id].append(s)
+		if s.dead or s.building or s.race_id == GameData.NEUTRAL:
+			continue
+		var side := s.team()
+		if not _links.has(side):
+			_links[side] = []
+		_links[side].append(s)
 
 
-## Does one of the empire's sensor stations see this ship?  Cloaked ships
-## show only close in, as to any sensor.
-func sensor_sees(s: Ship, race: int) -> bool:
-	for post in sensor_posts.get(race, []):
-		if is_instance_valid(post) and post != s and post.global_position.distance_to(s.global_position) <= post.sensor_range * (0.25 if s.cloaked else 1.0):
-			return true
-	return false
+## The ships of a side that share what they see (see Sensors.quality):
+## within Sensors.LINK_RANGE of each other, sensor stations empire-wide.
+func sensor_links(side: int) -> Array:
+	return _links.get(side, [])
+
+
+## Nothing but empty space between two points: worlds (and the Sun) block
+## sensors that need a line of sight.
+func line_clear(a: Vector2, b: Vector2) -> bool:
+	var ab := b - a
+	var l2 := ab.length_squared()
+	for p in planets:
+		var c: Vector2 = p.global_position
+		var r: float = p.radius
+		var t := clampf((c - a).dot(ab) / maxf(l2, 1.0), 0.0, 1.0)
+		if c.distance_squared_to(a + ab * t) < r * r:
+			# a ship inside the disc (landing, skimming) still sees out
+			if a.distance_squared_to(c) < r * r or b.distance_squared_to(c) < r * r:
+				continue
+			return false
+	return true
+
+
+## Inside the Sun's heat band, where its glare swamps infrared.
+func in_sun_glare(pos: Vector2) -> bool:
+	if sun == null:
+		return false
+	return pos.distance_to(sun.global_position) < sun.radius * (1.0 + SUN_HEAT_RADII)
 
 
 ## What a station wants hauled to it: a frame its materials, a shipyard
