@@ -283,8 +283,9 @@ func _open_pause() -> void:
 	if not Net.is_active():
 		world.set_paused(true)   # online the round goes on behind the menu
 	world.menu_open = true       # either way the ship ignores the keys and clicks meant for the menu
-	pause_panel = Control.new()
+	pause_panel = PausePanel.new()
 	pause_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	pause_panel.resume.connect(_close_pause)
 	ui_layer.add_child(pause_panel)
 	pause_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var bg := ColorRect.new()
@@ -348,6 +349,17 @@ func _open_pause() -> void:
 		get_tree().quit())
 	box.add_child(b5)
 	b1.grab_focus()
+
+
+## The pause menu's backdrop.  It runs while the game is paused, which Main
+## does not, so Esc (or B on a gamepad) here resumes.
+class PausePanel extends Control:
+	signal resume
+
+	func _unhandled_input(event: InputEvent) -> void:
+		if visible and (event.is_action_pressed("pause_menu") or event.is_action_pressed("ui_cancel")):
+			get_viewport().set_input_as_handled()
+			resume.emit()
 
 
 ## Graphics, sound and controls without leaving the game: the title

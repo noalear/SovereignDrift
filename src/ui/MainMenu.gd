@@ -478,6 +478,7 @@ func _draw_controls(vp: Vector2) -> void:
 	var col_w := label_w + 3.0 * (slot_w + 6.0)
 	var x0 := (vp.x - (col_w * 2.0 + 60.0)) * 0.5
 	var row_h := 25.0
+	var bottom := top
 	for c in 2:
 		var x := x0 + c * (col_w + 60.0)
 		var y := top + 6.0
@@ -499,7 +500,8 @@ func _draw_controls(vp: Vector2) -> void:
 					_slot_button(Rect2(sx, y + 1, slot_w, row_h - 3), text, _start_capture.bind(row[0], slot), waiting)
 					sx += slot_w + 6.0
 				y += row_h
-	var by := top + 6.0 + 20.0 + 19.0 * row_h + 12.0
+		bottom = maxf(bottom, y)
+	var by := bottom + 12.0   # under the longer column, however many actions there are
 	_choice(by, "Alt-fire shoots", [[1, "Group 1"], [2, "Group 2"], [3, "Group 3"], [4, "Group 4"]], Settings.alt_fire_group,
 		func(v): Settings.alt_fire_group = v, vp)
 	if not controls_status.is_empty():
