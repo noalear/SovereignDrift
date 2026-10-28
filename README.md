@@ -197,9 +197,7 @@ battle for the dynamic music. The scripts that generated them are in
 original MIDIs are in `tools/music/enhanced_mid/`). Some need the VSCO-2 CE
 samples (CC0): clone https://github.com/sgossner/VSCO-2-CE and set `VSCO_DIR`.
 
-Open music notes: new06 v2 (shipyard hammer subdued and locked to the groove)
-is in `tools/music/candidates/` waiting for a listen; song 8 still needs a
-pick between dubstep and darkwave.
+Open music notes: song 8 still needs a pick between dubstep and darkwave.
 
 ## License
 
