@@ -1232,7 +1232,7 @@ const CREW_FROM_COLONY := 0.5     # hands a second from a colony
 func _refuel(delta: float) -> void:
 	for s in ships:
 		s.refuelling = false
-		if s.dead or (s.fuel >= s.fuel_max and s.crew >= s.crew_max):
+		if s.dead or (s.fuel >= s.fuel_max and s.crew >= s.crew_max and not s.needs_rearm()):
 			continue
 		var rate := 0.0
 		var hands := 0.0
@@ -1253,6 +1253,8 @@ func _refuel(delta: float) -> void:
 			rate = maxf(rate, 0.15)       # the colony's spaceport fills the tanks
 		if duel_rules != null:
 			rate = maxf(rate, 0.02)       # a duel has no bases: tanks top up slowly anywhere
+		if rate > 0.0 and s.needs_rearm():
+			s.rearm(rate * delta)           # magazines refill at the same rate as the tanks
 		if rate > 0.0 and s.fuel < s.fuel_max:
 			s.refuelling = true
 			var was := s.fuel

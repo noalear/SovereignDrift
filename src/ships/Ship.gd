@@ -466,6 +466,9 @@ func _build_weapons() -> void:
 			entry["missile"] = mid
 			entry["cost"] = clampf(float(m["p"][1]) * 0.025, 20.0, 350.0) * (1.0 + (overload - 1.0) * 0.5)
 			entry["ammo"] = int(m["p"][2]) if int(m["p"][2]) < 400 else -1
+			if is_station:
+				entry["ammo"] = -1     # a station's magazines are deep
+			entry["ammo_max"] = entry["ammo"]
 			entry["rate"] = GameData.TUBE_COOLDOWN.get(mid, 0.3)
 			var md: Dictionary = GameData.MISSILES[mid]
 			entry["range"] = md["fire_v"] * GameData.LIGHT_SPEED * md["life"] * 0.8
@@ -1276,6 +1279,28 @@ func _weapons(delta: float) -> void:
 			_fire_beam(w, delta)
 		elif w["cooldown"] <= 0.0:
 			_fire_tube(w)
+
+
+## Does any launcher want reloading?
+func needs_rearm() -> bool:
+	for w in weapons:
+		if w.get("ammo_max", -1) > 0 and w["ammo"] < w["ammo_max"]:
+			return true
+	return false
+
+
+## Reload the launchers by `share` of each magazine (bases and colonies
+## call this, as they refuel).
+func rearm(share: float) -> void:
+	for w in weapons:
+		var full: int = w.get("ammo_max", -1)
+		if full <= 0 or w["ammo"] >= full:
+			continue
+		w["ammo_f"] = float(w.get("ammo_f", 0.0)) + full * share
+		var whole := int(w["ammo_f"])
+		if whole > 0:
+			w["ammo"] = mini(w["ammo"] + whole, full)
+			w["ammo_f"] -= whole
 
 
 func is_turret(w: Dictionary) -> bool:
