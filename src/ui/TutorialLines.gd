@@ -50,7 +50,7 @@ const LINES := [
 	["spar_died", "hale", "You'll relaunch from the starbase in a moment. Happens to all of us. Get back out there."],
 	["loot", "hale", "Wrecks spill loot: credit chips, spare parts, and now and then a blueprint for enemy technology. Fly over the pickups to scoop them up."],
 	# --- the starbase
-	["dock", "hale", "Head back to the starbase at Earth. Near a friendly starbase or colony, your fuel, crew and hull are topped up. Follow the green arrow."],
+	["dock", "hale", "Head back to the starbase at Earth. Near a friendly starbase or colony, your fuel, crew and hull are topped up, and your launchers and mine layer are reloaded. Follow the green arrow."],
 	["shipyard", "hale", "Slow down and open the shipyard. This is where you change hulls, fit engines, shields and weapons, and set your weapon groups. Better hulls open up as you rise in rank."],
 	["shipyard_tour", "hale", "Click a part to swap it, and watch your speed, power and firepower change. Credits and salvaged parts pay for it. Launch when you're happy, or close the yard to keep your ship as it is."],
 	["base_cargo", "hale", "The starbase also sells station kits and takes orders for new ships. Open the cargo panel here to see them. Kits and orders unlock at Lieutenant Commander."],

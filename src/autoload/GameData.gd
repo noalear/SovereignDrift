@@ -71,8 +71,8 @@ const MODULES := {
 	"4011": {"name": "Station battery", "vol": 4500, "mass": 20000, "power": -200, "hp": 200, "func": "tube", "p": [60, 1000, 1500, "011"]},
 	"4018": {"name": "Cannon", "vol": 200, "mass": 50, "power": -500, "hp": 100, "func": "tube", "p": [50, 30000, 25, "018"]},
 	# beam: [energy frames, energy per frame, range]
-	"4501": {"name": "Laser I", "vol": 3, "mass": 50, "power": -200, "hp": 200, "func": "beam", "p": [30, 242, 200]},
-	"4502": {"name": "Laser II", "vol": 300, "mass": 1500, "power": -200, "hp": 200, "func": "beam", "p": [30, 300, 250]},
+	"4501": {"name": "Laser I", "vol": 3, "mass": 50, "power": -200, "hp": 200, "func": "beam", "p": [30, 242, 227]},
+	"4502": {"name": "Laser II", "vol": 300, "mass": 1500, "power": -200, "hp": 200, "func": "beam", "p": [30, 300, 295]},
 	"4503": {"name": "Laser III", "vol": 4500, "mass": 20000, "power": -200, "hp": 200, "func": "beam", "p": [30, 800, 600]},
 	"5001": {"name": "Shield I", "vol": 50, "mass": 500, "power": -2, "hp": 75, "func": "shield", "p": [200]},
 	"5002": {"name": "Shield II", "vol": 100, "mass": 900, "power": -3, "hp": 100, "func": "shield", "p": [300]},
@@ -171,28 +171,27 @@ const MISSILES := {
 	"001": {"dtype": "kinetic", "name": "bolt", "warhead": 150, "fire_v": 0.75, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.20, "life": 14.0, "radius": 4, "look": "bolt"},
 	"002": {"dtype": "explosive", "name": "mine", "shootable": true, "blast": 127, "warhead": 2500, "fire_v": 0.05, "guided": false, "trigger": "prox", "prox": 58, "seek_range": 0, "max_v": 0.05, "life": 60.0, "radius": 9, "look": "mine"},
 	"003": {"dtype": "plasma", "name": "plasma", "warhead": 500, "fire_v": 0.35, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "plasma"},
-	"004": {"dtype": "explosive", "name": "torpedo", "shootable": true, "blast": 90, "warhead": 1500, "fire_v": 0.30, "guided": false, "trigger": "prox", "prox": 64, "seek_range": 0, "max_v": 0.95, "life": 3.2, "radius": 7, "look": "grenade"},
-	"008": {"dtype": "explosive", "name": "missile", "shootable": true, "warhead": 180, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 4, "look": "missile", "turn": 3.5, "accel": 220},
+	"004": {"dtype": "explosive", "name": "torpedo", "shootable": true, "blast": 90, "warhead": 700, "fire_v": 0.30, "guided": true, "trigger": "prox", "prox": 64, "seek_range": 600, "max_v": 0.90, "life": 4.5, "radius": 7, "look": "grenade", "turn": 0.6, "accel": 240},
+	"008": {"dtype": "explosive", "name": "missile", "shootable": true, "warhead": 300, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 8.0, "radius": 4, "look": "missile", "turn": 3.5, "accel": 220},
 	"009": {"dtype": "explosive", "name": "seeker", "shootable": true, "warhead": 400, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 6.5, "radius": 5, "look": "missile", "turn": 2.5, "accel": 220, "heat": true},
-	"010": {"dtype": "kinetic", "name": "rapid bolt", "warhead": 100, "fire_v": 0.70, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.80, "life": 3.2, "radius": 3, "look": "bolt"},
-	"011": {"dtype": "plasma", "name": "rapid plasma", "warhead": 400, "fire_v": 0.80, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.00, "life": 3.2, "radius": 5, "look": "plasma"},
+	"010": {"dtype": "kinetic", "name": "rapid bolt", "spread": 4.0, "warhead": 45, "fire_v": 0.70, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.80, "life": 3.2, "radius": 3, "look": "bolt"},
+	"011": {"dtype": "plasma", "name": "rapid plasma", "warhead": 150, "fire_v": 0.80, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.00, "life": 3.2, "radius": 5, "look": "plasma"},
 	"018": {"dtype": "kinetic", "name": "cannon shell", "recoil": 2.0, "pierce": 0.5, "warhead": 750, "fire_v": 0.40, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "shell"},
-	"020": {"dtype": "ion", "name": "disruptor bolt", "warhead": 220, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320, "sys": 1.8},
+	"020": {"dtype": "ion", "name": "disruptor bolt", "warhead": 160, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320, "sys": 2.5},
 	"022": {"dtype": "kinetic", "name": "point defence round", "pdc": true, "warhead": 12, "fire_v": 1.2, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.4, "life": 0.6, "radius": 2, "look": "bolt"},
-	"021": {"dtype": "explosive", "name": "drone", "shootable": true, "warhead": 90, "fire_v": 0.25, "guided": true, "trigger": "impact", "seek_range": 700, "max_v": 0.5, "life": 9.0, "radius": 4, "look": "drone", "turn": 4.5, "accel": 260},
+	"021": {"dtype": "explosive", "name": "drone", "shootable": true, "warhead": 120, "fire_v": 0.25, "guided": true, "trigger": "impact", "seek_range": 900, "max_v": 0.5, "life": 12.0, "radius": 4, "look": "drone", "turn": 4.5, "accel": 260},
 }
 
 ## Damage types: every weapon deals one, and shields and the hull take it
 ## at these multipliers (armor resists by type on top, see the armor
 ## types).  Beams are lasers, ion the disruptor, plasma the station and
 ## colony batteries and the Sun's heat; rams and collisions are kinetic.
-## All 1.0 until the weapon roles are tuned.
 const DAMAGE_TYPES := {
 	"kinetic": {"shield": 1.0, "hull": 1.0},
-	"beam": {"shield": 1.0, "hull": 1.0},
-	"explosive": {"shield": 1.0, "hull": 1.0},
-	"plasma": {"shield": 1.0, "hull": 1.0},
-	"ion": {"shield": 1.0, "hull": 1.0},
+	"beam": {"shield": 0.6, "hull": 1.0},
+	"explosive": {"shield": 0.75, "hull": 1.0},
+	"plasma": {"shield": 1.4, "hull": 1.0},
+	"ion": {"shield": 2.0, "hull": 0.5},
 }
 
 ## How hard a damage type hits a layer ("shield" or "hull").
@@ -210,10 +209,15 @@ static func module_dtype(id: String) -> String:
 	return "kinetic"
 
 
+## Each laser's damage per second at point blank, before DAMAGE_SCALE; it
+## falls to BEAM_FALLOFF of that at the beam's full reach.
+const BEAM_DPS := {"4501": 220.0, "4502": 280.0, "4503": 500.0}
+const BEAM_FALLOFF := 0.5
+
 ## Seconds between shots for each tube missile.
 const TUBE_COOLDOWN := {
-	"001": 0.28, "002": 1.0, "003": 0.5, "004": 0.55, "008": 0.7, "009": 0.9,
-	"010": 0.09, "011": 0.09, "018": 0.45, "020": 0.4, "021": 0.5, "022": 0.07,
+	"001": 0.45, "002": 1.0, "003": 0.5, "004": 0.9, "008": 1.0, "009": 0.9,
+	"010": 0.09, "011": 0.09, "018": 1.2, "020": 0.4, "021": 0.5, "022": 0.07,
 }
 
 # ------------------------------------------------------- ship designs

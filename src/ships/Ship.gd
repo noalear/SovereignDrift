@@ -486,7 +486,7 @@ func _build_weapons() -> void:
 			entry["slot"] = "beam"
 			entry["cost"] = 90.0 * (1.0 + (overload - 1.0) * 0.5)          # per second
 			entry["range"] = float(m["p"][2]) * 2.2
-			entry["dps"] = (45.0 + float(m["p"][1]) * 0.15) * GameData.DAMAGE_SCALE
+			entry["dps"] = float(GameData.BEAM_DPS.get(w[0], 45.0 + float(m["p"][1]) * 0.15)) * GameData.DAMAGE_SCALE
 			entry["rate"] = 0.0
 		weapons.append(entry)
 		if is_turret(entry):
@@ -1413,6 +1413,8 @@ func _fire_tube(w: Dictionary) -> void:
 	var rel := _aim_angle(w)
 	if w["missile"] == "002":
 		rel = PI   # mines drop behind
+	if md.has("spread"):
+		rel += deg_to_rad(randf_range(-md["spread"], md["spread"]))   # a spray, not a rifle
 	var ang := rotation + rel
 	var mount: Vector2 = global_position + Vector2.RIGHT.rotated(rotation + w["mount_angle"]) * w["mount_radius"]
 	var dir := Vector2.RIGHT.rotated(ang)
@@ -1455,10 +1457,13 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 	var hit: Dictionary = world.raycast_beam(self, origin, Vector2.RIGHT.rotated(ang), w["range"])
 	var end: Vector2 = hit["point"]
 	if hit["body"] != null and not Net.is_client():   # damage is the host's
+		# a beam spreads with distance: full burn up close, less at full reach
+		var reach := clampf(origin.distance_to(end) / maxf(w["range"], 1.0), 0.0, 1.0)
+		var dmg: float = w["dps"] * delta * systems.weapon_efficiency(w["index"]) * lerpf(1.0, GameData.BEAM_FALLOFF, reach)
 		if hit["body"] is Ship:
-			hit["body"].take_damage(w["dps"] * delta * systems.weapon_efficiency(w["index"]), self, end, 1.0, "", 0.1, "beam")
+			hit["body"].take_damage(dmg, self, end, 1.0, "", 0.1, "beam")
 		else:
-			hit["body"].take_damage(w["dps"] * delta * systems.weapon_efficiency(w["index"]), self, end, "beam")
+			hit["body"].take_damage(dmg, self, end, "beam")
 		# a beam leans on what it burns
 		world.push_node(hit["body"], Vector2.RIGHT.rotated(ang) * w["dps"] * delta * World.IMPULSE_PER_DAMAGE * 0.5, end)
 	if hit["body"] != null:
