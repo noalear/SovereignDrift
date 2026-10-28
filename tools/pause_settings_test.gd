@@ -107,9 +107,11 @@ func _start() -> void:
 	var cfg := ConfigFile.new()
 	cfg.load("user://settings.cfg")
 	_check(is_equal_approx(float(cfg.get_value("audio", "sfx_volume", -1.0)), 0.25), "the new settings are saved")
-	main._close_pause()
+	_key(KEY_ESCAPE)
 	await process_frame
-	_check(not w.menu_open and not w.paused, "Resume gives the ship back its controls")
+	await process_frame
+	_check(main.pause_panel == null, "Esc on the pause menu resumes")
+	_check(not w.menu_open and not w.paused, "resuming gives the ship back its controls")
 	_finish(settings, saved)
 
 
