@@ -661,6 +661,11 @@ func _physics_process(delta: float) -> void:
 	_update_sensor_links()
 	if Net.is_client():
 		Net.client_tick(delta)   # the host collides, scores and respawns
+		# what the HUD shows from local state: the Sun's heat and the
+		# planet tally (the host burns and counts for real)
+		sun_heat = heat_at(player.global_position) if player != null and not player.dead else 0.0
+		_sun_warning(delta)
+		_count_planets()
 		_follow_camera(delta)
 		return
 	sun_heat = 0.0
@@ -943,7 +948,7 @@ func _sun_hazard(delta: float) -> void:
 		# heat ramps up over the radii above the surface: a warning first,
 		# then real damage, then a scorching bounce off the corona rather
 		# than an instant death
-		var heat := clampf(1.0 - (d - sun.radius) / (sun.radius * SUN_HEAT_RADII), 0.0, 1.0)
+		var heat := heat_at(a.global_position)
 		if a == player:
 			sun_heat = heat
 		# the outer third only warns; inside it heat builds slowly enough
@@ -968,6 +973,14 @@ func _sun_hazard(delta: float) -> void:
 
 
 ## Beep and say so while the player is in the Sun's heat.
+## 0..1: how hot the Sun is at this point (0 beyond the warning band).
+func heat_at(pos: Vector2) -> float:
+	if sun == null:
+		return 0.0
+	var d := pos.distance_to(sun.global_position)
+	return clampf(1.0 - (d - sun.radius) / (sun.radius * SUN_HEAT_RADII), 0.0, 1.0)
+
+
 func _sun_warning(delta: float) -> void:
 	if player == null or player.dead or sun_heat <= 0.0:
 		_heat_alarm = 0.0
@@ -1594,11 +1607,15 @@ func planet_captured(p: Planet, winner: int, attacker: Node, people: float = -1.
 		round_rules.decide(winner)
 
 
-func _score_planets(delta: float) -> void:
+func _count_planets() -> void:
 	planet_counts = {0: 0, 1: 0, 2: 0, 3: 0}
 	for p in planets:
 		if p.is_colonised():
 			planet_counts[p.owner_race] = planet_counts.get(p.owner_race, 0) + 1
+
+
+func _score_planets(delta: float) -> void:
+	_count_planets()
 	if game_over or duel_rules != null:
 		return
 	# held planets pay their empire's pilots every minute, double in the
@@ -1666,6 +1683,7 @@ func try_land(s: Ship, onto: Planet = null) -> void:
 	if s.is_landed():
 		_settle_cargo(s)
 		s.start_takeoff()
+		Net.host_landing(s)
 		notify(s, "Lifting off from %s." % s.land_body.body_name)
 		return
 	if s.is_landing():
