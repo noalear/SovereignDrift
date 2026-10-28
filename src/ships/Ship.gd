@@ -132,6 +132,7 @@ var stats: Dictionary = {}
 # the pilot's purse and salvage, used at the shipyard
 var credits := 0
 var hold: Array = []               # module ids salvaged from wrecks
+var hold_stock: Dictionary = {}    # id -> how many of those in the hold came off a stock fit (they sell for scrap)
 var blueprints: Array = []         # enemy parts this pilot may buy
 const HOLD_SIZE := 16
 # this round's record, for the scoreboard

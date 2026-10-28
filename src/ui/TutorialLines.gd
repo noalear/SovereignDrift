@@ -57,7 +57,7 @@ const LINES := [
 	["shipyard", "hale", "Slow down and open the shipyard. This is where you change hulls, fit engines, shields and weapons, and set your weapon groups. Better hulls open up as you rise in rank."],
 	["armor", "hale", "Your hull takes one coat of armour. Plate is solid all round, but heavy. Ablative burns away under fire, Reflective turns lasers, Reactive breaks the biggest hits, a Shroud hides you from radar, and Bulkheads shelter your crew and systems. Reflective is Arcean work and Reactive is Drengin, so those take a blueprint from their wrecks."],
 	["shield_types", "hale", "Shields come in families too. Deflectors are the steady all rounder. Barriers are big and slow to recharge. Flickers are small and recharge in a blink, but let some hits slip through. Weigh it all against your power and your mass."],
-	["shipyard_tour", "hale", "Click a part to swap it, and watch your speed, power and firepower change. Credits and salvaged parts pay for it. Launch when you're happy, or close the yard to keep your ship as it is."],
+	["shipyard_tour", "hale", "Pick a mount or a bay, then a part from the list, and watch your speed, power and firepower change before you buy. Anything you take off goes to your hold, to fit later or to sell. Launch when you're happy, or leave to keep your ship as it is."],
 	["base_cargo", "hale", "The starbase also sells station kits and takes orders for new ships. Open the cargo panel here to see them. Kits and orders unlock at Lieutenant Commander."],
 	# --- worlds, colonists and cargo
 	["land", "hale", "Now let's go down to Earth. Get low over the planet, slow down, and land."],
