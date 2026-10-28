@@ -40,12 +40,16 @@ const STEPS := [
 	{"id": "groups", "chapter": 3, "goal": "Press {weapon_group_4} for the mine layer, then {weapon_group_1} for the guns again", "mark": "drone"},
 	{"id": "disable", "chapter": 3, "goal": "Shoot the drone's stern until its engines go offline", "mark": "drone"},
 	{"id": "board", "chapter": 3, "goal": "Close in, slow down and press {board} to board the drone", "mark": "drone"},
+	{"id": "shield_focus", "chapter": 3, "goal": "Press {shield_focus} to swing your shield forward, then press it until it's Balanced again", "focus": "status"},
+	{"id": "shields_down", "chapter": 3, "goal": "Press {shields_toggle} to lower your shields, then {shields_toggle} to raise them", "focus": "status"},
 	{"id": "stealth", "chapter": 3, "goal": "Press {silent_running} for silent running, then {silent_running} again", "focus": "signature"},
 	{"id": "jammer", "chapter": 3, "goal": "Target the pirate ({target_nearest}) and press {cloak} to jam it", "mark": "pirate"},
 	{"id": "spar", "chapter": 3, "goal": "Destroy or capture the pirate", "mark": "pirate"},
 	{"id": "loot", "chapter": 3, "goal": "Fly over a pickup to collect it", "mark": "loot"},
 	{"id": "dock", "chapter": 4, "goal": "Fly back to the Terran starbase at Earth", "mark": "starbase"},
 	{"id": "shipyard", "chapter": 4, "goal": "Brake ({brake}), then press {refit} for the shipyard", "mark": "starbase"},
+	{"id": "armor", "chapter": 4},
+	{"id": "shield_types", "chapter": 4},
 	{"id": "shipyard_tour", "chapter": 4, "goal": "Look around, then launch or close the shipyard"},
 	{"id": "base_cargo", "chapter": 4, "goal": "Press {cargo} at the starbase for station kits and ship orders", "mark": "starbase"},
 	{"id": "land", "chapter": 5, "goal": "Get low over Earth, slow down and press {land}", "mark": "Earth"},
@@ -283,6 +287,10 @@ func _track(p: Ship, delta: float) -> void:
 		seen["silent"] = true
 	if p.sensors.jam_active():
 		seen["jamming"] = true
+	if p.shield_focus == 1:
+		seen["focus_forward"] = true
+	if not p.shields_raised:
+		seen["shields_down"] = true
 	if main != null and main.get("tactical") != null:
 		seen["map"] = true
 
@@ -403,6 +411,7 @@ func _ensure_drone() -> void:
 	var p := _player()
 	var at := p.global_position + Vector2.RIGHT.rotated(p.rotation) * 650.0
 	drone = world.spawn_ship("Training drone", 3, "Scout", "Target drone", at, p.velocity)
+	drone.refit(GameData.stock_design("Scout", 3))   # bare hull: no pirate Shroud to hide it
 	drone.rotation = p.rotation   # its stern toward you: the engines are the easy shot
 	drone.reset_physics_interpolation()
 	# tough enough that its systems go before its hull, crewed by a skeleton
@@ -487,6 +496,14 @@ func _done_stealth() -> bool:
 	return seen.has("silent") and not _player().sensors.emcon
 
 
+func _done_shield_focus() -> bool:
+	return seen.has("focus_forward") and _player().shield_focus == 0
+
+
+func _done_shields_down() -> bool:
+	return seen.has("shields_down") and _player().shields_raised
+
+
 # --- the sparring pirate
 
 func _enter_jammer() -> void:
@@ -512,6 +529,7 @@ func _ensure_pirate() -> void:
 	var a := p.rotation + randf_range(-0.8, 0.8)
 	var at := p.global_position + Vector2(cos(a), sin(a)) * 1500.0
 	pirate = world.spawn_ship("Rookie Kell", 3, "Scout", "Rust Mite", at, p.velocity, 0)
+	pirate.refit(GameData.stock_design("Scout", 3))  # no Shroud: a cadet locks it at 700 px
 	pirate.rotation = a + PI
 	pirate.reset_physics_interpolation()
 	# a fair first fight: it comes for you (not our supply ships), stays

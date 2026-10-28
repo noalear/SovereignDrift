@@ -80,7 +80,7 @@ static func board_estimate(captor: Node, victim: Node) -> float:
 	while d > 0.05:
 		if a <= floor_a or t > 60.0:
 			return INF
-		var da := d * DEFENDER_KILLS * hold * dt
+		var da: float = d * DEFENDER_KILLS * hold * victim.board_defence() * dt
 		d -= a * BOARDER_KILLS * power * dt
 		a -= da
 		t += dt
@@ -241,7 +241,7 @@ func tick(delta: float) -> void:
 		# the fight aboard
 		if v.is_station:
 			v.shield = 0.0                 # the boarders hold the shield room
-		var lost := v.crew * DEFENDER_KILLS * (STATION_DEFENSE if v.is_station else 1.0) * delta
+		var lost: float = v.crew * DEFENDER_KILLS * (STATION_DEFENSE if v.is_station else 1.0) * v.board_defence() * delta
 		v.crew = maxf(v.crew - s.crew * BOARDER_KILLS * Ground.board_power(s) * delta, 0.0)
 		s.crew = maxf(s.crew - lost, 0.0)
 		s.board_progress = clampf(1.0 - v.crew / s.board_start_crew, 0.0, 1.0)

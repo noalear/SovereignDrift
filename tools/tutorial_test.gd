@@ -152,7 +152,7 @@ func _world_check(w: World, p: Ship) -> void:
 func _lesson(w: World, t: Tutorial, p: Ship, id: String, f: int) -> void:
 	var earth: Planet = w.planet_by_name["Earth"]
 	var luna: Planet = w.planet_by_name["Luna"]
-	if f != 3 and not id in ["warp", "map", "board", "land", "to_luna", "colonists", "unload", "stealth", "jammer", "shipyard_tour", "loot", "ground_tabs", "assist", "groups"]:
+	if f != 3 and not id in ["warp", "map", "board", "land", "to_luna", "colonists", "unload", "stealth", "jammer", "shield_focus", "shields_down", "shipyard_tour", "loot", "ground_tabs", "assist", "groups"]:
 		return
 	match id:
 		"thrust":
@@ -260,6 +260,20 @@ func _lesson(w: World, t: Tutorial, p: Ship, id: String, f: int) -> void:
 				_check(p.jamming, "the jammer goes on against the locked pirate")
 			elif f == 400:
 				_check(false, "the jam bites (jamming %s)" % p.jamming)
+		"shield_focus":
+			if f == 3 or f == 10 or f == 17:
+				_action("shield_focus")
+				_action("shield_focus", false)
+			elif f == 6:
+				_check(p.shield_focus == 1, "the focus key swings the shield forward")
+		"shields_down":
+			if f == 3:
+				_action("shields_toggle")
+				_action("shields_toggle", false)
+			elif f == 6:
+				_check(not p.shields_raised and p.shield == 0.0, "lowered shields hold nothing")
+				_action("shields_toggle")
+				_action("shields_toggle", false)
 		"spar":
 			var pr := t.pirate
 			_check(pr != null and not pr.dead and pr.get_node_or_null("AI") != null, "a pirate with a pilot comes in")

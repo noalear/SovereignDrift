@@ -270,6 +270,14 @@ func _think() -> void:
 			elif tgt != null and tgt.global_position.distance_to(ship.global_position) < 500.0 and hull_frac > 0.4:
 				# cornered: fight back
 				state = State.ATTACK
+	# shields to the side the danger is on: the nose in a fight, the tail running away
+	var want_focus := 0
+	if state == State.ATTACK and tgt != null:
+		want_focus = 1
+	elif (state == State.RETREAT or state == State.FLEE or state == State.EVADE) and ship.last_attacker != null:
+		want_focus = 2
+	if ship.shield_focus != want_focus:
+		ship.set_shield_focus(want_focus)
 	_think_sensors(tgt)
 
 

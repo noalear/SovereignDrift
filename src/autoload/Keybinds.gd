@@ -33,6 +33,8 @@ const ACTIONS := [
 	["cloak", "Jammer (on your target)", "Weapons"],
 	["ping", "Pulse radar ping", "Weapons"],
 	["silent_running", "Silent running on / off", "Weapons"],
+	["shield_focus", "Shield focus (balanced / forward / aft)", "Weapons"],
+	["shields_toggle", "Lower / raise shields", "Weapons"],
 	["target_next", "Next target", "Weapons"],
 	["target_nearest", "Nearest enemy", "Weapons"],
 	["land", "Land / lift off", "Ship"],
