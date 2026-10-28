@@ -472,6 +472,7 @@ func _build_weapons() -> void:
 			entry["rate"] = GameData.TUBE_COOLDOWN.get(mid, 0.3)
 			var md: Dictionary = GameData.MISSILES[mid]
 			entry["range"] = md["fire_v"] * GameData.LIGHT_SPEED * md["life"] * 0.8
+			entry["pdc"] = md.get("pdc", false)
 			match mid:
 				"001", "010":
 					entry["slot"] = "primary"
@@ -1271,6 +1272,8 @@ func _weapons(delta: float) -> void:
 					want = inputs["fire_mine"]
 				"beam":
 					want = inputs["fire_beam"]
+		if w.get("pdc", false):
+			want = _pdc_aim(w) != INF       # point defence shoots on its own
 		if not want or warping or landing != Landing.NONE:
 			continue
 		if systems.is_offline("w%d" % w["index"]):
@@ -1310,6 +1313,17 @@ func is_turret(w: Dictionary) -> bool:
 func _aim_angle(w: Dictionary) -> float:
 	# Fire toward the target if it is inside the arc, else straight down the arc centre.
 	var centre: float = w["fire_angle"]
+	# a laser locks onto the targeted ship by itself (as in the original);
+	# with no lock it follows the pilot's mouse like any turret (Kyle)
+	if w["kind"] == "beam":
+		var lock := _beam_lock(w)
+		if lock != INF:
+			return lock
+	# a point defence gun picks its own munition to shoot at
+	if w.get("pdc", false):
+		var pd := _pdc_aim(w)
+		if pd != INF:
+			return pd
 	# a turret under a pilot's hand points where the pilot points
 	if aim_point != Vector2.INF and is_turret(w):
 		var rel := wrapf((aim_point - global_position).angle() - rotation, -PI, PI)
@@ -1330,6 +1344,48 @@ func _aim_angle(w: Dictionary) -> float:
 		if w["arc1"] - w["arc0"] >= TAU - 0.2:
 			return rel
 	return centre
+
+
+## The mount-relative angle a laser holds on the targeted ship, or INF
+## when there is no lock: no enemy ship targeted, not seen, out of reach
+## or outside the mount's arc.
+func _beam_lock(w: Dictionary) -> float:
+	if target == null or not is_instance_valid(target) or not (target is Ship):
+		return INF
+	var t: Ship = target
+	if t.dead or t.team() == team() or t.is_landing() or not t.visible_to(self):
+		return INF
+	var to := t.global_position - global_position
+	if to.length() > w["range"] + t.size:
+		return INF
+	var rel := wrapf(to.angle() - rotation, -PI, PI)
+	if w["arc1"] - w["arc0"] < TAU - 0.2 and (rel < w["arc0"] - 0.01 or rel > w["arc1"] + 0.01):
+		return INF
+	return rel
+
+
+## Point defence: the nearest enemy munition a PDC can reach and swing to,
+## led for its flight time, as an angle from the nose (INF: nothing to shoot).
+func _pdc_aim(w: Dictionary) -> float:
+	if world == null:
+		return INF
+	var best_d: float = w["range"]
+	var best := INF
+	var mv: float = GameData.MISSILES[w["missile"]]["fire_v"] * GameData.LIGHT_SPEED
+	for m: Missile in world.missiles:
+		if not is_instance_valid(m) or m.exploded or not m.shootable() or m.owner_team == team():
+			continue
+		var to: Vector2 = m.global_position - global_position
+		var d := to.length()
+		if d >= best_d:
+			continue
+		var lead: Vector2 = to + (m.velocity - velocity) * d / maxf(mv, 1.0)
+		var rel := wrapf(lead.angle() - rotation, -PI, PI)
+		if w["arc1"] - w["arc0"] < TAU - 0.2 and (rel < w["arc0"] - 0.01 or rel > w["arc1"] + 0.01):
+			continue
+		best_d = d
+		best = rel
+	return best
 
 
 func _fire_tube(w: Dictionary) -> void:
@@ -1373,7 +1429,8 @@ func _fire_tube(w: Dictionary) -> void:
 		"018": snd = "cannon"
 		"020": snd = "plasma"
 		"021": snd = "missile"
-	Sfx.play(snd, global_position, 0.7, randf_range(0.95, 1.05))
+		"022": snd = "rapid"
+	Sfx.play(snd, global_position, 0.35 if w.get("pdc", false) else 0.7, randf_range(0.95, 1.05))
 
 
 func _fire_beam(w: Dictionary, delta: float) -> void:

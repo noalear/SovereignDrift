@@ -100,6 +100,8 @@ const MODULES := {
 	"5201": {"name": "Repair bay I", "vol": 80, "mass": 900, "power": -100, "hp": 150, "func": "repair", "p": [10]},
 	"5202": {"name": "Repair bay II", "vol": 160, "mass": 1500, "power": -150, "hp": 250, "func": "repair", "p": [22]},
 	"5601": {"name": "Ram prow", "vol": 120, "mass": 2500, "power": 0, "hp": 400, "func": "ram", "p": [3]},
+	# point defence: a light auto-turret that shoots down incoming munitions
+	"4022": {"name": "PDC", "vol": 25, "mass": 60, "power": -150, "hp": 80, "func": "tube", "p": [10, 600, 800, "022"]},
 	"4020": {"name": "Disruptor", "vol": 45, "mass": 120, "power": -400, "hp": 120, "func": "tube", "p": [40, 5000, 600, "020"]},
 	"4021": {"name": "Drone bay", "vol": 50, "mass": 200, "power": -300, "hp": 150, "func": "tube", "p": [40, 6000, 40, "021"]},
 }
@@ -176,6 +178,7 @@ const MISSILES := {
 	"011": {"dtype": "plasma", "name": "rapid plasma", "warhead": 400, "fire_v": 0.80, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.00, "life": 3.2, "radius": 5, "look": "plasma"},
 	"018": {"dtype": "kinetic", "name": "cannon shell", "recoil": 2.0, "pierce": 0.5, "warhead": 750, "fire_v": 0.40, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "shell"},
 	"020": {"dtype": "ion", "name": "disruptor bolt", "warhead": 220, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320, "sys": 1.8},
+	"022": {"dtype": "kinetic", "name": "point defence round", "pdc": true, "warhead": 12, "fire_v": 1.2, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.4, "life": 0.6, "radius": 2, "look": "bolt"},
 	"021": {"dtype": "explosive", "name": "drone", "shootable": true, "warhead": 90, "fire_v": 0.25, "guided": true, "trigger": "impact", "seek_range": 700, "max_v": 0.5, "life": 9.0, "radius": 4, "look": "drone", "turn": 4.5, "accel": 260},
 }
 
@@ -210,7 +213,7 @@ static func module_dtype(id: String) -> String:
 ## Seconds between shots for each tube missile.
 const TUBE_COOLDOWN := {
 	"001": 0.28, "002": 1.0, "003": 0.5, "004": 0.55, "008": 0.7, "009": 0.9,
-	"010": 0.09, "011": 0.09, "018": 0.45, "020": 0.4, "021": 0.5,
+	"010": 0.09, "011": 0.09, "018": 0.45, "020": 0.4, "021": 0.5, "022": 0.07,
 }
 
 # ------------------------------------------------------- ship designs

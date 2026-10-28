@@ -832,7 +832,8 @@ func _rpc_shot(mid: int, owner_id: int, race: int, missile_id: String, pos: Vect
 			"008", "009": snd = "missile"
 			"002": snd = "mine"
 			"018": snd = "cannon"
-		Sfx.play(snd, pos, 0.7, randf_range(0.95, 1.05))
+			"022": snd = "rapid"
+		Sfx.play(snd, pos, 0.35 if missile_id == "022" else 0.7, randf_range(0.95, 1.05))
 	else:
 		owner = null
 	world.spawn_missile(owner if owner != null else _race_stub(race), missile_id, pos, vel, angle, null)
