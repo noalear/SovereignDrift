@@ -1,10 +1,10 @@
 ## OrdersWheel -- the wing's orders on a wheel round the screen's centre.
 ##
-## Hold the wheel key (Y, or Y on the pad), point at an order with the
-## mouse or the right stick, and let go to give it.  A tap leaves the
-## wheel open: then click a slice, or press its number (1-8).  Esc, a right
-## click or the wheel key again closes it.  The ship flies on meanwhile,
-## and clicks or number keys spent on the wheel never reach the guns.
+## Hold the wheel key (5 or the middle mouse button, the right stick's
+## click on the pad), point at an order with the mouse or the right stick,
+## and let go to give it.  A tap leaves the wheel open: then click a slice.
+## Esc, a right click or the wheel key again closes it.  The ship flies on
+## meanwhile, and clicks spent on the wheel never reach the guns.
 ##
 ## The quick keys (attack my target, form up) work without the wheel.
 class_name OrdersWheel
@@ -78,8 +78,8 @@ func _input(event: InputEvent) -> void:
 	elif event.is_action_pressed("wing_menu") or event.is_action_pressed("pause_menu") or event.is_action_pressed("ui_cancel"):
 		_close()
 		get_viewport().set_input_as_handled()
-	elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode >= KEY_1 and event.physical_keycode <= KEY_8:
-		give(Wing.WHEEL[event.physical_keycode - KEY_1])
+	elif event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_A and pick >= 0:
+		give(Wing.WHEEL[pick])     # a tapped wheel on the pad: point with the stick, A gives it
 		_close()
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion:
@@ -183,9 +183,8 @@ func _draw() -> void:
 		draw_polyline(pts, Color(0.5, 0.75, 1.0, 0.55 if lit else 0.3), 1.2, true)
 		var mid := c + Vector2.from_angle((a0 + a1) * 0.5) * (INNER + RADIUS) * 0.5
 		var tcol := Color(1, 1, 1) if not idle else Color(0.55, 0.6, 0.68)
-		_icon(order, mid + Vector2(0, -14), tcol)
-		_centred(mid + Vector2(0, 10), SHORT.get(order, Wing.LABELS[order]), 12, tcol, 96.0)
-		_centred(mid + Vector2(0, 25), str(i + 1), 11, Color(0.75, 0.85, 1.0, 0.7), 20.0)
+		_icon(order, mid + Vector2(0, -10), tcol)
+		_centred(mid + Vector2(0, 16), SHORT.get(order, Wing.LABELS[order]), 12, tcol, 96.0)
 	# the hub: the wing and what the pointed-at order does
 	draw_circle(c, INNER - 4.0, Color(0.02, 0.05, 0.1, 0.95))
 	draw_arc(c, INNER - 4.0, 0, TAU, 40, Color(0.5, 0.75, 1.0, 0.5), 1.2, true)
@@ -198,8 +197,8 @@ func _draw() -> void:
 		if Wing.WHEEL[pick] == "attack" and p.target != null and is_instance_valid(p.target):
 			hint = "Everyone on %s" % (p.target.pilot_name if p.target is Ship else p.target.body_name)
 	else:
-		hint = "Now: %s.  Point and let go, click, or press 1-8" % Wing.LABELS.get(current, current).to_lower() if not wing.is_empty() \
-			else "No wingmen yet: Call wingmen (7), or capture a ship"
+		hint = "Now: %s.  Point and let go, or click" % Wing.LABELS.get(current, current).to_lower() if not wing.is_empty() \
+			else "No wingmen yet: Call wingmen, or capture a ship"
 	var hy := c.y + RADIUS + 32.0
 	draw_string_outline(font, Vector2(0, hy), hint, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 16, 4, Color(0, 0, 0, 0.85))
 	draw_string(font, Vector2(0, hy), hint, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 16, Color(0.9, 0.95, 1.0))

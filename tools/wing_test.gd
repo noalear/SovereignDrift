@@ -225,14 +225,19 @@ func _start() -> void:
 	root.push_input(up, true)
 	await process_frame
 	_check(wheel.open and wheel.tapped, "a tap leaves it open")
-	var k := InputEventKey.new()
-	k.physical_keycode = KEY_1
-	k.pressed = true
-	var group := p.weapon_group
-	root.push_input(k, true)
+	var at: Vector2 = root.get_viewport().get_visible_rect().size * 0.5 + Vector2(0, -120)
+	var mv := InputEventMouseMotion.new()
+	mv.position = at
+	root.push_input(mv, true)
 	await process_frame
-	_check(not wheel.open and w.wing.order_of(p)["order"] == "form", "1 on the wheel orders Form up")
-	_check(p.weapon_group == group, "and does not switch weapon groups")
+	_check(wheel.pick == 0, "pointing up picks Form up")
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	click.position = at
+	root.push_input(click, true)
+	await process_frame
+	_check(not wheel.open and w.wing.order_of(p)["order"] == "form", "a click on the slice orders Form up")
 	var q := InputEventAction.new()
 	q.action = "wing_form"
 	q.pressed = true

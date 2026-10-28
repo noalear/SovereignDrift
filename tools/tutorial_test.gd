@@ -247,9 +247,17 @@ func _lesson(w: World, t: Tutorial, p: Ship, id: String, f: int) -> void:
 				_action("wing_menu", false)
 			elif f == 6:
 				_check(main.hud.wheel.open, "a tap on the wheel key leaves the orders wheel open")
-				_key(KEY_1)
+				var at: Vector2 = root.get_viewport().get_visible_rect().size * 0.5 + Vector2(0, -120)
+				var mv := InputEventMouseMotion.new()
+				mv.position = at
+				root.push_input(mv, true)
+				var click := InputEventMouseButton.new()
+				click.button_index = MOUSE_BUTTON_LEFT
+				click.pressed = true
+				click.position = at
+				root.push_input(click, true)
 			elif f == 10:
-				_check(w.wing.order_of(p)["order"] == "form", "1 on the wheel orders the wing to form up")
+				_check(w.wing.order_of(p)["order"] == "form", "a click on Form up orders the wing to form up")
 		"wing_attack":
 			var pr := t.pirate
 			_check(pr != null and not pr.dead, "the pirate is out for the wing's attack")
