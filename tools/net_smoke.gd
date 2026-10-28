@@ -180,7 +180,9 @@ func _process(_delta: float) -> bool:
 	if not is_host and w != null:
 		var venus = w.planet_by_name["Venus"]
 		var mars = w.planet_by_name["Mars"]
-		if venus.garrison.get("armour", 0.0) == 2.0 and int(venus.battle.get("race", -1)) == 1 and mars.buildings.has("shield") and mars.pshield > 0.0:
+		# the host pins the battle every frame, but it ticks on between, so
+		# the armour arrives a hair under 2
+		if absf(venus.garrison.get("armour", 0.0) - 2.0) < 0.1 and int(venus.battle.get("race", -1)) == 1 and mars.buildings.has("shield") and mars.pshield > 0.0:
 			saw_ground = true
 		if p != null and p.troops.get("infantry", 0.0) == 1.0:
 			saw_troops = true

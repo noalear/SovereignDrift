@@ -207,12 +207,13 @@ static func _ship(world: Node, s: Ship, waiting: Dictionary) -> Dictionary:
 		"rank": s.rank, "score": s.score, "kills": s.kills, "deaths": s.deaths,
 		"round_score": rr.round_score(s) if rr != null else 0, "round_kills": rr.round_kills(s) if rr != null else 0,
 		"credits": s.credits, "credits_earned": s.credits_earned, "captures": s.captures, "ships_captured": s.ships_captured,
-		"hold": s.hold.duplicate(), "blueprints": s.blueprints.duplicate(),
+		"hold": s.hold.duplicate(), "hold_stock": s.hold_stock.duplicate(), "blueprints": s.blueprints.duplicate(),
 		"colonists": s.colonists, "colonist_origin": s.colonist_origin.body_name if s.colonist_origin != null else "",
 		"cargo": s.cargo.duplicate(), "cargo_origin": s.cargo_origin.body_name if s.cargo_origin is Planet else "", "support": s.support,
 		"kit": s.kit, "building": s.building, "build_t": s.build_t,
 		"station_body": s.station_body.body_name if s.station_body != null else "", "station_r": s.get_meta("station_r", 0.0),
 		"crew": s.crew, "fuel": s.fuel, "hull": s.hull, "shield": s.shield,
+		"shield_focus": s.shield_focus, "shields_raised": s.shields_raised, "ablative": s.ablative, "reactive_tiles": s.reactive_tiles,
 		"pos": pos, "vel": vel, "rot": s.rotation,
 		"dead": s.dead, "respawn_in": waiting.get(s, -1.0),
 		"home": ai.home.body_name if ai != null and ai.home != null else "",
@@ -317,6 +318,7 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 		s.captures = int(row["captures"])
 		s.ships_captured = int(row["ships_captured"])
 		s.hold = row["hold"].duplicate()
+		s.hold_stock = row.get("hold_stock", {}).duplicate()
 		s.blueprints = row["blueprints"].duplicate()
 		s.colonists = minf(float(row["colonists"]), s.cabin)
 		s.colonist_origin = world.planet_by_name.get(row["colonist_origin"], null)
@@ -334,7 +336,12 @@ static func restore_ships(world: Node, d: Dictionary) -> void:
 		s.crew = minf(float(row["crew"]), float(s.crew_max))
 		s.fuel = minf(float(row["fuel"]), s.fuel_max)
 		s.hull = clampf(float(row["hull"]), 1.0, s.hull_max)
+		s.set_shield_focus(int(row.get("shield_focus", 0)))
+		s.shield_share = GameData.SHIELD_FOCUS[s.shield_focus]
+		s.shields_raised = bool(row.get("shields_raised", true))
 		s.shield = minf(float(row["shield"]), s.shield_max)
+		s.ablative = minf(float(row.get("ablative", s.ablative_max)), s.ablative_max)
+		s.reactive_tiles = mini(int(row.get("reactive_tiles", s.reactive_max)), s.reactive_max)
 		s.set_meta("saved_round", [int(row["round_score"]), int(row["round_kills"])])
 		_place(s, row["pos"], row["vel"], row["rot"])
 		if row["is_prize"]:

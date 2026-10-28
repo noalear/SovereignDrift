@@ -12,7 +12,7 @@ signal session_ended(reason: String)
 signal round_restarted()       # the host started the next Conquest round (client)
 
 const PORT := 7777
-const PROTOCOL := 20
+const PROTOCOL := 21   # 21: shield halves and lowered shields (armor and shields)
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -414,6 +414,10 @@ func _rpc_command(cmd: String) -> void:
 			s.ping()
 		"silent":
 			s.set_silent(not s.sensors.emcon)
+		"shield_focus":
+			s.cycle_shield_focus()
+		"shields":
+			s.set_shields_raised(not s.shields_raised)
 		"refit":
 			var base: Node = world.nearest_base(s)
 			if base == null:
@@ -784,8 +788,8 @@ func _send_systems(full: bool) -> void:
 	var rows := []
 	for id in ships_by_id:
 		var s: Node = ships_by_id[id]
-		if not is_instance_valid(s) or s.is_station:
-			continue
+		if not is_instance_valid(s) or s.is_starbase():
+			continue                   # (other stations have crews to board)
 		var bytes: PackedByteArray = s.systems.pack()
 		var board_id: int = s.boarding.net_id if s.boarding != null and is_instance_valid(s.boarding) else 0
 		var head := PackedByteArray([int(clampf(s.crew_fraction(), 0.0, 1.0) * 255.0), board_id & 255, board_id >> 8, int(s.board_progress * 255.0)])
@@ -854,7 +858,8 @@ func _rpc_snapshot(data: PackedByteArray) -> void:
 		var was_dead: bool = s.dead
 		var dead: bool = (e["flags"] & NetCodec.FLAG_DEAD) != 0
 		s.hull = e["hull"] * s.hull_max
-		s.shield = e["shield"] * s.shield_max
+		s.shields_raised = (e["flags"] & NetCodec.FLAG_SHIELDS_DOWN) == 0
+		s.set_shield_split(e["shield"] * s.shield_max, e["front"])
 		s.energy = e["energy"] * s.energy_max
 		if e["net_id"] == local_net_id:
 			if not s.dead:

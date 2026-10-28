@@ -1011,6 +1011,13 @@ func _impact(victim: PhysicsBody, other: PhysicsBody, v: float, point: Vector2) 
 		node.take_damage(dmg * 0.5, other.node, point)
 
 
+## Heavy armor is thermal mass: an armored hull heats up slower near the Sun.
+static func _thermal_mass(a: Node) -> float:
+	if not a is Ship:
+		return 1.0
+	return 1.0 / (1.0 + float(a.stats.get("armor_mass", 0.0)) / 8000.0)
+
+
 ## The sun burns anything that comes close and swallows what touches it.
 func _sun_hazard(delta: float) -> void:
 	if sun == null:
@@ -1029,7 +1036,7 @@ func _sun_hazard(delta: float) -> void:
 		# that turning away in a few seconds always saves you
 		if heat > 0.35:
 			var t := (heat - 0.35) / 0.65
-			a.take_damage((15.0 + 320.0 * t * t) * delta, sun, Vector2.ZERO, 1.0, "", 1.0, "plasma")
+			a.take_damage((15.0 + 320.0 * t * t) * delta * _thermal_mass(a), sun, Vector2.ZERO, 1.0, "", 1.0, "plasma")
 		var min_d := sun.radius + a.size * 0.7
 		if d < min_d:
 			var n := (a.global_position - sun.global_position).normalized() if d > 0.001 else Vector2.RIGHT
@@ -1037,7 +1044,7 @@ func _sun_hazard(delta: float) -> void:
 			var vn := a.velocity.dot(n)
 			if vn < 0.0:
 				a.velocity -= n * vn * 1.6
-			a.take_damage(400.0 * delta, sun, Vector2.ZERO, 1.0, "", 1.0, "plasma")
+			a.take_damage(400.0 * delta * _thermal_mass(a), sun, Vector2.ZERO, 1.0, "", 1.0, "plasma")
 	for d in debris.duplicate():
 		if d.global_position.distance_to(sun.global_position) < sun.radius:
 			remove_debris(d)
@@ -1220,7 +1227,7 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		if hit != null:
 			var at := m.hit_point if m.hit_point != Vector2.INF else pos
 			if hit is Ship:
-				hit.take_damage(m.warhead, attacker if attacker is Ship else _live(m.owner_ship), at, m.data.get("sys", 1.0), "engines" if m.data.get("heat", false) else "", 1.0, m.data.get("dtype", "kinetic"))
+				hit.take_damage(m.warhead, attacker if attacker is Ship else _live(m.owner_ship), at, m.data.get("sys", 1.0), "engines" if m.data.get("heat", false) else "", 1.0, m.data.get("dtype", "kinetic"), m.data.get("pierce", 0.0))
 			else:
 				hit.take_damage(m.warhead, attacker if attacker is Ship or attacker is Planet else _live(m.owner_ship), at, m.data.get("dtype", "kinetic"))
 			if hit is Ship and m.data.has("drain"):
@@ -1239,7 +1246,7 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		if d < splash:
 			var f := 1.0 - maxf(d, 0.0) / splash
 			# the blast hits the side of the hull that faces it
-			s.take_damage(m.warhead * f, attacker if attacker is Ship else null, s.body.closest_surface_point(pos), m.data.get("sys", 1.0), "", 1.0, m.data.get("dtype", "kinetic"))
+			s.take_damage(m.warhead * f, attacker if attacker is Ship else null, s.body.closest_surface_point(pos), m.data.get("sys", 1.0), "", 1.0, m.data.get("dtype", "kinetic"), m.data.get("pierce", 0.0))
 	for p in planets:
 		var d := pos.distance_to(p.global_position) - p.radius
 		if d < splash and p.is_colonised():
@@ -1316,7 +1323,7 @@ const CREW_FROM_COLONY := 0.5     # hands a second from a colony
 func _refuel(delta: float) -> void:
 	for s in ships:
 		s.refuelling = false
-		if s.dead or (s.fuel >= s.fuel_max and s.crew >= s.crew_max and not s.needs_rearm()):
+		if s.dead or (s.fuel >= s.fuel_max and s.crew >= s.crew_max and not s.needs_rearm() and not s.armor_spent()):
 			continue
 		var rate := 0.0
 		var hands := 0.0
@@ -1328,6 +1335,8 @@ func _refuel(delta: float) -> void:
 			if p.is_colonised() and p.owner_race == s.race_id and p.global_position.distance_to(s.global_position) < p.radius + 220.0:
 				rate = maxf(rate, 0.04)
 				hands = maxf(hands, CREW_FROM_COLONY)
+		if hands > 0.0 and s.armor_spent():
+			s.restock_armor()          # a fresh ablative layer, the reactive tiles re-armed
 		if hands > 0.0 and s.crew < s.crew_max and s.boarded_by == null:
 			var was_crew := s.crew
 			s.crew = minf(s.crew + hands * delta, s.crew_max)
@@ -1413,6 +1422,12 @@ func _on_ship_damaged(s: Ship, amount: float) -> void:
 	if s.is_player:
 		last_player_damage = elapsed
 		add_shake(clampf(amount * 0.04, 1.0, 10.0))
+	if s.is_station and not Net.is_client() and s.is_breached() != s.get_meta("breached", false):
+		# tell whoever broke it open that it can be boarded now
+		s.set_meta("breached", s.is_breached())
+		var by: Ship = s.last_attacker as Ship
+		if s.is_breached() and by != null and is_instance_valid(by) and Capture.why_not(by, s) in ["", "far"]:
+			notify(by, "The %s %s is breached: shields down, hull broken. Close in and press %s to board." % [GameData.race(s.race_id)["adj"], s.ship_name, Keybinds.short_text("board")])
 
 
 func _on_ship_died(s: Ship, killer: Node) -> void:

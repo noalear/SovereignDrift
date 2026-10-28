@@ -68,6 +68,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			Net.client_command("silent")
 		else:
 			ship.set_silent(not ship.sensors.emcon)
+	elif event.is_action_pressed("shield_focus"):
+		if Net.is_client():
+			Net.client_command("shield_focus")
+		ship.cycle_shield_focus()
+	elif event.is_action_pressed("shields_toggle"):
+		if Net.is_client():
+			Net.client_command("shields")
+		ship.set_shields_raised(not ship.shields_raised)
 	elif event.is_action_pressed("target_next"):
 		world.cycle_target(ship)
 	elif event.is_action_pressed("target_nearest"):

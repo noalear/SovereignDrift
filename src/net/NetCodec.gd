@@ -17,6 +17,7 @@ const FLAG_WARPING := 4
 const FLAG_STATION := 8
 const FLAG_JAMMED := 16       # someone's jammer is on it
 const FLAG_SILENT := 32       # silent running
+const FLAG_SHIELDS_DOWN := 64 # shields lowered
 
 ## Signatures go as one byte each, in steps of this.
 const SIG_STEP := 4.0
@@ -77,7 +78,7 @@ static func unpack_input(data: PackedByteArray) -> Dictionary:
 	return out
 
 
-## The state of every ship, 30 bytes each, after a 12-byte header: heat,
+## The state of every ship, 31 bytes each, after a 12-byte header: heat,
 ## EM and temporal signatures ride along so clients can work out their
 ## own contacts (radar return they work out themselves).
 static func pack_snapshot(elapsed: float, ack_seq: int, ships: Array) -> PackedByteArray:
@@ -95,6 +96,7 @@ static func pack_snapshot(elapsed: float, ack_seq: int, ships: Array) -> PackedB
 		b.put_16(int(wrapf(s.rotation, -PI, PI) * 10000.0))
 		b.put_u8(_gauge(s.hull, s.hull_max))
 		b.put_u8(_gauge(s.shield, s.shield_max))
+		b.put_u8(_gauge(s.shield_front, s.shield))
 		b.put_u8(_gauge(s.energy, s.energy_max))
 		b.put_u8(int(clampf(s.thrust_level, 0.0, 1.0) * 255.0))
 		var flags := 0
@@ -104,13 +106,14 @@ static func pack_snapshot(elapsed: float, ack_seq: int, ships: Array) -> PackedB
 		if s.is_station: flags |= FLAG_STATION
 		if s.sensors.is_jammed(): flags |= FLAG_JAMMED
 		if s.sensors.emcon: flags |= FLAG_SILENT
+		if not s.shields_raised: flags |= FLAG_SHIELDS_DOWN
 		b.put_u8(flags)
 		for ch in ["heat", "em", "temporal"]:
 			b.put_u8(int(clampf(s.sensors.signature(ch) / SIG_STEP, 0.0, 255.0)))
 	return b.data_array
 
 
-## Returns {elapsed, ack_seq, ships: [{net_id, pos, vel, rot, hull, shield, energy, thrust, flags, sig}]}.
+## Returns {elapsed, ack_seq, ships: [{net_id, pos, vel, rot, hull, shield, front, energy, thrust, flags, sig}]}.
 static func unpack_snapshot(data: PackedByteArray) -> Dictionary:
 	var b := StreamPeerBuffer.new()
 	b.data_array = data
@@ -125,6 +128,7 @@ static func unpack_snapshot(data: PackedByteArray) -> Dictionary:
 		e["rot"] = b.get_16() / 10000.0
 		e["hull"] = b.get_u8() / 255.0
 		e["shield"] = b.get_u8() / 255.0
+		e["front"] = b.get_u8() / 255.0
 		e["energy"] = b.get_u8() / 255.0
 		e["thrust"] = b.get_u8() / 255.0
 		e["flags"] = b.get_u8()

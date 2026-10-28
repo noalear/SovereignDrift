@@ -155,6 +155,9 @@ func _process(_delta: float) -> bool:
 					step = 99
 				return false
 			_check("enemy colony" in Ground.troop_refusal(p, "unload", ""), "troops can't just go ashore on an enemy world")
+			# two more infantry dug in, so the battle outlasts the commandos'
+			# first SABOTAGE_TIME however many of our warships pass overhead
+			mars.garrison["infantry"] = mars.garrison.get("infantry", 0.0) + 2.0
 			w.troop_command(p, "land")
 			_check(not mars.battle.is_empty() and int(mars.battle["race"]) == p.race_id and p.troop_count() == 0, "the troops went in: a ground battle on Mars")
 			var card: Array = mars.info_lines(p.race_id)
@@ -293,6 +296,7 @@ func _process(_delta: float) -> bool:
 			dai.state = AIPilot.State.PATROL
 			dai.job_planet = null
 			dai.plan_timer = 0.0
+			dropper.leave_ground_now()     # frozen mid-muster on some world: up off it first, or it stays put there
 			dropper.global_position = europa.global_position + (europa.global_position - w.sun.global_position).normalized() * (europa.radius + 600.0)
 			dropper.velocity = europa.velocity
 			dropper.body.pos = dropper.global_position
@@ -306,6 +310,8 @@ func _process(_delta: float) -> bool:
 			var europa: Planet = w.planet_by_name["Europa"]
 			europa.silenced = maxf(europa.silenced, 5.0)
 			dropper.invulnerable = 1e9
+			# the Terran governor's war aim, so its pick of a target elsewhere doesn't draw the drop ship off
+			w.governors[1].target = europa
 			if europa.owner_race != 1 and europa.battle.is_empty() and now - t0 < 120.0:
 				return false
 			var ai: AIPilot = dropper.get_node("AI")

@@ -8,6 +8,15 @@
 ## aboard (infantry or commandos in the troop bays) make a boarding party
 ## fight harder (Ground.board_power).
 ##
+## Stations are taken the same way once they are breached: shields shot
+## down and the hull broken to under half.  There is nothing to tow, so
+## the tractor clamps the boarding ship to the station instead, and while
+## the boarders are aboard they hold the shield room.  Station crews fight
+## from behind their own bulkheads (STATION_DEFENSE) and muster more hands
+## from their world while left alone, so bring a big crew or marines.  A
+## captured station keeps working for its new empire, with what its hold
+## had.  Home starbases and the neutral free port can't be taken.
+##
 ## A ship flown by the computer becomes a prize: a prize crew patches it
 ## up and it flies as your wingman under your colours (the pilot who lost
 ## it relaunches at home in a new ship).  A ship flown by a person is
@@ -39,6 +48,16 @@ const TRACTOR_RATE := 2.5
 const MAX_PRIZES_PER_PILOT := 2
 ## Prizes in the whole system; past this a capture is salvaged instead.
 const MAX_PRIZES := 10
+## A station is breached, open to boarders, with its shields at or under
+## this share and its hull at or under this one.
+const STATION_BREACH_SHIELD := 0.1
+const STATION_BREACH_HULL := 0.5
+## Station crews fight from behind their own bulkheads: their kills count
+## this much more.
+const STATION_DEFENSE := 1.4
+## Hands a second a station musters from its world once its shields are
+## back up, up to its full crew.
+const STATION_MUSTER := 0.25
 
 var world: Node
 
@@ -55,12 +74,13 @@ static func board_estimate(captor: Node, victim: Node) -> float:
 	var d: float = victim.crew
 	var floor_a: float = captor.crew_max * REPELLED_AT
 	var power := Ground.board_power(captor)
+	var hold := STATION_DEFENSE if victim.is_station else 1.0
 	var t := 0.0
 	var dt := 0.1
 	while d > 0.05:
 		if a <= floor_a or t > 60.0:
 			return INF
-		var da := d * DEFENDER_KILLS * dt
+		var da: float = d * DEFENDER_KILLS * hold * victim.board_defence() * dt
 		d -= a * BOARDER_KILLS * power * dt
 		a -= da
 		t += dt
@@ -82,11 +102,20 @@ static func why_not(captor: Node, victim: Node) -> String:
 		return "arena"
 	if victim == captor or victim.race_id == captor.race_id:
 		return "friendly"
-	if captor.is_station or victim.is_station:
-		return "station"
+	if captor.is_station:
+		return "from station"
+	if victim.is_starbase():
+		return "starbase"
+	if victim.race_id == GameData.NEUTRAL:
+		return "neutral"
 	if victim.is_landing():
 		return "landed"
-	if not victim.is_disabled():
+	if victim.is_station:
+		# once aboard, the boarders hold the shield room: only a fresh
+		# boarding needs the breach
+		if not victim.is_breached() and victim.boarded_by != captor:
+			return "intact"
+	elif not victim.is_disabled():
 		return "not disabled"
 	if victim.boarded_by != null and is_instance_valid(victim.boarded_by) and victim.boarded_by != captor and not victim.boarded_by.dead:
 		return "taken"
@@ -109,8 +138,14 @@ static func reason_text(why: String, captor: Node, victim: Node) -> String:
 			return "No boarding in a duel."
 		"arena":
 			return "No boarding in %s." % captor.world.mode.capitalize()
-		"station":
-			return "Stations can't be boarded."
+		"from station":
+			return "A station can't board anything."
+		"starbase":
+			return "A home starbase is too big to board. Destroy it instead."
+		"neutral":
+			return "The free port is neutral ground."
+		"intact":
+			return "Breach it first: shields down and hull under %d%% (now %d%%)." % [int(STATION_BREACH_HULL * 100.0), int(victim.hull / maxf(victim.hull_max, 1.0) * 100.0)]
 		"landed":
 			return "It's down on the surface. Wait for it to lift off."
 		"not disabled":
@@ -148,6 +183,9 @@ func try_board(captor: Ship, victim: Node) -> bool:
 	world.notify(captor, ("Tractor locked on %s. Boarding: your %d crew%s against their %d, about %d s. Stay close." % [victim.ship_name, int(ceil(captor.crew)), marines, int(ceil(victim.crew)), int(ceil(est))]) if est < INF
 		else ("Tractor locked on %s. Warning: their %d crew will likely throw your %d back." % [victim.ship_name, int(ceil(victim.crew)), int(ceil(captor.crew))]))
 	world.notify(victim, "%s is boarding us! Fight them off or get the engines back." % captor.pilot_name)
+	if victim.is_station:
+		world.notify_all("%s is boarding the %s %s!" % [captor.pilot_name, GameData.race(victim.race_id)["adj"], victim.ship_name],
+			captor.race_color() if captor.is_player else Color(0.85, 0.85, 0.75))
 	return true
 
 
@@ -168,6 +206,8 @@ func tick(delta: float) -> void:
 		if s.boarding == null:
 			if s.boarded_by != null and (not is_instance_valid(s.boarded_by) or s.boarded_by.boarding != s):
 				s.boarded_by = null
+			if s.is_station and s.boarded_by == null and not s.dead:
+				_muster(s, delta)
 			continue
 		var v: Ship = s.boarding
 		if s.dead or not is_instance_valid(v) or v.dead:
@@ -183,11 +223,15 @@ func tick(delta: float) -> void:
 		var d := s.global_position.distance_to(v.global_position)
 		var rel := v.velocity - s.velocity
 		# the tractor: match the prize's motion to ours and hold it alongside
+		# (a station keeps station: the clamps pull us to it instead)
 		if d < board_range(s, v) * 1.6:
 			var want := (s.size + v.size) * 1.15
 			var dir := (v.global_position - s.global_position) / maxf(d, 0.001)
 			var dv := -rel * minf(TRACTOR_RATE * delta, 1.0) - dir * clampf(d - want, -60.0, 60.0) * minf(TRACTOR_RATE * delta, 1.0)
-			v.apply_hit_impulse(dv * v.body.mass, v.global_position)
+			if v.is_station:
+				s.apply_hit_impulse(-dv * s.body.mass, s.global_position)
+			else:
+				v.apply_hit_impulse(dv * v.body.mass, v.global_position)
 		if why == "far" or rel.length() > BOARD_SPEED:
 			s.board_lost += delta
 			if s.board_lost > BOARD_GRACE:
@@ -195,7 +239,9 @@ func tick(delta: float) -> void:
 			continue
 		s.board_lost = 0.0
 		# the fight aboard
-		var lost := v.crew * DEFENDER_KILLS * delta
+		if v.is_station:
+			v.shield = 0.0                 # the boarders hold the shield room
+		var lost: float = v.crew * DEFENDER_KILLS * (STATION_DEFENSE if v.is_station else 1.0) * v.board_defence() * delta
 		v.crew = maxf(v.crew - s.crew * BOARDER_KILLS * Ground.board_power(s) * delta, 0.0)
 		s.crew = maxf(s.crew - lost, 0.0)
 		s.board_progress = clampf(1.0 - v.crew / s.board_start_crew, 0.0, 1.0)
@@ -206,8 +252,17 @@ func tick(delta: float) -> void:
 			world.notify(v, "Boarders thrown back!")
 
 
+## A station left alone fills its crew back up from its world.
+func _muster(st: Ship, delta: float) -> void:
+	if st.crew < st.crew_max and st.shield >= st.shield_max * 0.95 and not st.is_starbase():
+		st.crew = minf(st.crew + STATION_MUSTER * delta, st.crew_max)
+
+
 ## The ship is ours.
 func take(captor: Ship, victim: Ship) -> void:
+	if victim.is_station:
+		take_station(captor, victim)
+		return
 	cancel(captor, "")
 	var human: bool = victim.is_player or victim.net_id in Net.seats.values()
 	var prizes := prizes_of(captor)
@@ -326,3 +381,64 @@ func send_home(prize: Ship) -> void:
 	world.fx.explosion(prize.global_position, prize.size, Color(0.6, 0.8, 1.0), false)
 	Sfx.play("warpout", prize.global_position, 0.6)
 	world.remove_ship(prize)
+
+
+## A station is ours: it keeps its world, its place and its hold, and
+## works for our empire now.  The old station leaves without a blast (the
+## way a captured ship does) and a new one under our colours takes its
+## place, so every client and every save sees a plain new station.
+func take_station(captor: Ship, st: Ship) -> void:
+	cancel(captor, "")
+	var key: String = st.design_name
+	var label: String = GameData.STATIONS.get(key, {}).get("label", key)
+	var was: String = GameData.race(st.race_id)["adj"]
+	captor.add_score(25 + st.rank * 3, true)
+	captor.ships_captured += 1
+	if captor.is_player or captor.net_id in Net.seats.values():
+		var pay := 100 + int(GameData.STATIONS.get(key, {}).get("kit", 200) * 0.5)
+		captor.earn(pay)
+		world.notify(captor, "Captured the %s %s! It works for the %s now. Prize money %d credits." % [was, st.ship_name, GameData.race(captor.race_id)["name"], pay])
+	var round_rules = world.round_rules
+	if round_rules != null:
+		round_rules.on_kill(captor.race_id)
+		round_rules.note("%s captured the %s %s" % [captor.pilot_name, was, label.to_lower()], captor.race_id)
+	world.notify_all("%s (%s) captured the %s %s." % [captor.pilot_name, GameData.race(captor.race_id)["name"], was, st.ship_name],
+		captor.race_color() if captor.is_player else Color(0.85, 0.85, 0.75))
+	Sfx.play_ui("captured", 0.7)
+	var ns := _turn_station(captor, st)
+	for s in world.ships:
+		if s.target == st:
+			s.target = ns if s.team() != ns.team() else null
+	st.captured = true
+	st._die(captor)
+	Net.host_ship_added(ns)
+
+
+func _turn_station(captor: Ship, st: Ship) -> Ship:
+	var ns: Ship = world._make_ship("%s %s" % [GameData.race(captor.race_id)["adj"], st.ship_name], captor.race_id, st.design_name, st.ship_name, false, st.hull_race)
+	ns.station_body = st.station_body
+	ns.building = st.building
+	ns.build_t = st.build_t
+	ns.refit(st.design.duplicate(true))
+	for m in ["station_angle", "station_r", "trojan"]:
+		if st.has_meta(m):
+			ns.set_meta(m, st.get_meta(m))
+	ns.founder = captor.pilot_name     # a trade station's fees go to whoever took it
+	ns.global_position = st.global_position
+	ns.velocity = st.velocity
+	ns.rotation = st.rotation
+	ns.reset_physics_interpolation()
+	ns.body.pos = ns.global_position
+	ns.body.vel = ns.velocity
+	ns.body.angle = ns.rotation
+	ns.hull = st.hull
+	ns.shield = 0.0
+	ns.cargo = st.cargo.duplicate()
+	# part of the boarding party stays aboard to run her
+	var hands := clampf(captor.crew * PRIZE_CREW_SHARE, 1.0, float(ns.crew_max))
+	ns.crew = hands
+	captor.crew = maxf(captor.crew - hands, 0.0)
+	ns.invulnerable = 1.5
+	if not ns.building:
+		world._arm_station(ns)
+	return ns
