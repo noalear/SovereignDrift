@@ -619,6 +619,10 @@ const STATIONS := {
 	"Shipyard": {"label": "Shipyard", "cost": {"metals": 60, "alloys": 20, "exotics": 5}, "build": 240.0, "kit": 500, "where": "any",
 		"does": "refits (U), sells kits and builds ships away from home"},
 }
+## Hull and shields of every built station (and its frame) on top of the
+## usual station build-up; home starbases are left as they are (Kyle,
+## 2026-10-29: "make the stations a little harder to take down").
+const STATION_TOUGHNESS := 1.4
 const STATION_ORDER := ["MiningStation", "GasSkimmer", "Refinery", "SupplyDepot", "SensorStation", "DefenseStation", "TradeStation", "Shipyard"]
 ## The rank that may buy and deploy station kits (Lt. Cmdr.).
 const KIT_RANK := 5
@@ -1144,8 +1148,11 @@ static func stats_for(design: Dictionary) -> Dictionary:
 	# armor mass is thermal mass: the hull's heat moves this many seconds behind the burn
 	st["thermal_lag"] = 1.0 + st["armor_mass"] / 2000.0
 	if is_station:
-		st["hull_max"] *= 4.0
-		st["shield_max"] *= 2.5
+		# built stations (not the home starbases) a little tougher again; the
+		# recharge stays, or a lone ship's guns could never outpace it
+		var tough := 1.0 if design["name"] == "Starbase" else STATION_TOUGHNESS
+		st["hull_max"] *= 4.0 * tough
+		st["shield_max"] *= 2.5 * tough
 		st["shield_regen"] *= 2.5
 		# a station's big dishes: a sensor station sees right across the system
 		var dish := 6000.0 if design["name"] == "SensorStation" and design["modules"].size() > 1 else 2600.0
