@@ -20,6 +20,13 @@ extends Node
 enum State { PATROL, ATTACK, EVADE, RETREAT, ESCORT, BOARD, FERRY, FLEE }
 
 const CLEARANCE := 90.0       # room a wingman keeps off every other ship near its slot
+## Wing orders under which wingmen jump when their leader does (on Hold
+## they keep the spot, on Attack they stay on the target).
+const FOLLOW_JUMP_ORDERS := ["form", "cover", "engage"]
+## A wingman jumps with its leader only with this much energy in hand
+## (a warp burns 160 a second once charged).
+const FOLLOW_JUMP_ENERGY := 400.0
+
 ## A boarding that would take longer than this is not worth trying.
 const BOARD_PATIENCE := 20.0
 ## A prize keeps within this of the ship it escorts, and fights what
@@ -184,6 +191,8 @@ func _wing_target(current: Node2D, lead: Ship) -> Node2D:
 	if sent_home:
 		return _cornered()
 	var o: Dictionary = world.wing.order_of(lead)
+	if lead.warping and o["order"] in FOLLOW_JUMP_ORDERS:
+		return null                 # the leader is jumping: break off and go with it
 	match o["order"]:
 		"form":
 			return _threat(lead)
@@ -585,6 +594,12 @@ func _steer_to(point: Vector2, delta: float, arrive: bool) -> float:
 	else:
 		ship.inputs["thrust"] = 1.0 if absf(diff) < 0.9 else 0.3
 		ship.inputs["brake"] = false
+	if ship.warping:
+		# a warp can't brake or turn: hold it until the drop-out point,
+		# or drop out now if the point is no longer ahead
+		ship.inputs["brake"] = false
+		if dist < ship.warp_drop_distance() or absf(diff) > 0.5:
+			ship.end_warp()
 	# drift correction: thrust against sideways velocity
 	var side := ship.velocity.dot(to.normalized().orthogonal())
 	ship.inputs["strafe"] = clampf(-side / 120.0, -1.0, 1.0) * (1.0 if absf(diff) < 1.2 else 0.0)
@@ -594,12 +609,16 @@ func _steer_to(point: Vector2, delta: float, arrive: bool) -> float:
 func _act(delta: float) -> void:
 	var i := ship.inputs
 	i["boost"] = false
+	if ship.warping and state in [State.ATTACK, State.EVADE, State.BOARD]:
+		ship.end_warp()             # no fighting from inside a warp
 	if reaction > 0.0:
 		reaction -= delta
 	var tgt := ship.target
 	match state:
 		State.ESCORT:
 			if escort == null or not is_instance_valid(escort) or escort.dead:
+				return
+			if _follow_jump(delta):
 				return
 			# hold our place in the wing, a little ahead of the leader's motion
 			var spot := _wing_spot() if not convoy_guard else escort.global_position \
@@ -618,8 +637,7 @@ func _act(delta: float) -> void:
 				i["turn"] = clampf(wrapf(escort.rotation - ship.rotation, -PI, PI) * 2.0, -1.0, 1.0)
 			_keep_clear()
 			_avoid_planets(delta)
-			if ship.qdrv > 0.0 and far > 5000.0 and not ship.warping and absf(i["turn"]) < 0.1:
-				ship.start_warp()
+			_warp_to(spot)
 		State.BOARD:
 			if tgt == null or not is_instance_valid(tgt):
 				return
@@ -642,8 +660,7 @@ func _act(delta: float) -> void:
 			_avoid_planets(delta)
 			_steer_to(patrol_point, delta, true)
 			i["fire_beam"] = false
-			if ship.qdrv > 0.0 and ship.global_position.distance_to(patrol_point) > 5000.0 and not ship.warping and absf(i["turn"]) < 0.1:
-				ship.start_warp()
+			_warp_to(patrol_point)
 		State.ATTACK:
 			if tgt == null or not is_instance_valid(tgt):
 				return
@@ -706,8 +723,7 @@ func _act(delta: float) -> void:
 				var p := home.global_position + (ship.global_position - home.global_position).normalized() * (home.radius + 220.0)
 				_steer_to(p, delta, true)
 				i["boost"] = ship.energy > ship.energy_max * 0.5 and ship.global_position.distance_to(p) > 800.0
-				if ship.qdrv > 0.0 and ship.global_position.distance_to(p) > 4000.0 and not ship.warping and absf(i["turn"]) < 0.1 and ship.energy > 500.0:
-					ship.start_warp()
+				_warp_to(p, 4000.0, 500.0)
 			_avoid_planets(delta)
 
 
@@ -1669,8 +1685,8 @@ func _fly_far(point: Vector2, far: float, delta: float) -> bool:
 		return false
 	_steer_to(way, delta, way == point)
 	_avoid_planets(delta)
-	if way == point and ship.qdrv > 0.0 and far > 5000.0 and not ship.warping and absf(ship.inputs["turn"]) < 0.1 and ship.energy > 400.0:
-		ship.start_warp()
+	if way == point:
+		_warp_to(point)
 	return true
 
 
@@ -1809,7 +1825,50 @@ func _flee(delta: float) -> void:
 	i["boost"] = ship.energy > ship.energy_max * 0.3 and far > 900.0
 	if flee_from != null and is_instance_valid(flee_from):
 		i["fire_mine"] = _mine_ok(flee_from, flee_from.global_position.distance_to(ship.global_position)) and randf() < 0.05
-	if ship.qdrv > 0.0 and far > 4000.0 and not ship.warping and absf(i["turn"]) < 0.1 and ship.energy > 400.0:
+	_warp_to(point, 4000.0)
+
+
+## A wingman jumps with its leader: when the leader starts a warp it
+## turns to the leader's heading and warps too, if it has the drive and the
+## energy, and holds the warp at the leader's speed (the wing jumps as one,
+## whatever its own drive) while the leader does.  A convoy's escorts go
+## with their hauler the same way.
+func _follow_jump(delta: float) -> bool:
+	if not escort.warping or (not convoy_guard and not (order() in FOLLOW_JUMP_ORDERS)):
+		return false
+	var i := ship.inputs
+	i["brake"] = false
+	if ship.warping:
+		# bend with the leader (autopilot turns its warps round bodies),
+		# toward our slot, which runs ahead with the leader's motion, and
+		# close up on the slot a little faster or slower than the leader
+		var spot := _wing_spot()
+		ship.rotation = rotate_toward(ship.rotation, (spot - ship.global_position).angle(), deg_to_rad(ship.turn_speed) * 0.5 * delta)
+		var pace := escort.warp_pace if escort.warp_pace > 0.0 else escort.warp_speed()
+		var behind := (spot - escort.velocity * 0.8 - ship.global_position).dot(escort.forward())
+		ship.warp_pace = pace + clampf(behind * 0.5, -0.2 * pace, 0.3 * pace)
+		return true
+	if ship.qdrv <= 0.0 or ship.energy <= FOLLOW_JUMP_ENERGY or ship.systems.is_offline("qdrv") or ship.engines_out():
+		return false
+	var diff := wrapf(escort.rotation - ship.rotation, -PI, PI)
+	i["turn"] = clampf(diff * 3.0, -1.0, 1.0)
+	i["thrust"] = 1.0 if absf(diff) < 0.5 else 0.0
+	i["strafe"] = 0.0
+	if absf(diff) < 0.12:
+		ship.start_warp()
+		if ship.warping:
+			ship.warp_pace = escort.warp_pace if escort.warp_pace > 0.0 else escort.warp_speed()
+	return true
+
+
+## Warp toward `point` when it is worth a jump: nose on, far enough, the
+## energy for it and no warp just ended (Ship.warp_worth).  Every computer
+## pilot starts its warps here, so none flickers in and out of warp.
+func _warp_to(point: Vector2, min_far := 5000.0, min_energy := 400.0) -> void:
+	if absf(ship.inputs["turn"]) >= 0.1:
+		return
+	var to := point - ship.global_position
+	if ship.warp_worth(to, to.length(), min_far, min_energy):
 		ship.start_warp()
 
 
