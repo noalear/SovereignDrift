@@ -140,10 +140,9 @@ func _draw() -> void:
 
 
 ## Names in the world: every planet and moon under its body, and every
-## ship you can see above it, green for your side and red for anyone else.
-## Worlds, moons and stations are coloured by who holds them
-## (World.owner_color): green yours, yellow friendly, red enemy, grey
-## nobody's.
+## ship you can see above it, in the colour of the empire that holds it
+## (World.label_color): Terran blue, Drengin red, Pirate yellow, Arcean
+## green, grey for nobody's.
 ## Planets are placed first; a label that would land on one already
 ## placed is skipped, so crowded moons and fleets don't pile up.
 func _draw_labels(p: Ship, vp: Vector2) -> void:
@@ -160,7 +159,7 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 			continue
 		var moon: bool = pl.parent_body != null
 		var size := 12 if moon else 14
-		var col := world.planet_label_color(p, pl)
+		var col := world.planet_label_color(pl)
 		col.a = 0.85 if moon else 1.0
 		var pos := at + Vector2(0, r + 4.0 + size)
 		var w := font.get_string_size(pl.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
@@ -179,15 +178,9 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 		var reach: float = sh.size
 		if sh.shield_bubble != null:
 			reach = maxf(reach, maxf(sh.shield_bubble.half.x, sh.shield_bubble.half.y) + sh.shield_bubble.position.length())
-		var friend: bool = sh.team() == p.team()
-		var col := Color(0.45, 1.0, 0.5) if friend else (Color(1.0, 0.38, 0.32) if world.shown_hostile(p, sh) else World.PEACE_COLOR)
-		if sh.is_station:
-			col = world.owner_color(p, sh.team())
-		elif sh.race_id == GameData.NEUTRAL:
-			col = sh.race_color()
+		var col := world.label_color(sh.race_id)
 		var text: String = station_label(sh) if sh.is_station else sh.pilot_name
-		if friend and my_wing.has(sh):
-			col = WING_COLOR
+		if sh.team() == p.team() and my_wing.has(sh):
 			text = "%s  [W%d]" % [sh.pilot_name, my_wing.find(sh) + 1]
 		var pos := at - Vector2(0, reach * cam.zoom.x + 8.0)
 		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
@@ -487,9 +480,7 @@ func _draw_target(p: Ship, vp: Vector2) -> void:
 	var cam := world.camera
 	var screen := (world.drawn_position(t) - world.camera_centre()) * cam.zoom + vp * 0.5
 	var r: float = (t.size if t is Ship else t.radius) * cam.zoom.x + 10.0
-	var col: Color = t.race_color() if t is Ship else Color(1, 1, 1)
-	if t is Ship and t.team() == p.team():
-		col = Color(0.5, 1.0, 0.5)
+	var col: Color = world.label_color(t.race_id) if t is Ship else Color(1, 1, 1)
 	var vis: bool = t is Planet or t.visible_to(p)
 	if vis and screen.x > -50 and screen.x < vp.x + 50 and screen.y > -50 and screen.y < vp.y + 50:
 		var pts := [Vector2(-r, -r), Vector2(r, -r), Vector2(r, r), Vector2(-r, r)]

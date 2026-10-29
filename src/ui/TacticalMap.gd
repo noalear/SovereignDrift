@@ -275,8 +275,8 @@ func _draw_labels(labels: Array, ship_marks: Array[Rect2] = []) -> void:
 			if clash and p != hover_planet:
 				continue
 			taken.append(rect)
-			# coloured by who holds it: green yours, yellow friendly, red enemy, grey nobody's
-			var lc := world.planet_label_color(world.player, p)
+			# in its empire's colour, grey if nobody's
+			var lc := world.planet_label_color(p)
 			lc.a = 0.95 if p.is_colonised() else 0.8
 			draw_string(font, pos + off, p.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, lc)
 			break

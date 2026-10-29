@@ -30,7 +30,7 @@ const RACES := [
 	 "color": Color(1.0, 0.4, 0.35), "dark": Color(0.45, 0.1, 0.1),
 	 "weapon1": "Photon gun", "weapon2": "Disruptor"},
 	{"id": 3, "name": "Pirate", "adj": "Pirate", "home": "Ceres",
-	 "color": Color(1.0, 0.75, 0.3), "dark": Color(0.4, 0.3, 0.1),
+	 "color": Color(1.0, 0.86, 0.25), "dark": Color(0.4, 0.3, 0.1),
 	 "weapon1": "Mass driver", "weapon2": "Plasma torpedo"},
 	# nobody's: the free port at Jupiter's Trojan point (the Resources update)
 	{"id": 4, "name": "Free port", "adj": "Free", "home": "Jupiter",

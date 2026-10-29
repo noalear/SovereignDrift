@@ -1,8 +1,7 @@
-# Owner labels test: are world, moon and station names coloured by who
-# holds them, as the player sees it?  (Kyle, 2026-10-29: "Planets/moons/
-# stations that are owned by your team should have their labels in green.
-# Owned by friendlies should be yellow. Owned by enemies red. Unowned in
-# grey.")
+# Owner labels test: are ship, world, moon and station names in the
+# colour of the empire that holds them?  (Kyle, 2026-10-29: "all names/
+# labels/etc on ships planets etc for terran are blue, drengin are red,
+# pirates are yellow, and arcean are green."  Unowned stays grey.)
 #   godot --headless --path . -s tools/owner_labels_test.gd
 #   xvfb-run -a -s "-screen 0 1920x1080x24" godot --path . --rendering-driver opengl3 -s tools/owner_labels_test.gd -- --shots
 # --shots also saves the labels near Earth and the system map to
@@ -45,57 +44,47 @@ func _start() -> void:
 	w = main.world
 	var p = w.player
 	var W = w.get_script()
-	var mine := -1
-	var other := -1
-	var empty := -1
-	for i in w.planets.size():
-		var pl = w.planets[i]
-		if pl.look == "Sun":
-			continue
-		if pl.is_colonised() and pl.owner_race == p.race_id and mine < 0:
-			mine = i
-		elif pl.is_colonised() and pl.owner_race != p.race_id and pl.owner_race <= 2 and other < 0:
-			other = i
-		elif not pl.is_colonised() and empty < 0:
-			empty = i
-	_check(mine >= 0 and other >= 0 and empty >= 0, "Sol has a world of ours, another empire's and an empty one")
-	if mine < 0 or other < 0 or empty < 0:
-		quit(1)
-		return
-	var their: int = w.planets[other].owner_race
-	w.accord = false
-	w.peace = []
-	_check(w.planet_label_color(p, w.planets[mine]) == W.LABEL_OWN, "%s (ours) is green" % w.planets[mine].body_name)
-	_check(w.planet_label_color(p, w.planets[other]) == W.LABEL_ENEMY, "%s (at war) is red" % w.planets[other].body_name)
-	_check(w.planet_label_color(p, w.planets[empty]) == W.LABEL_NONE, "%s (nobody's) is grey" % w.planets[empty].body_name)
-	w.peace = [[p.race_id, their]]
-	_check(w.planet_label_color(p, w.planets[other]) == W.LABEL_FRIEND, "%s (at peace) is yellow" % w.planets[other].body_name)
-	w.peace = []
-	w.accord = true
-	_check(w.planet_label_color(p, w.planets[other]) == W.LABEL_FRIEND, "%s under the Accord is yellow" % w.planets[other].body_name)
-	_check(w.owner_color(p, 3) == W.LABEL_ENEMY, "pirates stay red under the Accord")
-	w.accord = false
-	_check(w.owner_color(p, gd.NEUTRAL) == W.LABEL_NONE, "the free port's side is grey")
-	_check(w.owner_color(null, p.race_id) != W.LABEL_OWN, "no viewer: no side is anyone's own")
-	# stations: the label follows the station's team()
-	var own_base = null
-	var enemy_base = null
+	# each empire's own colour, whoever looks and whatever the politics
+	var hue := {
+		0: func(c: Color): return c.g > c.r + 0.3 and c.g > c.b + 0.3,             # Arcean green
+		1: func(c: Color): return c.b > c.r + 0.3 and c.b >= c.g,                   # Terran blue
+		2: func(c: Color): return c.r > c.g + 0.4 and c.r > c.b + 0.4,             # Drengin red
+		3: func(c: Color): return c.r > 0.9 and c.g > 0.8 and c.b < 0.4,            # Pirate yellow
+	}
+	var names := {0: "Arcean green", 1: "Terran blue", 2: "Drengin red", 3: "Pirate yellow"}
+	for race in hue:
+		_check(hue[race].call(w.label_color(race)), "%s labels are %s %s" % [gd.race(race)["name"], names[race], w.label_color(race)])
+	_check(w.label_color(gd.NEUTRAL) == W.LABEL_NONE, "the free port's labels are grey")
+	_check(w.label_color(-1) == W.LABEL_NONE, "nobody's is grey")
+	var seen := {}
+	var empty = null
+	for pl in w.planets:
+		if pl.is_colonised():
+			seen[pl.owner_race] = true
+			if w.planet_label_color(pl) != w.label_color(pl.owner_race):
+				_check(false, "%s is in its empire's colour" % pl.body_name)
+		elif empty == null and pl.look != "Sun":
+			empty = pl
+	_check(seen.size() >= 3, "Sol has colonies of %d empires" % seen.size())
+	_check(empty != null and w.planet_label_color(empty) == W.LABEL_NONE, "an empty world (%s) is grey" % (empty.body_name if empty != null else "none"))
+	var drengin = null
+	for pl in w.planets:
+		if pl.is_colonised() and pl.owner_race == 2:
+			drengin = pl
+			break
+	if drengin != null:
+		w.accord = true
+		_check(hue[2].call(w.planet_label_color(drengin)), "%s stays Drengin red under the Accord" % drengin.body_name)
+		w.accord = false
 	for s in w.ships:
-		if s.is_station and not s.dead:
-			if s.team() == p.team() and own_base == null:
-				own_base = s
-			elif s.team() != p.team() and s.race_id <= 2 and enemy_base == null:
-				enemy_base = s
-	if own_base != null:
-		_check(w.owner_color(p, own_base.team()) == W.LABEL_OWN, "our starbase %s is green" % own_base.ship_name)
-	if enemy_base != null:
-		_check(w.owner_color(p, enemy_base.team()) == W.LABEL_ENEMY, "enemy station %s is red" % enemy_base.ship_name)
+		if s.is_station and not s.dead and s.race_id == p.race_id:
+			_check(hue[1].call(w.label_color(s.race_id)), "our starbase %s is Terran blue" % s.ship_name)
+			break
 	# the labels are drawn without errors, on the HUD and the map
 	for i in 5:
 		await process_frame
 	if shots:
 		DirAccess.make_dir_recursive_absolute(out_dir)
-		w.peace = [[p.race_id, 0]]       # Arceans friendly, so all four colours show
 		# out between Earth and Luna, zoomed out, so worlds and the starbase are in view
 		var earth = null
 		var luna = null

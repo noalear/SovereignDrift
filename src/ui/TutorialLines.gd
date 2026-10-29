@@ -35,7 +35,7 @@ const LINES := [
 	["nav", "hale", "Space is big, so let the computer help. Cycle your navigation target until Luna, Earth's moon, is selected."],
 	["autopilot", "hale", "Now engage the autopilot. It steers around planets and the Sun, and brakes for you when you arrive. Touch any flight control to take back manual control."],
 	["warp", "hale", "For long trips, you have a quantum drive. It throws you across the system at many times light speed, but turning or reversing drops you out. Point at open space, jump, then drop out again."],
-	["map", "hale", "Open the system map. It shows every world and who owns it, and every ship your sensors can see. Names of worlds and stations are coloured by who holds them: green is ours, yellow a friendly empire, red the enemy, and grey belongs to nobody. Tap the key to leave it open, or hold it for a quick look."],
+	["map", "hale", "Open the system map. It shows every world and who owns it, and every ship your sensors can see. Every name is in its empire's colour: Terran blue, Drengin red, Arcean green and pirate yellow. A grey world belongs to nobody. Tap the key to leave it open, or hold it for a quick look."],
 	["info", "hale", "Hold shift and click any planet or moon to open its info card: who lives there, its defences, its resources, and what it earns. Try it on Luna or Earth."],
 	["zoom", "hale", "The mouse wheel zooms the camera, and the radar has its own zoom. Zoom out when you want to see trouble coming."],
 	# --- combat
