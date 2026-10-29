@@ -33,6 +33,10 @@ const BOOST_BURN := 1.8
 ## Share of the tank per second the reactor cracks from nothing while the
 ## engines are idle, so nobody is stranded for good (about 33 min empty to full).
 const FUEL_TRICKLE := 0.0005
+## Share of the battery per second that leaks away while the reactor is
+## offline (Kyle 2026-10-29: was 25%, which emptied a Scout in 4 s from one
+## lucky hit and left laser ships with nothing to shoot back with).
+const REACTOR_OUT_DRAIN := 0.04
 ## Fuel per second for the reaction control thrusters at full turn.
 const RCS_BURN := 0.25
 ## How long the RCS takes to reach the design turn rate, in seconds, before size.
@@ -1392,8 +1396,8 @@ func _systems(delta: float) -> void:
 	if systems.changed:
 		apply_systems()
 	if systems.is_offline("reactor"):
-		# the batteries run flat without a reactor behind them
-		energy = maxf(energy - energy_max * 0.25 * delta, 0.0)
+		# the batteries run down without a reactor behind them
+		energy = maxf(energy - energy_max * REACTOR_OUT_DRAIN * delta, 0.0)
 	energy = minf(energy + energy_regen * delta * 0.1 * (Sensors.EMCON_REGEN if sensors.emcon else 1.0), energy_max)
 	# while the engines rest the reactor cracks a trickle of propellant, so
 	# nobody is stranded for good; it never pays for flying
