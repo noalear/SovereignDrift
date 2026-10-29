@@ -26,7 +26,7 @@ static func _texture(path: String) -> Texture2D:
 static func draw_call(c: CanvasItem, r: Rect2, speaker_id: String, place: String, talk: float, noise: float, t: float) -> void:
 	var spk: Dictionary = StoryLines.SPEAKERS.get(speaker_id, {})
 	c.draw_rect(r, Color(0.01, 0.015, 0.03))
-	var bg := _texture(PLACE_DIR % place)
+	var bg := _texture(PLACE_DIR % StoryLines.PLACES.get(place, {}).get("art", place))   # a place may borrow another's painting
 	if bg != null:
 		_draw_cover(c, bg, r)
 	else:

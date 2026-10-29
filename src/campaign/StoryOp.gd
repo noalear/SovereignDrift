@@ -250,7 +250,7 @@ func spawn(pilot: String, race: int, design: String, ship_name: String, pos: Vec
 	return s
 
 
-func alive(s: Ship) -> bool:
+func alive(s) -> bool:              # untyped: a ship taken away is freed
 	return s != null and is_instance_valid(s) and not s.dead
 
 

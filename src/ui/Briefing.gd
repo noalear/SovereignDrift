@@ -36,7 +36,7 @@ func _ready() -> void:
 	_place_buttons()
 	story.briefing_open = true
 	story.hush()
-	for id in story.current().get("brief", []):
+	for id in story.brief_lines():
 		story.say(id)
 
 
