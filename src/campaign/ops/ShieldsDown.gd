@@ -236,11 +236,13 @@ func _suppress() -> void:
 
 
 func cleanup() -> void:
-	var sb: Ship = world.starbase_of(2)
-	if sb != null:
-		for c in sb.get_children():
-			if c is AIPilot:
-				c.set_physics_process(true)
+	# a starbase shot down meanwhile is still benched for its rebuild: wake
+	# its pilot too, or it comes back with its guns asleep
+	for sb in world.ships:
+		if sb.is_starbase() and sb.race_id == 2:
+			for c in sb.get_children():
+				if c is AIPilot:
+					c.set_physics_process(true)
 	super.cleanup()
 
 

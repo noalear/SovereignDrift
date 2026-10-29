@@ -1703,6 +1703,11 @@ func _process(delta: float) -> void:
 		switched.emit(pilot)
 		queue_free()
 		return
+	# and a starbase or shipyard shot out from under the dock closes the yard
+	if base != null and (not is_instance_valid(base) or base.dead) and not is_queued_for_deletion():
+		world.notify(pilot, "The dock was destroyed: the shipyard is closed and nothing was bought.")
+		_cancel()
+		return
 	# a held D-pad or stick repeats
 	if _repeat_dir != Vector2i.ZERO:
 		var still := _stick_dir() == _repeat_dir

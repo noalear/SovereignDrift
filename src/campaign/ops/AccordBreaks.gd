@@ -87,8 +87,7 @@ func step(delta: float) -> void:
 				_held()
 		"home":
 			_relief_in()
-			var base: Ship = world.starbase_of(1)
-			if base != null and pilot_near(base.global_position, HOME_REACH) != null:
+			if pilot_near(home_base().global_position, HOME_REACH) != null:
 				complete("home")
 				say("ab_done")
 				pay(600)
@@ -186,7 +185,7 @@ func _relief_in() -> void:
 
 
 func _home() -> void:
-	objective("home", "Fall back to the Terran starbase" if story.flags.get("luna", "") == "lost" else "Return to the Terran starbase", world.starbase_of(1), "Terran starbase")
+	objective("home", "Fall back to the Terran starbase" if story.flags.get("luna", "") == "lost" else "Return to the Terran starbase", home_base, "Terran starbase")
 	go("home")
 
 

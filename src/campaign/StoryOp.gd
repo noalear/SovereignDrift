@@ -49,6 +49,13 @@ func planet(n: String) -> Planet:
 	return world.planet_by_name.get(n, null)
 
 
+## Home for the Terran objectives: the starbase, or Earth while the
+## starbase is down and being rebuilt (World.STARBASE_RESPAWN_DELAY).
+func home_base() -> Node2D:
+	var base: Ship = world.starbase_of(1)
+	return base if base != null else planet("Earth")
+
+
 ## Everyone flying the operation: the host's pilot and each friend seated
 ## with them online (alive or waiting to relaunch).
 func pilots() -> Array:
