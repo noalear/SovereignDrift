@@ -6,7 +6,9 @@
 ## shield domes.  A system below DAMAGED_BELOW works at reduced strength;
 ## at zero it is offline until damage control brings it back.  A ship with
 ## its engines or reactor offline is disabled: dead in space, and open to
-## boarding (see World.try_board).
+## boarding (see World.try_board).  Damaged engines push, brake and turn
+## less; with the engines out the ship has no helm at all and drifts and
+## spins as it was going (Kyle, 2026-10-29).
 ##
 ## The balance lives in the constants at the top, since time-to-kill is
 ## still being tuned: systems are meant to give out well before the hull.
@@ -74,7 +76,7 @@ func build(s: Node) -> void:
 	list.clear()
 	quiet = 0.0
 	base = {
-		"thrust_force": s.thrust_force, "max_speed": s.max_speed, "energy_regen": s.energy_regen,
+		"thrust_force": s.thrust_force, "max_speed": s.max_speed, "turn_speed": s.turn_speed, "energy_regen": s.energy_regen,
 		"shield_max": s.shield_max, "shield_regen": s.shield_regen, "sensor_range": s.sensor_range,
 		"can_jam": s.can_jam, "qdrv": s.qdrv, "has_boost": s.has_boost,
 	}

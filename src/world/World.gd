@@ -1742,7 +1742,10 @@ func _on_ship_captured(s: Ship, _captor: Node) -> void:
 func _on_system_failed(s: Ship, e: Dictionary, attacker: Node) -> void:
 	var vital: bool = e["kind"] in ShipSystems.VITAL
 	if s.is_player or s.net_id in Net.seats.values():
-		notify(s, "%s offline!%s" % [e["label"], "  We're dead in space: damage control is on it." if vital and s.is_disabled() else ""])
+		if e["kind"] == "engines":
+			notify(s, "Engines offline!  No thrust, brakes or turning: we're adrift as we were going.  Damage control is on it.")
+		else:
+			notify(s, "%s offline!%s" % [e["label"], "  We're dead in space: damage control is on it." if vital and s.is_disabled() else ""])
 		if s.is_player:
 			Sfx.play_ui("alarm", 0.6)
 	if attacker is Ship and attacker != s:

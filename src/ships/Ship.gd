@@ -365,7 +365,8 @@ func refit(p_design: Variant) -> void:
 
 
 ## Set the ship's working numbers from its systems' health: damaged
-## engines push less, a hurt reactor recharges slower, broken shield
+## engines push, brake and turn less (none at all when they are out), a
+## hurt reactor recharges slower, broken shield
 ## generators hold less, blind sensors see less.  Called whenever a
 ## system's efficiency moves.
 func apply_systems() -> void:
@@ -375,6 +376,7 @@ func apply_systems() -> void:
 	systems.changed = false
 	var eng := systems.efficiency("engines")
 	thrust_force = b["thrust_force"] * eng
+	turn_speed = b.get("turn_speed", turn_speed) * eng
 	max_speed = b["max_speed"] * (0.6 + 0.4 * eng if eng > 0.0 else 1.0)
 	has_boost = b["has_boost"] and eng >= 1.0
 	energy_regen = b["energy_regen"] * systems.efficiency("reactor") * _lowered_shield_bonus()
@@ -757,10 +759,14 @@ func _fly(delta: float) -> void:
 	var spin_up := SPIN_UP_TIME + size / 200.0
 	var torque_max := body.inertia * w_max / spin_up
 	var rcs_level := 0.0
-	var dead_drive := fuel <= 0.0 or engines_out()
+	# engines shot out: no thrust, no brakes, no thrusters to turn or to
+	# stop a spin.  The ship drifts and tumbles as it was going when they
+	# failed, and gravity and hits still move it.
+	var adrift := engines_out()
+	var dead_drive := fuel <= 0.0 or adrift
 	if dead_drive:
 		torque_max *= 0.3          # reaction wheels on reactor power only
-	if flight_assist or turn != 0.0:
+	if (flight_assist or turn != 0.0) and not adrift:
 		var w_target := turn * w_max
 		var torque := clampf(body.inertia * (w_target - body.ang_vel) / SPIN_UP_TIME, -torque_max, torque_max)
 		body.apply_torque(torque)
@@ -783,7 +789,7 @@ func _fly(delta: float) -> void:
 	var sp := lv.length()
 	if inputs["brake"] and sp > 1.0:
 		# retro burn, never past a stop
-		var brake_a := minf(maxf(accel * brake_power * 1.5, 170.0 * brake_power), sp / delta)
+		var brake_a := minf(maxf(accel * brake_power * 1.5, 170.0 * brake_power * systems.efficiency("engines")), sp / delta)
 		f -= lv.normalized() * brake_a * body.mass
 	engine_level = f.length() / maxf(thrust_force, 1.0)
 	# the orbit guard: with assist on, a course that would end on a planet's
@@ -937,6 +943,8 @@ func landing_refusal(p: Planet) -> String:
 		return ("You cannot land in the Sun." if p.look == "Sun" else "%s is a gas giant: there is no surface to land on." % p.body_name)
 	if warping:
 		return "Drop out of warp to land."
+	if engines_out():
+		return "Engines out: we can't fly down until damage control brings them back."
 	var alt := global_position.distance_to(p.global_position) - p.radius
 	if alt > LAND_ALTITUDE + size:
 		return "Too high to land on %s: fly closer." % p.body_name

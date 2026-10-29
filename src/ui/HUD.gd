@@ -343,6 +343,10 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 		flags.append("AUTOPILOT")
 	if p.is_disabled():
 		flags.append("DISABLED")
+	if p.engines_out():
+		flags.append("ADRIFT")
+	elif p.systems.efficiency("engines") < 1.0:
+		flags.append("ENGINES %d%%" % int(round(p.systems.efficiency("engines") * 100.0)))
 	if p.boarding != null and is_instance_valid(p.boarding):
 		flags.append("BOARDING %d%%" % int(p.board_progress * 100.0))
 	if p.boarded_by != null and is_instance_valid(p.boarded_by):
@@ -394,6 +398,8 @@ func _draw_disabled(p: Ship, vp: Vector2) -> void:
 		_text(Vector2(0, y), "DEAD IN SPACE: %s" % what.to_upper(), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 26, Color(1.0, 0.45, 0.25))
 		if not eta.is_empty():
 			_text(Vector2(0, y + 28), "Damage control: back online in about %d s" % int(ceil(eta["eta"])), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 16, Color(1, 0.9, 0.8))
+		if p.engines_out():
+			_text(Vector2(0, y + 48), "No thrust, no brakes, no turning: we drift and spin as we were going.", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 16, Color(1, 0.9, 0.8))
 
 
 func _draw_weapons(p: Ship, vp: Vector2) -> void:
