@@ -222,6 +222,10 @@ func _station_kits() -> void:
 	var site := choose_site(have)
 	if site.is_empty():
 		return
+	# home's shield running dry: the haulers fetch Fuel first, and only a
+	# skimmer (more Fuel) is worth taking one off that
+	if site["key"] != "GasSkimmer" and Economy.running_low(world._home_planet(race), "fuel"):
+		return
 	runner = _idle_hauler(site["body"])
 	if runner != null:
 		runner.get_node("AI").start_kit(site["key"], site["body"])
