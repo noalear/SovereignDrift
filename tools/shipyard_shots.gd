@@ -134,5 +134,25 @@ func _process(_delta: float) -> bool:
 			b._command("turn_l")
 	if frames == 275:
 		_shot("yard_turned")
+		# a booster picked: its other marks, lower ones too, with what each adds
+		for i in b.modules.size():
+			if GameData.MODULES[b.modules[i]["id"]]["func"] == "boost":
+				b._select("bay", i)
+				b.focus_key = "bay:%d" % i
+				break
+		var rows: Array = b._catalogue_rows()
+		if not rows.is_empty():
+			b.hover = -1
+			b.kb_nav = true
+			b.focus_key = "part:" + rows[-1]["id"]
+	if frames == 290:
+		_shot("yard_booster_marks")
+		for i in b.modules.size():
+			if GameData.MODULES[b.modules[i]["id"]]["func"] == "qdrv":
+				b._select("bay", i)
+				b.focus_key = "bay:%d" % i
+				break
+	if frames == 305:
+		_shot("yard_qdrv_marks")
 		return true
 	return false

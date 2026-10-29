@@ -91,6 +91,9 @@ var preview_id := ""                # the catalogue part under the pointer or fo
 var turns: Array = []               # per hardpoint: how far the pilot turned its turret, in degrees
 var placing: Dictionary = {}        # picking a place: {"kind": "move"|"equip"|"socket", "from", "id", "targets": [keys]}
 var _sock_btn := {}                 # button index -> socket, for the sockets drawn on the slip
+var _badges: Array = []            # per hardpoint: its numbered badge on the slip, in screen space
+var _pic_rect := Rect2()            # the slip picture
+var _drag_mount := -1               # the mount whose turret the mouse is turning, or -1
 var _pad_axes := {}                 # trigger / right stick -> last direction, so a push acts once
 const TURN_STEP := 15
 
@@ -644,9 +647,74 @@ func _set_socket(bay: int, k: int) -> void:
 	_say("%s moved. Placing parts is free." % GameData.MODULES[modules[bay]["id"]]["name"])
 
 
+## The mount whose badge on the slip is within `reach` of `pos`, or -1.
+func _badge_at(pos: Vector2, reach: float) -> int:
+	var best := -1
+	for i in _badges.size():
+		var d: float = pos.distance_to(_badges[i])
+		if d <= reach and (best < 0 or d < pos.distance_to(_badges[best])):
+			best = i
+	return best
+
+
+## A press on the slip: on a mount's badge it picks that mount and starts
+## turning it with the mouse; around the picked mount's badge (its arc)
+## it turns that one.  False when the press was not for a turret.
+func _start_drag(pos: Vector2) -> bool:
+	if not _pic_rect.has_point(pos):
+		return false
+	var i := _badge_at(pos, 14.0)
+	if i >= 0:
+		_select("hp", i)
+		if _can_turn(i):
+			_drag_mount = i
+		Sfx.play_ui("click", 0.4)
+		return true
+	if sel_kind == "hp" and sel_index < _badges.size() and pos.distance_to(_badges[sel_index]) <= 60.0 and _sock_btn.is_empty() and _can_turn(sel_index):
+		_drag_mount = sel_index
+		_aim_mount(sel_index, pos)
+		return true
+	return false
+
+
+## Point mount `i` at the screen point `pos` (in 5° steps).
+func _aim_mount(i: int, pos: Vector2) -> void:
+	if i < 0 or i >= _badges.size() or pos.distance_to(_badges[i]) < 12.0 or not _can_turn(i):
+		return
+	var want := int(round(rad_to_deg((pos - _badges[i]).angle()) / 5.0)) * 5
+	var t := wrapi(want - int(hardpoints[i][2]), -180, 180)
+	if t != turns[i]:
+		turns[i] = t
+		Sfx.play_ui("click", 0.15)
+
+
+## Why turning mount `i` would change nothing, or "" when it can turn:
+## an empty mount, a turret that already sees all round, a mine layer
+## (mines always drop astern) or a shot that aims itself (the disruptor).
+func _turn_block(i: int) -> String:
+	if i < 0 or i >= mounts.size() or mounts[i] == null:
+		return "Fit a weapon on mount %d to turn it." % (i + 1)
+	var hp: Array = hardpoints[i]
+	if float(hp[4]) - float(hp[3]) >= 348.0:
+		return "Mount %d already sees all the way round, so it does not turn." % (i + 1)
+	var m: Dictionary = GameData.MODULES[mounts[i]["id"]]
+	if m["func"] == "tube" and str(m["p"][3]) == "002":
+		return "Mines always drop astern, so a mine layer does not turn."
+	if m["func"] == "tube" and str(m["p"][3]) in Ship.FREE_AIM_SHOTS:
+		return "The %s aims itself from any mount, so it does not turn." % m["name"]
+	return ""
+
+
+func _can_turn(i: int) -> bool:
+	return _turn_block(i) == ""
+
+
 ## Turn the turret on mount `i` by `step` degrees (clockwise on screen).
 func _turn(i: int, step: int) -> void:
 	if i < 0 or i >= turns.size():
+		return
+	if not _can_turn(i):
+		_say(_turn_block(i))
 		return
 	turns[i] = wrapi(turns[i] + step, -180, 180)
 	Sfx.play_ui("click", 0.3)
@@ -949,6 +1017,15 @@ func _leave() -> void:
 func _gui_input(event: InputEvent) -> void:
 	# controls drawn later sit on top (a Sell button over its hold row), so
 	# the last one under the pointer wins
+	if event is InputEventMouseMotion and _drag_mount >= 0:
+		_aim_mount(_drag_mount, event.position)
+		accept_event()
+		return
+	if event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT and _drag_mount >= 0:
+		_say("Mount %d faces %s. Turning a mount is free." % [_drag_mount + 1, _facing_text(_drag_mount)])
+		_drag_mount = -1
+		accept_event()
+		return
 	if event is InputEventMouseMotion:
 		hover = -1
 		for i in range(buttons.size() - 1, -1, -1):
@@ -962,6 +1039,18 @@ func _gui_input(event: InputEvent) -> void:
 			focus_key = buttons[hover][3]
 	elif event is InputEventMouseButton and event.pressed:
 		pad_mode = false
+		if event.button_index == MOUSE_BUTTON_LEFT and placing.is_empty() and _start_drag(event.position):
+			accept_event()
+			return
+		if event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN] and _pic_rect.has_point(event.position):
+			# the wheel over the slip turns the turret under it, or the picked one
+			var i := _badge_at(event.position, 30.0)
+			if i < 0 and sel_kind == "hp":
+				i = sel_index
+			if i >= 0:
+				_turn(i, TURN_STEP if event.button_index == MOUSE_BUTTON_WHEEL_DOWN else -TURN_STEP)
+			accept_event()
+			return
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			for i in range(buttons.size() - 1, -1, -1):
 				if buttons[i][0].has_point(event.position) and buttons[i][2]:
@@ -1017,7 +1106,7 @@ func _input(event: InputEvent) -> void:
 			KEY_L: cmd = "launch"
 			KEY_M: cmd = "place"
 			KEY_R: cmd = "turn_l" if event.shift_pressed else "turn_r"
-		if event.echo and not cmd in ["up", "down", "left", "right"]:
+		if event.echo and not cmd in ["up", "down", "left", "right", "turn_l", "turn_r"]:
 			cmd = ""
 		if cmd == "" and event.is_action_pressed("pause_menu"):
 			cmd = "back"
@@ -1650,11 +1739,12 @@ func _hints() -> Array:
 		if slot[0] == "hp":
 			out.append([_key("group"), "Fire group"])
 			out.append([_key("place"), "Move"])
-			out.append([_key("turn"), "Turn"])
+			if _can_turn(slot[1]):
+				out.append([_key("turn"), "Turn"])
 		elif _socket_kind(modules[slot[1]]["id"]) != "":
 			out.append([_key("place"), "Move"])
 	if not _selected_part().is_empty():
-		out.append([_key("switch"), "Upgrades" if cat_mode == "switch" else "Switch out"])
+		out.append([_key("switch"), "Other marks" if cat_mode == "switch" else "Switch out"])
 	out.append([_key("section"), "Section"])
 	out.append([_key("back"), "Back" if sel_kind != "" or sec != "fit" else "Cancel"])
 	out.append([_key("launch"), "Accept"])
@@ -1819,6 +1909,8 @@ func _select(kind: String, index: int) -> void:
 	cat_scroll = 0.0
 	cat_mode = "upgrade"
 	cat_type = ""
+	if kind == "hp" or kind == "bay":
+		focus_key = "%s:%d" % [kind, index]     # R, M and Del act on what was picked
 
 
 func _draw_centre(r: Rect2, rc: Color) -> void:
@@ -1870,6 +1962,8 @@ func _draw_centre(r: Rect2, rc: Color) -> void:
 		badge.append(pos)
 		buttons.append([Rect2(pos - Vector2(14, 14), Vector2(28, 28)), _select.bind("hp", i), true, "", Callable()])
 		_hp_hover[buttons.size() - 1] = i
+	_badges = badge
+	_pic_rect = pic
 	var focus := sel_index if sel_kind == "hp" else -1
 	var pulse := 0.55 + 0.45 * sin(time * 6.0)
 	for i in hardpoints.size():
@@ -2102,6 +2196,12 @@ func _draw_right(r: Rect2) -> void:
 		["Hull", was["hull_max"], st["hull_max"], "%d", true],
 		["Lock range", was["sensor_range"], st["sensor_range"], "%d", true],
 	]
+	# what boosters and a quantum drive add, so a better one reads better
+	if was["has_boost"] or st["has_boost"]:
+		rows.insert(2, ["Boost speed", _boosted(was, "max_speed"), _boosted(st, "max_speed"), "%d", true])
+		rows.insert(3, ["Boost accel", _boosted(was, "accel"), _boosted(st, "accel"), "%d", true])
+	if was["qdrv"] > 0.0 or st["qdrv"] > 0.0:
+		rows.insert(rows.size() - 1, ["Warp speed", was["qdrv"] * GameData.LIGHT_SPEED * 1.25, st["qdrv"] * GameData.LIGHT_SPEED * 1.25, "%d", true])
 	# how loud the build is: lower is stealthier
 	var sw := Sensors.fit_signatures(orig_design, was)
 	var sn := Sensors.fit_signatures(design, st)
@@ -2171,6 +2271,13 @@ func _draw_right(r: Rect2) -> void:
 	_draw_catalogue(Rect2(x, y, r.size.x - 32, r.end.y - y - 10))
 
 
+## Top speed or acceleration while boosting (0 with no booster).
+static func _boosted(st: Dictionary, key: String) -> float:
+	if not st["has_boost"]:
+		return 0.0
+	return float(st[key]) * float(st["boost_speed" if key == "max_speed" else "boost_accel"])
+
+
 ## One stat: a bar for the new value with a tick where it is now, and the
 ## numbers, green or red by whether it got better.
 func _stat_row(r: Rect2, label: String, now: float, new: float, fmt: String, higher_better: bool) -> void:
@@ -2210,10 +2317,10 @@ func _draw_catalogue(r: Rect2) -> void:
 	var current := _selected_part()
 	if not current.is_empty():
 		y += 16
-		var what := ("Upgrades for %s" if cat_mode == "upgrade" else "Everything that fits instead of %s") % GameData.MODULES[current]["name"]
+		var what := ("Other marks of %s" if cat_mode == "upgrade" else "Everything that fits instead of %s") % GameData.MODULES[current]["name"]
 		draw_string(font, Vector2(x, y + 12), _fit(what, r.size.x - 260, 13), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, GOLD)
 		_button(Rect2(r.end.x - 118, y - 4, 118, 26), "To hold", _remove_selected, true, 13, false, "", _key("remove"))
-		_button(Rect2(r.end.x - 250, y - 4, 126, 26), "Upgrades" if cat_mode == "switch" else "Switch out", func():
+		_button(Rect2(r.end.x - 250, y - 4, 126, 26), "Other marks" if cat_mode == "switch" else "Switch out", func():
 			cat_mode = "switch" if cat_mode == "upgrade" else "upgrade"
 			cat_type = ""
 			cat_scroll = 0.0, true, 13, false, "", _key("switch"))
@@ -2222,12 +2329,14 @@ func _draw_catalogue(r: Rect2) -> void:
 			# where it sits: move it (free), and turn a turret
 			y += 22
 			_button(Rect2(r.end.x - 118, y - 4, 118, 26), "Move", func(): _start_move([sel_kind, sel_index]), true, 13, false, "", _key("place"))
-			if sel_kind == "hp":
+			if sel_kind == "hp" and not _can_turn(sel_index):
+				draw_string(font, Vector2(x, y + 14), _turn_block(sel_index), HORIZONTAL_ALIGNMENT_LEFT, r.end.x - 130 - x, 12, DIM)
+			elif sel_kind == "hp":
 				_button(Rect2(x, y - 4, 30, 26), "‹", _turn.bind(sel_index, -TURN_STEP), true, 16)
 				draw_string(font, Vector2(x + 38, y + 14), "Faces " + _facing_text(sel_index), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, TEXT)
 				var fw := font.get_string_size("Faces " + _facing_text(sel_index), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
 				_button(Rect2(x + 46 + fw, y - 4, 30, 26), "›", _turn.bind(sel_index, TURN_STEP), true, 16)
-				draw_string(font, Vector2(x + 84 + fw, y + 14), "turn" if not pad_mode else "R stick", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, FAINT)
+				draw_string(font, Vector2(x + 84 + fw, y + 14), "or drag it on the ship, or scroll" if not pad_mode else "R stick", HORIZONTAL_ALIGNMENT_LEFT, r.end.x - 130 - (x + 84 + fw), 12, FAINT)
 			else:
 				draw_string(font, Vector2(x, y + 14), "Click a ring on the ship to move it there.", HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 130, 12, DIM)
 			y += 10
@@ -2239,7 +2348,7 @@ func _draw_catalogue(r: Rect2) -> void:
 		return
 	var view := _catalogue_view()
 	if view.is_empty() and not current.is_empty():
-		draw_string(font, cat_rect.position + Vector2(8, 22), "This is the best of its kind. Switch out to see what else fits.", HORIZONTAL_ALIGNMENT_LEFT, cat_rect.size.x - 16, 13, DIM)
+		draw_string(font, cat_rect.position + Vector2(8, 22), "No other marks of this part. Switch out to see what else fits.", HORIZONTAL_ALIGNMENT_LEFT, cat_rect.size.x - 16, 13, DIM)
 		return
 	if _use_types() and cat_type == "":
 		_draw_types(view)
@@ -2505,18 +2614,17 @@ func _catalogue_rows() -> Array:
 		else:
 			ptxt = "%d cr" % price
 			pcol = GOLD if price <= credits else BAD
-		out.append({"id": id, "name": mod["name"], "info": _part_info(id), "price": ptxt, "pcol": pcol, "ok": ok})
+		var info := _part_info(id)
+		if upgrades_only and GameData.tier(id) != GameData.tier(current):
+			info = ("higher mark  ·  " if GameData.tier(id) > GameData.tier(current) else "lower mark  ·  ") + info
+		out.append({"id": id, "name": mod["name"], "info": info, "price": ptxt, "pcol": pcol, "ok": ok})
 	return out
 
 
-## Is `id` an upgrade for the fitted part: the same kind, a higher mark
-## where parts come in marks (Power plant III > IV), else any other model.
+## Is `id` another mark of the fitted part: the same kind, higher or lower
+## (Kyle: a lighter engine to save mass is as useful as a bigger one).
 static func _is_upgrade(current: String, id: String) -> bool:
-	if id == current or not _same_family(id, current):
-		return false
-	if GameData.tier(current) > 1 or GameData.tier(id) > 1:
-		return GameData.tier(id) > GameData.tier(current)
-	return true
+	return id != current and _same_family(id, current)
 
 
 ## The part fitted in the selected mount or bay slot, or "".
@@ -2563,9 +2671,10 @@ func _part_info(id: String) -> String:
 		"heatsink":
 			return "soaks 70%% of your heat, %d heat-seconds" % p[0]
 		"boost":
-			return "booster %s" % ["", "I", "II", "III"][GameData.tier(id)]
+			var g := GameData.boost_gain(p)
+			return "boost: top speed x%.2f, push x%.2f   mass %d" % [1.0 + g.x, 1.0 + g.y, mod["mass"]]
 		"qdrv":
-			return "warp speed %d   vol %d" % [p[0], mod["vol"]]
+			return "warp speed %d   mass %d   vol %d" % [float(p[0]) * GameData.LIGHT_SPEED * 1.25, mod["mass"], mod["vol"]]
 		"brake":
 			return "stronger brakes"
 		"regen":
