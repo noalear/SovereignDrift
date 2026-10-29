@@ -1704,7 +1704,8 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 			duel_score[0] += 1
 		notify_all("Duel: you %d, pirates %d.%s" % [duel_score[0], duel_score[1], "" if s.is_player else "  Another pirate comes at you in a few seconds."], Color(1.0, 0.9, 0.6))
 	respawn_queue.append([s, elapsed + _respawn_delay(s)])
-	if s.is_starbase() and not is_arena():   # (Survival ends the run instead)
+	# (Survival ends the run instead; the story times an enemy's rebuild itself)
+	if s.is_starbase() and not is_arena() and not (story_mode and s.race_id != 1):
 		notify_all("The %s starbase at %s is down. It will be rebuilt in %d seconds." % [GameData.race(s.race_id)["name"], _home_planet(s.race_id).body_name, int(STARBASE_RESPAWN_DELAY)],
 			Color(1.0, 0.7, 0.45))
 
@@ -1867,7 +1868,7 @@ func _respawns() -> void:
 				keep.append(entry)
 				continue
 			Net.host_ship_respawned(s)
-			if s.is_starbase() and not is_arena():
+			if s.is_starbase() and not is_arena() and not (story_mode and s.race_id != 1):
 				notify_all("The %s starbase at %s is rebuilt and back on station." % [GameData.race(s.race_id)["name"], home.body_name], Color(0.6, 1.0, 0.7))
 			if s.is_player:
 				player_respawned.emit()

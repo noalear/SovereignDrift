@@ -143,8 +143,7 @@ func step(delta: float) -> void:
 			if u >= ESCAPE_AT:
 				fail("The Hammer got out of the heat and away to Venus.", "sw_fail_escaped")
 		"home":
-			var base: Ship = world.starbase_of(1)
-			if base != null and pilot_near(base.global_position, HOME_REACH) != null:
+			if pilot_near(home_base().global_position, HOME_REACH) != null:
 				complete("home")
 				say("sw_end_2")
 				say("sw_end_3")
@@ -219,5 +218,5 @@ func _on_hammer_died(_s: Ship, _k: Node) -> void:
 	for s in escorts:
 		if alive(s):
 			s.get_node("AI").release()
-	objective("home", "Come home to the Terran starbase", world.starbase_of(1), "Terran starbase")
+	objective("home", "Come home to the Terran starbase", home_base, "Terran starbase")
 	go("home")
