@@ -1042,6 +1042,12 @@ static func catalogue(race_id: int, blueprints: Array, for_station: bool = false
 	return out
 
 
+## Whether a fitted part draws on the reactor.  Engines and boosters run
+## on fuel (Ship.burn_rate, Ship.BOOST_BURN), not on energy.
+static func draws_power(m: Dictionary) -> bool:
+	return m["power"] < 0 and not m["func"] in ["eng", "boost"]
+
+
 ## What one booster adds while boosting, from its [push, speed, -] in
 ## MODULES: (top speed factor, acceleration factor) on top of 1.0.
 ## Booster I gives x1.5 top speed and x2.2 acceleration; II and III more.
@@ -1071,7 +1077,7 @@ static func stats_for(design: Dictionary) -> Dictionary:
 		st["bay_used"] += m["vol"]
 		if m["power"] > 0:
 			st["power_gen"] += m["power"]
-		else:
+		elif draws_power(m):
 			# continuous draw; a quantum drive only pulls hard while it is charging
 			st["power_draw"] += -m["power"] * (0.05 if m["func"] == "qdrv" else 0.35)
 		var level := tier(id)
