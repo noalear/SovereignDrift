@@ -287,6 +287,17 @@ func _shield_bar(pos: Vector2, w: float, h: float, s: Ship, full: bool) -> void:
 	draw_string(font, pos + Vector2(0, h - 5), value, HORIZONTAL_ALIGNMENT_RIGHT, w - 6, 14, Color(1, 1, 1, 0.95))
 
 
+## After the fuel gauge: refuelling, or how fast the engines and the
+## booster are drinking the tank (a share of it per second).
+func _fuel_note(p: Ship) -> String:
+	if p.refuelling:
+		return "  refuelling"
+	var rate := p.fuel_use / maxf(p.fuel_max, 1.0) * 100.0
+	if rate >= 0.05:
+		return "  -%.1f%%/s%s" % [rate, " boost" if p.boosting else ""]
+	return ""
+
+
 func _draw_status(p: Ship, vp: Vector2) -> void:
 	var x := 24.0
 	var y := vp.y - 144.0
@@ -300,7 +311,7 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 	_bar(Vector2(x, y + 22), w, 19, p.hull / maxf(p.hull_max, 1.0), Color(0.95, 0.55, 0.25, 0.85) if p.hull / p.hull_max > 0.3 else Color(1, 0.2, 0.2, 0.9), "Hull", "%d / %d" % [int(p.hull), int(p.hull_max)])
 	_bar(Vector2(x, y + 44), w, 19, p.energy / maxf(p.energy_max, 1.0), Color(0.95, 0.85, 0.3, 0.85), "Energy", "%d" % int(p.energy))
 	var fuel_col := Color(0.4, 0.9, 0.6, 0.85) if p.fuel_fraction() > 0.2 else Color(1, 0.35, 0.2, 0.9)
-	_bar(Vector2(x, y + 66), w, 19, p.fuel_fraction(), fuel_col, "Fuel", "%d%%%s" % [int(p.fuel_fraction() * 100.0), "  refuelling" if p.refuelling else ""])
+	_bar(Vector2(x, y + 66), w, 19, p.fuel_fraction(), fuel_col, "Fuel", "%d%%%s" % [int(p.fuel_fraction() * 100.0), _fuel_note(p)])
 	var flags := []
 	if p.fuel <= 0.0:
 		flags.append("NO FUEL")
@@ -324,7 +335,7 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 		flags.append("BOARDING %d%%" % int(p.board_progress * 100.0))
 	if p.boarded_by != null and is_instance_valid(p.boarded_by):
 		flags.append("BOARDERS!")
-	if p.inputs["boost"] and p.has_boost and p.inputs["thrust"] > 0.0:
+	if p.boosting:
 		flags.append("BOOST")
 	if p.ablative_max > 0.0:
 		flags.append("ABLATIVE %d%%" % int(100.0 * p.ablative / p.ablative_max))
@@ -1182,7 +1193,7 @@ func _draw_help(vp: Vector2) -> void:
 		[_keys("thrust"), "thrust"], [_keys("reverse"), "reverse"],
 		[_keys("turn_left"), "turn left"], [_keys("turn_right"), "turn right"],
 		[_keys("strafe_left"), "strafe left"], [_keys("strafe_right"), "strafe right"],
-		[_keys("boost"), "boost (with thrust)"], [_keys("brake"), "brake"], [_keys("warp"), "quantum drive (warp)"],
+		[_keys("boost"), "boost (with thrust, burns fuel)"], [_keys("brake"), "brake"], [_keys("warp"), "quantum drive (warp)"],
 		[_keys("flight_assist"), "flight assist on / off"], ["Mouse / right stick", "aims the turrets"],
 		["", ""],
 		["SYSTEM", ""],

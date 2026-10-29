@@ -2063,7 +2063,8 @@ func _draw_centre(r: Rect2, rc: Color) -> void:
 			_icon(id, well.grow(-3))
 			draw_string(font, chip.position + Vector2(48, 20), _fit(mod["name"], cw - 56, 14), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, TEXT)
 			var pw: int = mod["power"]
-			draw_string(font, chip.position + Vector2(48, 37), "vol %d   ·   %s%d power" % [mod["vol"], "+" if pw > 0 else "", pw], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, DIM)
+			var pw_text := "%s%d power" % ["+" if pw > 0 else "", pw] if GameData.draws_power(mod) or pw > 0 else ("burns fuel" if mod["func"] in ["eng", "boost"] else "no power")
+			draw_string(font, chip.position + Vector2(48, 37), "vol %d   ·   %s" % [mod["vol"], pw_text], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, DIM)
 		else:
 			_card(chip, CARD_SEL if selected else (CARD_HI if lit else Color(0.03, 0.045, 0.08, 0.6)), Color(0.5, 0.65, 0.95, 0.3), 8.0)
 			draw_string(font, chip.position + Vector2(0, 28), "+  Add a part" if placing.is_empty() else "+  New bay", HORIZONTAL_ALIGNMENT_CENTER, chip.size.x, 14, DIM)
@@ -2195,11 +2196,13 @@ func _draw_right(r: Rect2) -> void:
 		["Shields", was["shield_max"], st["shield_max"], "%d", true],
 		["Hull", was["hull_max"], st["hull_max"], "%d", true],
 		["Lock range", was["sensor_range"], st["sensor_range"], "%d", true],
+		["Fuel tank", was["eng"] * Ship.FUEL_PER_ENGINE, st["eng"] * Ship.FUEL_PER_ENGINE, "%d", true],
 	]
 	# what boosters and a quantum drive add, so a better one reads better
 	if was["has_boost"] or st["has_boost"]:
 		rows.insert(2, ["Boost speed", _boosted(was, "max_speed"), _boosted(st, "max_speed"), "%d", true])
 		rows.insert(3, ["Boost accel", _boosted(was, "accel"), _boosted(st, "accel"), "%d", true])
+		rows.insert(rows.size(), ["Boost burn time", _boost_burn_time(was), _boost_burn_time(st), "%d s", true])
 	if was["qdrv"] > 0.0 or st["qdrv"] > 0.0:
 		rows.insert(rows.size() - 1, ["Warp speed", was["qdrv"] * GameData.LIGHT_SPEED * 1.25, st["qdrv"] * GameData.LIGHT_SPEED * 1.25, "%d", true])
 	# how loud the build is: lower is stealthier
@@ -2276,6 +2279,14 @@ static func _boosted(st: Dictionary, key: String) -> float:
 	if not st["has_boost"]:
 		return 0.0
 	return float(st[key]) * float(st["boost_speed" if key == "max_speed" else "boost_accel"])
+
+
+## Seconds a full tank lasts boosting flat out (0 with no booster): engines
+## alone burn it in Ship.FUEL_PER_ENGINE / Ship.BURN_PER_ENGINE seconds.
+static func _boost_burn_time(st: Dictionary) -> float:
+	if not st["has_boost"]:
+		return 0.0
+	return Ship.FUEL_PER_ENGINE / Ship.BURN_PER_ENGINE / (float(st["boost_accel"]) * Ship.BOOST_BURN)
 
 
 ## One stat: a bar for the new value with a tick where it is now, and the
@@ -2650,7 +2661,7 @@ func _part_info(id: String) -> String:
 		"power":
 			return "+%d power   energy %d" % [mod["power"], mod["power"] * 5]
 		"eng":
-			return "thrust %d   vol %d" % [p[0], mod["vol"]]
+			return "thrust %d   fuel tank +%d   vol %d" % [p[0], float(p[0]) * Ship.FUEL_PER_ENGINE, mod["vol"]]
 		"shield":
 			var fam: Dictionary = GameData.SHIELD_FAMILIES[GameData.shield_family(id)]
 			var leak := "  leaks %d%% of half the hits" % int(fam["leak"] * 100.0) if fam["leak"] > 0.0 else ""
@@ -2672,7 +2683,7 @@ func _part_info(id: String) -> String:
 			return "soaks 70%% of your heat, %d heat-seconds" % p[0]
 		"boost":
 			var g := GameData.boost_gain(p)
-			return "boost: top speed x%.2f, push x%.2f   mass %d" % [1.0 + g.x, 1.0 + g.y, mod["mass"]]
+			return "speed x%.2f  push x%.2f  burns x%.1f fuel   mass %d" % [1.0 + g.x, 1.0 + g.y, (1.0 + g.y) * Ship.BOOST_BURN, mod["mass"]]
 		"qdrv":
 			return "warp speed %d   mass %d   vol %d" % [float(p[0]) * GameData.LIGHT_SPEED * 1.25, mod["mass"], mod["vol"]]
 		"brake":

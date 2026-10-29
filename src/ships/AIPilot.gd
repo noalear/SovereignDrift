@@ -606,6 +606,16 @@ func _steer_to(point: Vector2, delta: float, arrive: bool) -> float:
 	return diff
 
 
+## Boosters burn fuel: a pilot keeps this share of the tank back before it
+## boosts to close on a target or to go home, and less to get away.
+const BOOST_KEEP_ATTACK := 0.5
+const BOOST_KEEP_ESCAPE := 0.25
+
+
+func _boost_ok(keep: float) -> bool:
+	return ship.has_boost and ship.fuel_fraction() > keep
+
+
 func _act(delta: float) -> void:
 	var i := ship.inputs
 	i["boost"] = false
@@ -678,7 +688,7 @@ func _act(delta: float) -> void:
 				i["thrust"] = 0.0
 			elif dist > preferred:
 				var diff := _steer_to(aim, delta, false)
-				i["boost"] = dist > 900.0 and absf(diff) < 0.3 and ship.energy > ship.energy_max * 0.4
+				i["boost"] = dist > 900.0 and absf(diff) < 0.3 and _boost_ok(BOOST_KEEP_ATTACK)
 			else:
 				# strafe around the target at close range
 				var diff := wrapf((aim - ship.global_position).angle() - ship.rotation, -PI, PI)
@@ -705,7 +715,7 @@ func _act(delta: float) -> void:
 				i["turn"] = clampf(wrapf(dir - ship.rotation, -PI, PI) * 3.0, -1.0, 1.0)
 				i["thrust"] = 1.0
 				i["strafe"] = evade_dir
-				i["boost"] = ship.energy > ship.energy_max * 0.3
+				i["boost"] = _boost_ok(BOOST_KEEP_ESCAPE)
 				i["fire_mine"] = _mine_ok(tgt, away.length()) and randf() < 0.05
 				i["fire_beam"] = false
 			_avoid_planets(delta)
@@ -722,7 +732,7 @@ func _act(delta: float) -> void:
 			if home != null:
 				var p := home.global_position + (ship.global_position - home.global_position).normalized() * (home.radius + 220.0)
 				_steer_to(p, delta, true)
-				i["boost"] = ship.energy > ship.energy_max * 0.5 and ship.global_position.distance_to(p) > 800.0
+				i["boost"] = _boost_ok(BOOST_KEEP_ATTACK) and ship.global_position.distance_to(p) > 800.0
 				_warp_to(p, 4000.0, 500.0)
 			_avoid_planets(delta)
 
@@ -1822,7 +1832,7 @@ func _flee(delta: float) -> void:
 		return
 	_steer_to(point, delta, true)
 	_avoid_planets(delta)
-	i["boost"] = ship.energy > ship.energy_max * 0.3 and far > 900.0
+	i["boost"] = _boost_ok(BOOST_KEEP_ESCAPE) and far > 900.0
 	if flee_from != null and is_instance_valid(flee_from):
 		i["fire_mine"] = _mine_ok(flee_from, flee_from.global_position.distance_to(ship.global_position)) and randf() < 0.05
 	_warp_to(point, 4000.0)

@@ -31,6 +31,7 @@ func _run() -> void:
 	_orbit()
 	await _ship_orbit()
 	await _orbit_guard()
+	await _boost_fuel()
 	await _wreck_effect()
 	await _rock_belt()
 	await _timing()
@@ -315,6 +316,61 @@ func _orbit_guard() -> void:
 			ai.post_step(step)
 			min_ai = minf(min_ai, ai.global_position.distance_to(earth.global_position) - earth.radius)
 		_check("an AI ship flown straight at a planet is turned into orbit", min_ai > ai.size * 0.5, "lowest %.0f px" % min_ai)
+	main._show_menu()
+	main.queue_free()
+
+
+func _boost_fuel() -> void:
+	# engines and boosters run on fuel: boosting costs no energy, works
+	# with flat batteries, burns more fuel than plain thrust, and neither
+	# part counts against the reactor
+	var main: Node = load("res://src/Main.tscn").instantiate()
+	root.add_child(main)
+	await process_frame
+	main._start_game()
+	await process_frame
+	var w: World = main.world
+	var s: Ship = w.player
+	for o in w.ships:
+		if o != s:
+			o.body.enabled = false
+	s.has_boost = true
+	var step := 1.0 / 60.0
+	var burn := func(boost: bool, energy: float) -> Array:
+		s.global_position = Vector2(-60000.0, -60000.0)
+		s.velocity = Vector2.ZERO
+		s.fuel = s.fuel_max
+		s.energy = energy
+		s.inputs["thrust"] = 1.0
+		s.inputs["boost"] = boost
+		var on := false
+		for i in 30:
+			s.pre_step(step)
+			w.space.step(step)
+			s.post_step(step)
+			on = on or s.boosting
+		s.inputs["thrust"] = 0.0
+		s.inputs["boost"] = false
+		return [s.fuel_max - s.fuel, s.energy, on]
+	var plain: Array = burn.call(false, s.energy_max)
+	var boosted: Array = burn.call(true, s.energy_max)
+	_check("boosting costs no energy", is_equal_approx(boosted[1], s.energy_max), "%.1f of %.1f" % [boosted[1], s.energy_max])
+	_check("boosting burns more fuel than plain thrust", boosted[0] > plain[0] * 2.0, "%.2f vs %.2f" % [boosted[0], plain[0]])
+	var flat: Array = burn.call(true, 0.0)
+	_check("the booster fires on flat batteries", flat[2])
+	s.fuel = 0.0
+	s.inputs["thrust"] = 1.0
+	s.inputs["boost"] = true
+	s.pre_step(step)
+	_check("no booster with an empty tank", not s.boosting)
+	s.inputs["thrust"] = 0.0
+	s.inputs["boost"] = false
+	var gd := root.get_node("GameData")
+	var d: Dictionary = gd.stock_design("Cruiser")
+	var draw0: float = gd.stats_for(d)["power_draw"]
+	var more: Dictionary = d.duplicate(true)
+	more["modules"] = more["modules"] + ["2004", "9203"]
+	_check("engines and boosters draw nothing from the reactor", is_equal_approx(gd.stats_for(more)["power_draw"], draw0), "%.0f -> %.0f" % [draw0, gd.stats_for(more)["power_draw"]])
 	main._show_menu()
 	main.queue_free()
 

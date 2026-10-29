@@ -21,12 +21,18 @@ const WARP_CHARGE_TIME := 1.1
 const WARP_COOLDOWN := 4.0
 ## Engine thrust per point of engine power, in mass units * px/s^2.
 const THRUST_PER_ENGINE := 4260.0
-## Fuel units carried per point of engine power (300 s of full burn).
+## Fuel units carried per point of engine power (400 s of full burn).
 const FUEL_PER_ENGINE := 6.0
 ## Fuel burned per second at full thrust per point of engine power.
-const BURN_PER_ENGINE := 0.02
+const BURN_PER_ENGINE := 0.015
 ## Mass of one fuel unit.
 const FUEL_MASS := 0.5
+## A booster burns its extra push this many times less efficiently than
+## the main engines (on top of the push itself, see GameData.boost_gain).
+const BOOST_BURN := 1.8
+## Share of the tank per second the reactor cracks from nothing while the
+## engines are idle, so nobody is stranded for good (about 33 min empty to full).
+const FUEL_TRICKLE := 0.0005
 ## Fuel per second for the reaction control thrusters at full turn.
 const RCS_BURN := 0.25
 ## How long the RCS takes to reach the design turn rate, in seconds, before size.
@@ -71,6 +77,7 @@ var thrust_force := 0.0            # engine_power * THRUST_PER_ENGINE
 var fuel := 0.0
 var fuel_max := 0.0
 var burn_rate := 0.0               # fuel/s at full thrust
+var fuel_use := 0.0                # fuel/s burned last physics step, for the HUD
 var thrust_level := 0.0            # for the engine glow, 0..1
 var flight_assist := true          # RCS holds the turn rate and stops a tumble
 var orbit_guard := false           # the engines are busy steering clear of a planet
@@ -719,7 +726,8 @@ func post_step(_delta: float) -> void:
 
 func _fly(delta: float) -> void:
 	var fwd := forward()
-	boosting = inputs["boost"] and has_boost and energy > 5.0 and inputs["thrust"] > 0.0 and fuel > 0.0
+	fuel_use = 0.0
+	boosting = inputs["boost"] and has_boost and inputs["thrust"] > 0.0 and fuel > 0.0
 	var vmax := max_speed * (boost_speed if boosting else 1.0)
 	# the rating is the speed the drive holds in open space; inside a
 	# gravity well the cap is on the energy, so a ship can always climb out:
@@ -795,14 +803,15 @@ func _fly(delta: float) -> void:
 		var pull_a := minf(over / delta, accel * 1.5 + 60.0)
 		f -= lv.normalized() * pull_a * body.mass
 	body.apply_force(f)
-	# --- fuel: engines burn by thrust, boost burns hotter, RCS sips
-	var burn := engine_level * burn_rate * (2.5 if boosting else 1.0) + rcs_level * RCS_BURN
+	# --- fuel: engines and boosters run on propellant, never on the
+	# reactor; engines burn by thrust (a booster's extra push is in
+	# engine_level), the booster wastes more on top, RCS sips
+	var burn := engine_level * burn_rate * (BOOST_BURN if boosting else 1.0) + rcs_level * RCS_BURN
+	fuel_use = burn
 	if burn > 0.0:
 		if fuel < burn * delta and world != null and is_player and fuel > 0.0 and not Net.is_client():   # a client replays inputs; the host says it
 			world.notify(self, "Fuel exhausted. Drift to a friendly base or colony to refuel.")
 		fuel = maxf(fuel - burn * delta, 0.0)
-	if boosting:
-		energy = maxf(energy - 75.0 * delta, 0.0)
 	thrust_level = lerpf(thrust_level, clampf(minf(engine_level * 1.2, 1.0) + (0.5 if boosting else 0.0), 0.0, 1.0), 10.0 * delta)
 	if engine_sound != null:
 		engine_sound.update(thrust_level, boosting, warping, delta)
@@ -1364,9 +1373,10 @@ func _systems(delta: float) -> void:
 		# the batteries run flat without a reactor behind them
 		energy = maxf(energy - energy_max * 0.25 * delta, 0.0)
 	energy = minf(energy + energy_regen * delta * 0.1 * (Sensors.EMCON_REGEN if sensors.emcon else 1.0), energy_max)
-	# the reactor cracks a trickle of propellant, so nobody is stranded for good
-	if fuel < fuel_max and energy > energy_max * 0.3 and not refuelling:
-		fuel = minf(fuel + fuel_max * 0.0025 * delta, fuel_max)
+	# while the engines rest the reactor cracks a trickle of propellant, so
+	# nobody is stranded for good; it never pays for flying
+	if fuel < fuel_max and fuel_use <= 0.0 and not refuelling and not systems.is_offline("reactor"):
+		fuel = minf(fuel + fuel_max * FUEL_TRICKLE * delta, fuel_max)
 	_tick_shields(delta)
 	_tick_armor(delta)
 	sensors.tick(delta)

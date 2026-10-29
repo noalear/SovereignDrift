@@ -27,7 +27,7 @@ const LINES := [
 	["thrust", "hale", "Let's fly. Hold thrust to push forward, and turn to steer. There's no friction in space, so when you let go, you keep drifting. Take her out a little way from the starbase."],
 	["strafe", "hale", "Strafe thrusters slide you sideways without turning, and reverse thrust slows you down or backs you up. Give them both a try."],
 	["brake", "hale", "To stop, use the brake. It fires against your drift until you're holding still beside whatever world you're near."],
-	["boost", "hale", "Boost gives you a burst of speed while you thrust. It eats energy fast, so save it for a chase, or for getting out of one."],
+	["boost", "hale", "Boost gives you a burst of speed while you thrust. Like your engines, it runs on fuel, not energy, and it burns through the tank fast. Save it for a chase, or for getting out of one."],
 	["assist", "hale", "Flight assist fires small thrusters to stop you spinning when you let go of the turn. Switch it off and you tumble freely, which some pilots prefer. Turn it off, then back on."],
 	["beacon", "hale", "I've dropped a nav beacon ahead of you. Fly to it using what you've just learned. Follow the arrow if it's off screen."],
 	["gravity", "hale", "Feel that pull? Every planet and moon has gravity, and if you coast near one you'll swing into orbit. Keep well clear of the Sun. Its heat will cook your hull."],
