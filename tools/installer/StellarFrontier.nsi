@@ -31,6 +31,8 @@ VIAddVersionKey "LegalCopyright" "Non-commercial fan remake"
 !define MUI_ICON "icon.ico"
 !define MUI_UNICON "icon.ico"
 !define MUI_ABORTWARNING
+ShowInstDetails show
+ShowUninstDetails show
 !define MUI_FINISHPAGE_RUN "$INSTDIR\StellarFrontier.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Play ${APP} now"
 
@@ -43,8 +45,6 @@ VIAddVersionKey "LegalCopyright" "Non-commercial fan remake"
 !insertmacro MUI_LANGUAGE "English"
 
 Section "Install"
-	; an older copy may still be running: Windows would refuse the overwrite
-	nsExec::Exec 'taskkill /IM StellarFrontier.exe /F'
 	SetOutPath "$INSTDIR"
 	File "/oname=StellarFrontier.exe" "${EXE}"
 	File "icon.ico"
