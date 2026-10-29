@@ -59,6 +59,9 @@ func _start() -> void:
 	var slot: Array = b._equip_slot(twin)
 	_check(slot == ["hp", first], "Equip puts %s in place of %s on mount %d (%s)" % [gd.MODULES[twin]["name"], gd.MODULES[have]["name"], first + 1, slot])
 	b._equip_hold(0)
+	if not b.placing.is_empty():
+		_check(b.focus_key == "hp:%d" % first, "Equip with several mounts that take it asks which, starting at the likeliest (%s)" % b.focus_key)
+		b._command("accept")
 	_check(b.mounts[first]["id"] == twin and b.hold == [have] and b._hold_is_stock(0) == was_stock, "the new part is fitted and the old one is in the hold, marked stock if it was (%s)" % [b.hold])
 	# a bay part of a kind already fitted replaces it
 	var bay_have: String = b.modules[0]["id"]
@@ -311,6 +314,7 @@ func _hold_and_controls(b, gd) -> void:
 	_check(not b.confirm.is_empty(), "backing out of a changed ship asks before leaving")
 	b._command("back")
 	_check(b.confirm.is_empty() and main.builder != null, "B / Esc on that question keeps building")
+	var moved: Dictionary = await _moving_and_turning(b, gd)
 	# launch saves the hold's stock marks on the ship
 	b.hold = [stock_id]
 	b.hold_stock = {stock_id: 1}
@@ -322,5 +326,99 @@ func _hold_and_controls(b, gd) -> void:
 		b._command("accept")
 	if main.builder == null:
 		_check(p.hold_stock.get(stock_id, 0) == 1, "the ship keeps which hold parts are stock")
+		if moved.has("fire"):
+			var turned: Array = p.weapons.filter(func(w): return absf(w["fire_angle"] - deg_to_rad(moved["fire"])) < 0.01)
+			_check(not turned.is_empty(), "the launched ship's turret faces where it was turned (%d°)" % moved["fire"])
+		if moved.has("places"):
+			_check(p.design.get("places", {}) == moved["places"], "the launched ship keeps where its systems sit (%s)" % [p.design.get("places", {})])
 	else:
 		_check(false, "Launch did not launch: %s" % [b._problems()])
+
+
+## Moving weapons between mounts, turning turrets, moving a socketed
+## system on the hull, and choosing where a hold part goes.  All free.
+func _moving_and_turning(b, gd) -> Dictionary:
+	var out := {}
+	b.placing = {}
+	var bill: int = b.order.size()
+	var a := -1
+	var c := -1
+	for i in b.hardpoints.size():
+		for j in b.hardpoints.size():
+			if a < 0 and b.mounts[i] != null and b._can_swap(i, j):
+				a = i
+				c = j
+	if a < 0:
+		_check(false, "no two mounts on the %s can swap weapons" % b.hull)
+		return out
+	var wa: String = b.mounts[a]["id"]
+	var wc: String = b.mounts[c]["id"] if b.mounts[c] != null else ""
+	b.focus_key = "hp:%d" % a
+	b._command("place")
+	_check(b.placing.get("kind", "") == "move" and b.placing["targets"].has("hp:%d" % c), "M / LT on a weapon offers the mounts it can go to (%s)" % [b.placing.get("targets", [])])
+	b.focus_key = "hp:%d" % c
+	b._command("accept")
+	_check(b.placing.is_empty() and b.mounts[c]["id"] == wa and ((wc == "" and b.mounts[a] == null) or (b.mounts[a] != null and b.mounts[a]["id"] == wc)),
+		"Enter swaps the weapons between mounts %d and %d" % [a + 1, c + 1])
+	b.focus_key = "hp:%d" % c
+	b._command("place")
+	b._command("back")
+	_check(b.placing.is_empty() and b.mounts[c]["id"] == wa and main.builder != null, "B / Esc stops a move and nothing changes")
+	# turning a turret turns its facing and its arc
+	var hp0: Array = b.hardpoints[c]
+	for n in 3:
+		b._command("turn_l")
+	var hp: Array = b._hp_turned(c)
+	_check(b.turns[c] == -45 and int(hp[2]) == int(hp0[2]) - 45 and int(hp[3]) == int(hp0[3]) - 45 and int(hp[4]) == int(hp0[4]) - 45,
+		"R / right stick turns mount %d and its arc 45° (faces %s)" % [c + 1, b._facing_text(c)])
+	var w: Array = b.current_design()["weapons"].filter(func(x): return x[0] == wa and float(x[1]) == float(hp0[0]) and float(x[2]) == float(hp0[1]))[0]
+	_check(int(w[3]) == int(hp0[2]) - 45, "the design carries the turned facing")
+	out["fire"] = int(w[3])
+	# a turned arc that crosses astern still holds a target behind
+	var arc := {"arc0": deg_to_rad(150.0), "arc1": deg_to_rad(210.0)}
+	_check(Ship.in_arc(arc, deg_to_rad(-170.0)) and not Ship.in_arc(arc, 0.0) and absf(Ship.clamp_to_arc(arc, deg_to_rad(-90.0)) - deg_to_rad(210.0)) < 0.01,
+		"arcs turned past astern still work (in_arc, clamp_to_arc)")
+	# a booster, shield or PDC moves to another socket on the hull
+	var bi := -1
+	for i in b.modules.size():
+		if b._socket_kind(b.modules[i]["id"]) != "":
+			bi = i
+			break
+	if bi < 0:
+		_check(false, "no booster, shield or PDC on the %s to move" % b.hull)
+	else:
+		var f: String = gd.MODULES[b.modules[bi]["id"]]["func"]
+		b.focus_key = "bay:%d" % bi
+		b._command("place")
+		_check(b.placing.get("kind", "") == "socket" and not b.placing["targets"].is_empty(), "M / LT on a %s offers the other sockets (%d)" % [f, b.placing.get("targets", []).size()])
+		var k := int(b.placing["targets"][-1].get_slice(":", 1))
+		b.focus_key = b.placing["targets"][-1]
+		b._command("accept")
+		_check(b._socket_of_bays().get(bi, -1) == k and b.current_design().has("places"), "Enter puts it in socket %d" % k)
+		var model: Dictionary = ShipArt.build_model(b.current_design(), b.base.race_id, b.current_design()["size"])
+		var spot: Vector2 = ShipArt.system_sockets(b.hull, b.base.race_id, b.current_design()["size"], ShipArt.SOCKET_KIND[f])[k]
+		var drawn: bool = model["overlays"].any(func(o): return o["pos"].distance_to(spot) < 0.01) or model["pdc"].any(func(o): return o["pos"].distance_to(spot) < 0.01)
+		_check(drawn, "the ship is drawn with it in that socket")
+		out["places"] = b.current_design()["places"]
+	# one shield module draws one emitter
+	var shield_d: Dictionary = gd.stock_design("Destroyer", b.base.race_id)
+	shield_d["modules"] = shield_d["modules"].filter(func(id): return gd.MODULES[id]["func"] != "shield") + ["5001"]
+	var sm: Dictionary = ShipArt.build_model(shield_d, b.base.race_id, shield_d["size"])
+	_check(sm["overlays"].filter(func(o): return o["icon"] == "shield").size() == 1, "one shield module draws one emitter dome")
+	# a hold part with more than one place to go asks where
+	var stack := ""
+	for i in b.modules.size():
+		if gd.stacks(b.modules[i]["id"]) and gd.MODULES[b.modules[i]["id"]]["func"] == "boost":
+			stack = "9202"
+	if stack != "":
+		b.hold.append(stack)
+		var n_mods: int = b.modules.size()
+		b._equip_hold(b.hold.size() - 1)
+		_check(b.placing.get("kind", "") == "equip" and b.placing["targets"].has("bay:%d" % n_mods) and b.placing["targets"].size() >= 2,
+			"Equip of a second booster asks which bay, or a new one (%s)" % [b.placing.get("targets", [])])
+		b._command("back")
+		_check(b.placing.is_empty() and b.modules.size() == n_mods and b.hold.has(stack), "B / Esc leaves it in the hold")
+		b.hold.erase(stack)
+	_check(b.order.size() == bill, "moving, turning and placing cost nothing")
+	await process_frame
+	return out

@@ -100,5 +100,39 @@ func _process(_delta: float) -> bool:
 		b._command("remove")
 	if frames == 200:
 		_shot("yard_hold_full")
+		b._answer(1)
+		b.hold = ["9202", "4022"]
+		b.hold_stock = {}
+		b._switch_hull("Destroyer")
+		# the booster picked: its sockets on the hull
+		for i in b.modules.size():
+			if b.modules[i]["id"] == "9201":
+				b._select("bay", i)
+	if frames == 215:
+		_shot("yard_booster_sockets")
+		# equip a second booster from the hold: which bay?
+		b.focus_key = "hold:0"
+		b._equip_hold(0)
+	if frames == 230:
+		_shot("yard_equip_where")
+		b._place_at(b.placing["targets"][-1])     # a new bay
+		b._select("bay", b.modules.size() - 1)
+		b._command("place")
+	if frames == 245:
+		_shot("yard_move_socket")
+		b._command("accept")
+		# swap the bow gun with a flank mount, then turn a flank turret
+		b._select("hp", 0)
+		b.focus_key = "hp:0"
+		b._command("place")
+	if frames == 260:
+		_shot("yard_move_weapon")
+		b._command("accept")
+		b._select("hp", 2)
+		b.focus_key = "hp:2"
+		for n in 3:
+			b._command("turn_l")
+	if frames == 275:
+		_shot("yard_turned")
 		return true
 	return false
