@@ -39,10 +39,15 @@ static func draw_call(c: CanvasItem, r: Rect2, speaker_id: String, place: String
 			frame = _texture(PEOPLE_DIR % [speaker_id, "_talk"]) if _texture(PEOPLE_DIR % [speaker_id, "_talk"]) != null else face
 		elif blink and _texture(PEOPLE_DIR % [speaker_id, "_blink"]) != null:
 			frame = _texture(PEOPLE_DIR % [speaker_id, "_blink"])
+		# waist-up paintings: the window's bottom edge cuts them a little
+		# below the hands, so the bob never shows a gap under them
 		var bob := sin(t * 1.6) * r.size.y * 0.006
-		var h := r.size.y * 0.92
+		var h := r.size.y * 1.04
 		var w := h * frame.get_width() / maxf(frame.get_height(), 1.0)
-		c.draw_texture_rect(frame, Rect2(r.position.x + (r.size.x - w) * 0.5, r.end.y - h + bob, w, h), false)
+		var dst := Rect2(r.position.x + (r.size.x - w) * 0.5, r.end.y - h * 0.97 + bob, w, h)
+		var keep := clampf((r.end.y - dst.position.y) / h, 0.0, 1.0)
+		dst.size.y = h * keep
+		c.draw_texture_rect_region(frame, dst, Rect2(0, 0, frame.get_width(), frame.get_height() * keep))
 	else:
 		_draw_person(c, r, spk, talk, blink, t)
 	_draw_signal(c, r, noise, t)
