@@ -1042,13 +1042,20 @@ static func catalogue(race_id: int, blueprints: Array, for_station: bool = false
 	return out
 
 
+## What one booster adds while boosting, from its [push, speed, -] in
+## MODULES: (top speed factor, acceleration factor) on top of 1.0.
+## Booster I gives x1.5 top speed and x2.2 acceleration; II and III more.
+static func boost_gain(p: Array) -> Vector2:
+	return Vector2(float(p[1]) / 300.0, float(p[0]) / 833.0)
+
+
 ## Everything a design adds up to; shared by the ship and the shipyard so
 ## the numbers on the screen are the numbers in flight.
 static func stats_for(design: Dictionary) -> Dictionary:
 	var st := {
 		"mass": 0.0, "energy_max": 0.0, "energy_regen": 0.0, "shield_max": 0.0, "shield_regen": 0.0,
 		"hull_max": 0.0, "armor": 0.0, "sensor_range": 0.0, "sensors": {}, "can_jam": false, "jam_reach": 0.0,
-		"heat_sink": 0.0, "has_boost": false, "pdc": 0,
+		"heat_sink": 0.0, "has_boost": false, "boost_speed": 1.0, "boost_accel": 1.0, "pdc": 0,
 		"qdrv": 0.0, "brake_power": 0.6, "regen": 0.0, "repair": 0.0, "ram": 0.0,
 		"power_gen": 0.0, "power_draw": 0.0, "overload": 1.0, "module_levels": {}, "bay_used": 0,
 		"coat": "", "armor_mass": 0.0, "armor_sig": 1.0, "thermal_lag": 1.0, "shield_family": "deflector", "shield_draw": 0.0,
@@ -1056,6 +1063,7 @@ static func stats_for(design: Dictionary) -> Dictionary:
 	}
 	var is_station: bool = is_station_hull(design["name"])
 	var biggest_shield := 0.0
+	var boosters := []
 	for id in design["modules"]:
 		var m: Dictionary = MODULES[id]
 		st["mass"] += m["mass"]
@@ -1101,6 +1109,7 @@ static func stats_for(design: Dictionary) -> Dictionary:
 				st["pdc"] += 1
 			"boost":
 				st["has_boost"] = true
+				boosters.append(m["p"])
 			"qdrv":
 				st["qdrv"] = maxf(st["qdrv"], float(m["p"][0]))
 			"brake":
@@ -1114,6 +1123,12 @@ static func stats_for(design: Dictionary) -> Dictionary:
 				st["hull_max"] += 200
 			"factory":
 				st["energy_regen"] += 400.0
+	# boosters: the best one in full, each more at half (boost_gain)
+	boosters.sort_custom(func(a, b): return a[1] > b[1])
+	for i in boosters.size():
+		var g := boost_gain(boosters[i])
+		st["boost_speed"] += g.x * (1.0 if i == 0 else 0.5)
+		st["boost_accel"] += g.y * (1.0 if i == 0 else 0.5)
 	for w in design["weapons"]:
 		var m: Dictionary = MODULES[w[0]]
 		st["mass"] += m["mass"]

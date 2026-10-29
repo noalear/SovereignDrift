@@ -933,10 +933,11 @@ static func _system_overlays(m: Dictionary, size: float, counts: Dictionary) -> 
 	var s := size
 	# (engines are part of each painting; boosters and shield emitters sit
 	# in sockets: _placed_systems)
-	# quantum drive fins over the stern
+	# quantum drive over the stern, its drive bell aft (Kyle: it was drawn
+	# backwards with the bell forward)
 	var qt: int = counts.get("qdrv_tier", 0)
 	if qt > 0:
-		_overlay(m, "qdrv", Vector2(rect.position.x + s * 0.7, 0), s * (0.22 + 0.04 * qt), PI, 0.9)
+		_overlay(m, "qdrv", Vector2(rect.position.x + s * 0.7, 0), s * (0.22 + 0.04 * qt), 0.0, 0.9)
 	# reactor core at the heart, brighter window with tier
 	var pt: int = counts.get("power_tier", 0)
 	if pt > 0:
@@ -987,7 +988,9 @@ static func _pdc_mounts(m: Dictionary, size: float, n: int, picks: Array = []) -
 		Vector2(-s * 0.55, 0), Vector2(-s * 0.3, -hw * 0.5), Vector2(-s * 0.3, hw * 0.5)]
 	var sockets := system_sockets(m["hull"], m["race"], size, "ext") if not picks.is_empty() else []
 	var t := part_texture("rapid")
-	var w := clampf(s * 0.36, 11.0, 30.0)
+	# a small gatling, well under the lightest gun turret (Kyle: PDCs were
+	# drawn bigger than the main guns)
+	var w := seat_radius(m, 0) * 1.4
 	for i in n:
 		var p: Vector2
 		var k: int = picks[i] if i < picks.size() else -1

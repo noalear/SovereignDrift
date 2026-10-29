@@ -15,8 +15,6 @@ signal system_failed(ship: Ship, system: Dictionary, attacker: Node)
 signal touched_down(ship: Ship, planet: Planet)
 signal lifted_off(ship: Ship, planet: Planet)
 
-const BOOST_SPEED_MULT := 1.5
-const BOOST_ACCEL_MULT := 2.2
 const WARP_CHARGE_TIME := 1.1
 ## After any warp ends, autopilot and computer pilots wait this long before
 ## starting another, so a ship never flickers in and out of warp.
@@ -117,6 +115,8 @@ var jamming := false               # the jammer is on (it works on the target; s
 var boosting := false              # this frame, for the heat signature
 var engine_level := 0.0            # share of full thrust this frame, for the heat signature
 var has_boost := false
+var boost_speed := 1.5               # top speed and push while boosting (GameData.boost_gain)
+var boost_accel := 2.2
 var has_dock := false
 var qdrv := 0.0
 var warping := false
@@ -303,6 +303,8 @@ func refit(p_design: Variant) -> void:
 		sensors.setup(self)
 	sensors.fit(stats)
 	has_boost = stats["has_boost"]
+	boost_speed = stats["boost_speed"]
+	boost_accel = stats["boost_accel"]
 	qdrv = stats["qdrv"]
 	brake_power = stats["brake_power"]
 	regen_rate = stats["regen"]
@@ -718,13 +720,13 @@ func post_step(_delta: float) -> void:
 func _fly(delta: float) -> void:
 	var fwd := forward()
 	boosting = inputs["boost"] and has_boost and energy > 5.0 and inputs["thrust"] > 0.0 and fuel > 0.0
-	var vmax := max_speed * (BOOST_SPEED_MULT if boosting else 1.0)
+	var vmax := max_speed * (boost_speed if boosting else 1.0)
 	# the rating is the speed the drive holds in open space; inside a
 	# gravity well the cap is on the energy, so a ship can always climb out:
 	# locally that means the escape speed on top of the rating
 	var v_esc := escape_speed()
 	vmax = sqrt(vmax * vmax + v_esc * v_esc)
-	var f0 := thrust_force * (BOOST_ACCEL_MULT if boosting else 1.0)
+	var f0 := thrust_force * (boost_accel if boosting else 1.0)
 	accel = thrust_force / wet_mass()
 	warp_block = maxf(warp_block - delta, 0.0)
 
@@ -2060,6 +2062,9 @@ func try_pickup(module_id: String) -> bool:
 			if b["has_boost"] and level <= have:
 				return false
 			b["has_boost"] = true
+			var g := GameData.boost_gain(m["p"])
+			boost_speed = 1.0 + g.x
+			boost_accel = 1.0 + g.y
 		"armor":
 			# a computer pilot only bolts on thicker plate
 			if GameData.ARMOR[module_id]["coat"] != "plate" or (coat != "" and (coat_kind != "plate" or level <= have)):

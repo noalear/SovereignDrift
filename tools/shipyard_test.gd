@@ -91,7 +91,7 @@ func _start() -> void:
 	_check(all.size() > ups.size(), "Switch out lists everything for that mount (%d rows)" % all.size())
 	b._select("hp", first)
 	_check(b.cat_mode == "upgrade", "picking a slot again starts on upgrades")
-	# marks: only higher ones are upgrades
+	# marks: higher and lower ones both show, to save mass as well as to upgrade
 	var tiered := ""
 	for m in b.modules:
 		if gd.tier(m["id"]) >= 2:
@@ -100,7 +100,19 @@ func _start() -> void:
 	if not tiered.is_empty():
 		b._select("bay", b.modules.map(func(m): return m["id"]).find(tiered))
 		var rows: Array = b._catalogue_rows()
-		_check(rows.all(func(e): return gd.tier(e["id"]) > gd.tier(tiered)), "%s lists only higher marks (%s)" % [gd.MODULES[tiered]["name"], rows.map(func(e): return e["name"])])
+		_check(rows.all(func(e): return b._same_family(e["id"], tiered) and e["id"] != tiered) and rows.any(func(e): return gd.tier(e["id"]) < gd.tier(tiered)),
+			"%s lists its other marks, lower ones too (%s)" % [gd.MODULES[tiered]["name"], rows.map(func(e): return e["name"])])
+	# boosters and quantum drives show what a better one adds
+	var with_boost := func(ids: Array) -> Dictionary:
+		var d: Dictionary = gd.stock_design("Destroyer", 1)
+		d["modules"] = d["modules"].filter(func(id): return gd.MODULES[id]["func"] != "boost") + ids
+		return gd.stats_for(d)
+	var st1: Dictionary = with_boost.call(["9201"])
+	var st3: Dictionary = with_boost.call(["9203"])
+	var st2x: Dictionary = with_boost.call(["9201", "9201"])
+	_check(is_equal_approx(st1["boost_speed"], 1.5) and is_equal_approx(st1["boost_accel"], 1.0 + 1000.0 / 833.0), "Booster I boosts x1.5 speed as before (%.2f, %.2f)" % [st1["boost_speed"], st1["boost_accel"]])
+	_check(st3["boost_speed"] > st1["boost_speed"] and st3["boost_accel"] > st1["boost_accel"], "Booster III boosts more than Booster I")
+	_check(st2x["boost_speed"] > st1["boost_speed"] and st2x["boost_speed"] < 2.0 * st1["boost_speed"], "a second booster adds, at half")
 	await _hold_and_controls(b, gd)
 	print("shipyard test: ", "FAILED" if failed else "passed")
 	quit(1 if failed else 0)
@@ -374,6 +386,49 @@ func _moving_and_turning(b, gd) -> Dictionary:
 	var w: Array = b.current_design()["weapons"].filter(func(x): return x[0] == wa and float(x[1]) == float(hp0[0]) and float(x[2]) == float(hp0[1]))[0]
 	_check(int(w[3]) == int(hp0[2]) - 45, "the design carries the turned facing")
 	out["fire"] = int(w[3])
+	# picking another mount turns that one, not the one turned before
+	var d := -1
+	for i in b.hardpoints.size():
+		if d < 0 and i != c and b._can_turn(i):
+			d = i
+	if d < 0:
+		_check(false, "only one turnable mount on the %s" % b.hull)
+	else:
+		var t_c: int = b.turns[c]
+		var t_d: int = b.turns[d]
+		b.focus_key = "hp:%d" % c
+		b._select("hp", d)
+		b._command("turn_r")
+		_check(b.turns[c] == t_c and b.turns[d] == wrapi(t_d + b.TURN_STEP, -180, 180), "after picking mount %d, R turns it and not mount %d" % [d + 1, c + 1])
+		# dragging on the slip points it at the pointer, the wheel steps it
+		var keep_badges: Array = b._badges
+		var keep_pic: Rect2 = b._pic_rect
+		b._badges = []
+		for i in b.hardpoints.size():
+			b._badges.append(Vector2(400 + 60 * i, 400))
+		b._pic_rect = Rect2(0, 0, 1600, 900)
+		b._aim_mount(d, b._badges[d] + Vector2(0, 80))
+		_check(int(b._hp_turned(d)[2]) == 90 or int(b._hp_turned(d)[2]) == -270, "dragging mount %d points it down the screen (faces %s)" % [d + 1, b._facing_text(d)])
+		var before: int = b.turns[d]
+		var wheel := InputEventMouseButton.new()
+		wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+		wheel.pressed = true
+		wheel.position = b._badges[d] + Vector2(3, 3)
+		b._gui_input(wheel)
+		_check(b.turns[d] == wrapi(before - b.TURN_STEP, -180, 180), "the mouse wheel over a mount turns it a step")
+		b._badges = keep_badges
+		b._pic_rect = keep_pic
+		# a mine layer always drops astern: no turning, and no Turn key shown
+		var keep: Variant = b.mounts[d]
+		b.mounts[d] = {"id": "4002"}
+		var t_mine: int = b.turns[d]
+		b.focus_key = "hp:%d" % d
+		b._command("turn_r")
+		var shows_turn: bool = b._hints().any(func(h): return h[1] == "Turn")
+		_check(b.turns[d] == t_mine and not shows_turn and b._turn_block(d) != "", "a mine layer does not turn and shows no Turn key (%s)" % b._turn_block(d))
+		b.mounts[d] = keep
+		b.focus_key = "hp:%d" % d
+		_check(b._hints().any(func(h): return h[1] == "Turn"), "a turret that can turn shows the Turn key")
 	# a turned arc that crosses astern still holds a target behind
 	var arc := {"arc0": deg_to_rad(150.0), "arc1": deg_to_rad(210.0)}
 	_check(Ship.in_arc(arc, deg_to_rad(-170.0)) and not Ship.in_arc(arc, 0.0) and absf(Ship.clamp_to_arc(arc, deg_to_rad(-90.0)) - deg_to_rad(210.0)) < 0.01,
