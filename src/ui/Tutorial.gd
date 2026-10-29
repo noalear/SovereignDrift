@@ -592,6 +592,11 @@ func _enter_pdc() -> void:
 	pdc_fired = 0
 	pdc_next = 4.0                  # let Hale get going first
 	_remove_launcher()
+	_spawn_launcher()
+
+
+func _spawn_launcher() -> void:
+	var p := _player()
 	var a := p.rotation + randf_range(-0.5, 0.5)
 	launcher = world.spawn_ship("Training launcher", 3, "Scout", "Target Launcher", p.global_position + Vector2(cos(a), sin(a)) * 1100.0, p.velocity, -1)
 	launcher.rotation = a + PI
@@ -601,6 +606,8 @@ func _enter_pdc() -> void:
 func _done_pdc() -> bool:
 	var p := _player()
 	var downed := p.pdc.shot_down - pdc_kills_at
+	if downed < PDC_KILLS and (launcher == null or not is_instance_valid(launcher) or launcher.dead):
+		_spawn_launcher()           # a wingman (or the cadet) shot it up before it was done
 	if launcher != null and is_instance_valid(launcher) and not launcher.dead and downed < PDC_KILLS and step_time >= pdc_next:
 		# one missile at a time, until enough are down
 		pdc_next = step_time + PDC_SALVO_GAP
