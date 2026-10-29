@@ -1,7 +1,7 @@
 # Story campaign test: "New story" starts a Terran war under the Ceres
 # Accord (the empires hold their fire, a shot across it makes the shooter
 # fair game), Hale calls the player in, the briefing pauses the war and
-# launches the operation, and every operation of Acts 1 and 2 plays to the
+# launches the operation, and every operation of Acts 1 to 3 plays to the
 # end the way a pilot would (teleports where flying would take minutes),
 # with both answers to the choices and the fail-forward endings.  Also: a
 # failed operation is tried again from the save made as it began, the
@@ -121,8 +121,10 @@ func _start() -> void:
 		w.accord = false
 		w.story.index = int(from)
 		w.story.flags["arceans"] = "allied"
+		if int(from) >= 12:
+			w.story.flags["codes"] = "spoof"     # as _prize_crew answers
 		w.story.keep_peace()
-		for f in [_envoy, _silent_running, _burn_yards].slice(maxi(int(from) - 7, 0)):
+		for f in [_envoy, _silent_running, _burn_yards, _exodus, _prize_crew, _siege_mars, _sunward].slice(maxi(int(from) - 7, 0)):
 			await f.call()
 		_end()
 		return
@@ -140,6 +142,10 @@ func _start() -> void:
 	await _envoy()
 	await _silent_running()
 	await _burn_yards()
+	await _exodus()
+	await _prize_crew()
+	await _siege_mars()
+	await _sunward()
 	_end()
 
 
@@ -156,6 +162,7 @@ func _lines_check() -> void:
 	_check(missing.is_empty(), "every story line is recorded (%d lines; missing %s)" % [StoryLines.LINES.size(), missing])
 	for op in Story.OPS:
 		for id in [op["call"]] + op["brief"]:
+			id = str(id).split("?")[0]          # a briefing line may hang on a flag
 			_check(StoryLines.text(id) != "", "operation %s has its line %s" % [op["id"], id])
 		_check(ResourceLoader.exists(op["script"]), "operation %s has its script" % op["id"])
 
@@ -881,6 +888,196 @@ func _burn_yards() -> void:
 	_put(p, w.planet_by_name["Mars"].global_position + Vector2(9000, 0), w.planet_by_name["Mars"].velocity)
 	await _frames(10)
 	_check(w.story.op == null and w.story.index == 10, "and Burn the Yards still ends, the Hammer loose")
+
+
+func _exodus() -> void:
+	var w: World = main.world
+	var st: Story = w.story
+	st.index = 10
+	var lines := st.brief_lines()
+	_check(lines.has("ex_brief_1") and (lines.has("ex_brief_2") != lines.has("ex_brief_2b") or not st.flags.has("luna")), "the Exodus briefing tells the Luna its pilots left behind (%s)" % [lines])
+	var op := await _launch("exodus")
+	var p := w.player
+	var luna: Planet = w.planet_by_name["Luna"]
+	var earth: Planet = w.planet_by_name["Earth"]
+	var ts: Array = op.get("transports")
+	_check(ts.size() == 3 and ts[0].design_name == "Freighter" and op.get("escort").size() == 2, "three transports and two destroyers set out from Earth")
+	var pickup: Node2D = op.get("pickup")
+	for t in ts:
+		_put(t, pickup.global_position + Vector2(randf_range(-80, 80), randf_range(-80, 80)), luna.velocity)
+	_put(p, pickup.global_position + Vector2(300, 0), luna.velocity)
+	await _frames(5)
+	_check(op.stage == "load", "on station beside Luna, the loading begins")
+	op.stage_time = 41.0
+	await _frames(3)
+	_check(op.get("fleet").size() >= 6, "bombers come from Mars for the transports (%d)" % op.get("fleet").size())
+	_check(w.story.signal_label() == "", "nothing to send home half full")
+	var filled: Dictionary = op.get("filled")
+	for t in ts:
+		filled[t] = op.LOAD_TIME
+	await _frames(3)
+	_check(op.stage == "loaded" and w.story.signal_label() != "", "full, they wait for the word (%s)" % w.story.signal_label())
+	op.load_t = op.HAMMER_AFTER
+	await _frames(3)
+	var hammer: Ship = op.get("hammer")
+	if st.flags.get("hammer", "") == "launched":
+		_check(hammer != null and hammer.design_name == "Dreadnought", "the Hammer comes from Mars for them")
+		if hammer != null:
+			hammer.take_damage(1e7, p)
+			await _frames(2)
+			_check(not hammer.dead, "out in open space nothing gets through the Hammer's shields")
+	main._story_key()
+	await _frames(2)
+	_check(op.stage == "run" and ts[0].nav_target == earth, "sent home, they run for Earth")
+	var raider: Ship = op.get("fleet")[0]
+	ts[2].take_damage(1e7, raider)
+	await _frames(3)
+	_check(st.op != null and ts[2].dead, "losing one transport is not the end")
+	for t in [ts[0], ts[1]]:
+		_put(t, earth.global_position + Vector2(earth.radius + 300.0, 0).rotated(randf() * TAU), earth.velocity)
+	await _frames(10)
+	_check(st.op == null and st.index == 11 and int(st.flags.get("evacuated", 0)) == 2, "two transports down at Earth: Exodus is won")
+
+
+func _prize_crew() -> void:
+	var w: World = main.world
+	var st: Story = w.story
+	var op := await _launch("prize_crew")
+	var p := w.player
+	var oath: Ship = op.get("oath")
+	_check(oath.design_name == "Battleship" and op.get("escorts").size() >= 2 and op.get("strike").size() == 2, "the Iron Oath and her escorts, the Resolute's pair with the squad")
+	_check(op.guns_near(oath.global_position) > 4000.0, "she patrols out of reach of every gun (%.0f)" % op.guns_near(oath.global_position))
+	_put(p, oath.global_position + Vector2(2500, 0), oath.velocity)
+	await _frames(5)
+	_check(op.stage == "fight", "close in, the fight starts")
+	oath.hull = oath.hull_max * 0.3          # the fight, short
+	await _frames(3)
+	_check(oath.is_disabled() and op.done("engines") and oath.crew <= op.SKELETON, "her engines go first, and most of her crew takes to the pods (hull %.2f, disabled %s, crew %.1f)" % [oath.hull / oath.hull_max, oath.is_disabled(), oath.crew])
+	oath.hull = oath.hull_max * 0.15
+	await _frames(2)
+	oath.shield = 0.0
+	oath.take_damage(1e7, p)
+	await _frames(2)
+	_check(not oath.dead, "what is left holds together for the boarders")
+	_put(p, oath.global_position + Vector2(oath.size + 60.0, 0), oath.velocity)
+	w.capture.take(p, oath)
+	await _frames(5)
+	var prize: Ship = op.get("prize")
+	_check(op.stage == "codes" and prize != null and prize.race_id == 1 and prize.hull >= prize.hull_max * 0.45, "boarded, the prize crew pulls the codes")
+	op.stage_time = 36.0
+	await _frames(3)
+	_check(op.get("fleet").size() >= 5, "Mars sends ships to take her back (%d)" % op.get("fleet").size())
+	op.stage_time = op.CODES_TIME
+	await _frames(3)
+	await _answer("spoof")
+	await _frames(5)
+	_check(st.flags.get("codes", "") == "spoof" and st.flags.get("choice_codes", "") == "spoof" and op.stage == "clear" and not is_instance_valid(prize), "false orders sent, and Rhee takes the Iron Oath home")
+	_put(p, op.get("taken_at") + Vector2(9000, 0), w.planet_by_name["Mars"].velocity)
+	await _frames(10)
+	_check(st.op == null and st.index == 12, "clear of Mars: Prize Crew is won")
+
+
+func _siege_mars() -> void:
+	var w: World = main.world
+	var st: Story = w.story
+	_check(st.brief_lines().has("sm_brief_3") and not st.brief_lines().has("sm_brief_3b"), "the siege briefing remembers the false orders")
+	var op := await _launch("siege_mars")
+	var p := w.player
+	var mars: Planet = w.planet_by_name["Mars"]
+	var base: Ship = w.starbase_of(2)
+	var droppers: Array = op.get("droppers")
+	_check(mars.owner_race == 2 and mars.pshield_up() and droppers.size() == 3, "Mars is Drengin behind its shield, and three drop ships stand by")
+	_check(base != null and base.hull <= base.hull_max * 0.46, "the starbase has had a long night (%.0f of %.0f)" % [base.hull if base else 0.0, base.hull_max if base else 0.0])
+	var allied: bool = st.flags.get("arceans", "") == "allied"
+	_check(op.get("fleet").size() == 3 + (3 if allied else 0) and op.get("arceans").size() == (3 if allied else 0), "Okafor's fleet%s" % (" and three Arcean ships" if allied else ""))
+	_check(mars.is_defenceless() and op.get("dauntless").global_position.distance_to(mars.global_position) > 5000.0, "the Dauntless stands off Mars and has its batteries pinned")
+	_put(p, mars.global_position + Vector2(mars.radius + 4000.0, 0), mars.velocity)
+	await _frames(5)
+	_check(op.stage == "shield" and op.get("enemies").size() == 3, "near Mars the home fleet comes up, half of it sent away (%d)" % op.get("enemies").size())
+	base.take_damage(1e8, p)
+	await _frames(5)
+	_check(base.dead and op.done("base"), "the starbase breaks")
+	await _frames(60 * 11)
+	_check(w.starbase_of(2) == null, "and it does not relaunch over Mars")
+	mars.take_damage(1e6, p)
+	await _frames(5)
+	_check(not mars.pshield_up() and op.stage == "drop", "Mars's shield comes down")
+	main._story_key()
+	await _frames(2)
+	_check(op.called and op.done("call"), "the drop ships are called in")
+	for d in droppers:
+		_put(d, mars.global_position + Vector2(mars.radius + 300.0, 0).rotated(randf() * TAU), mars.velocity)
+	for i in 60 * 12:
+		await _frames(1)
+		if op.stage == "ground":
+			break
+	_check(op.stage == "ground" and not mars.battle.is_empty() and int(mars.battle.get("race", -1)) == 1, "the drop ships land and Third Drop goes in (stage %s)" % op.stage)
+	mars.garrison = {}
+	if not mars.battle.is_empty():
+		mars.battle["militia"] = 0.0
+	await _frames(10)
+	_check(mars.owner_race == 1 and op.stage == "flee" and st.flags.get("mars", "") == "taken", "Mars surrenders")
+	var hammer: Ship = op.get("hammer")
+	_check(hammer != null and hammer.velocity.length() > 100.0, "and the Hammer runs for the Sun")
+	op.stage_time = op.FLEE_TIME + 0.1
+	await _frames(3)
+	_check(st.op == null and st.index == 13, "Siege of Mars is won")
+	var stray := w.spawn_ship("Drengin Command", 2, "Starbase", "Drengin Starbase", mars.global_position + Vector2(600, 0), mars.velocity, 14)
+	st.tidy_world()
+	_check(mars.owner_race == 1 and not w.ships.has(stray), "a load keeps Mars Terran and its old starbase gone")
+
+
+func _sunward() -> void:
+	var w: World = main.world
+	var st: Story = w.story
+	var op := await _launch("sunward")
+	var p := w.player
+	var hammer: Ship = op.get("hammer")
+	_check(hammer != null and float(op.get("u")) > -0.8 and op.get("ambush").is_empty(), "after the false orders the Hammer has a head start and nobody waits for it")
+	_check(w.heat_at(hammer.global_position) == 0.0 and hammer.invulnerable > 0.0, "it starts out of the heat, shields up")
+	hammer.take_damage(1e7, p)
+	await _frames(2)
+	_check(not hammer.dead, "out there nothing gets through")
+	op.u = -0.25
+	await _frames(3)
+	_check(op.in_heat and hammer.invulnerable <= 0.0 and hammer.shield < hammer.shield_max * 0.05, "in the Sun's heat its shields burn away (heat %.2f, inv %.2f, shield %.0f)" % [w.heat_at(hammer.global_position), hammer.invulnerable, hammer.shield])
+	var at := hammer.global_position
+	await _frames(60)
+	_check(hammer.global_position.distance_to(at) > 10.0 and hammer.global_position.distance_to(w.sun.global_position) > w.sun.radius, "it keeps to its course round the Sun")
+	op.u = op.ESCAPE_AT - 0.001
+	for i in 60:
+		await _frames(1)
+		if st.op == null:
+			break
+	_check(st.op == null and st.failed != "", "out the other side, it gets away and the operation fails")
+	main.retry_operation()
+	for i in 4:
+		await process_frame
+	w = main.world
+	st = w.story
+	if main.briefing != null:
+		main._close_briefing()
+	# listening instead: an ambush on its course
+	st.flags["codes"] = "listen"
+	op = await _launch("sunward")
+	p = w.player
+	hammer = op.get("hammer")
+	var ambush: Array = op.get("ambush")
+	var allied: bool = st.flags.get("arceans", "") == "allied"
+	_check(ambush.size() == 3 and ambush[0].race_id == (0 if allied else 1) and float(op.get("u")) <= -0.99, "listening put %s ambush on its course" % ("an Arcean" if allied else "a Terran"))
+	op.u = -0.2
+	await _frames(3)
+	_check(w.story.signal_label() != "", "the story key springs the ambush (%s)" % w.story.signal_label())
+	main._story_key()
+	await _frames(2)
+	_check(op.sprung and op.slow_left > 0.0 and ambush[0].target == hammer, "sprung, they cross its bow")
+	hammer.take_damage(1e8, p)
+	await _frames(5)
+	_check((not is_instance_valid(hammer) or hammer.dead) and op.stage == "home" and st.flags.get("war", "") == "won" and not w.at_war(1, 2), "the Hammer burns, and the Drengin ask for terms")
+	var base := w.starbase_of(1)
+	_put(p, base.global_position + Vector2(300, 0), base.velocity)
+	await _frames(10)
+	_check(st.op == null and st.index == Story.OPS.size(), "home: Sunward is won and the story is told")
 
 
 func _end() -> void:

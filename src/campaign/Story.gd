@@ -64,6 +64,22 @@ const OPS := [
 		"call": "call_burn_yards", "brief": ["by_brief_1", "by_brief_2", "by_brief_3"],
 		"summary": "Go in with the Resolute's strike group and burn the Hammer's shipyard before its cradle opens. If the Hammer launches, fall back: the war goes on either way.",
 		"script": "res://src/campaign/ops/BurnTheYards.gd"},
+	{"id": "exodus", "act": 3, "title": "Exodus", "where": "Luna to Earth", "wait": 20.0, "day": 368,
+		"call": "call_exodus", "brief": ["ex_brief_1", "ex_brief_2?luna=held", "ex_brief_2b?luna=lost", "ex_brief_3"],
+		"summary": "Escort three transports up to Luna, cover them while they take its people aboard, then send them home to Earth with the story key when the way is clear. Two of the three must make it.",
+		"script": "res://src/campaign/ops/Exodus.gd"},
+	{"id": "prize_crew", "act": 3, "title": "Prize Crew", "where": "The sunward side of Mars", "wait": 20.0, "day": 373,
+		"call": "call_prize_crew", "brief": ["pc_brief_1", "pc_brief_2", "pc_brief_3"],
+		"summary": "With the Resolute and the Vigilant, knock out the Drengin battleship Iron Oath's engines, board it, and hold it while Major Rhee's prize crew pulls the fleet codes. Then decide what to do with them.",
+		"script": "res://src/campaign/ops/PrizeCrew.gd"},
+	{"id": "siege_mars", "act": 3, "title": "Siege of Mars", "where": "Mars", "wait": 20.0, "day": 380,
+		"call": "call_siege_mars", "brief": ["sm_brief_1", "sm_brief_2", "sm_brief_3?codes=spoof", "sm_brief_3b?codes=listen", "sm_brief_4?arceans=allied"],
+		"summary": "With Admiral Okafor's fleet, break the Drengin starbase and shoot down Mars's planetary shield, call Major Rhee's three drop ships in with the story key, and cover the ground battle until Mars is Terran.",
+		"script": "res://src/campaign/ops/SiegeOfMars.gd"},
+	{"id": "sunward", "act": 3, "title": "Sunward", "where": "The Sun", "wait": 20.0, "day": 381,
+		"call": "call_sunward", "brief": ["sw_brief_1", "sw_brief_2", "sw_brief_3?codes=listen", "sw_brief_3b?codes=spoof", "sw_brief_4"],
+		"summary": "Catch the Hammer as it crosses the Sun's heat on its way to Venus. Out in open space its shields are too strong; in the heat they fail. Finish it before it gets out the other side.",
+		"script": "res://src/campaign/ops/Sunward.gd"},
 ]
 ## The story's Sol is this much bigger than Conquest's (Kyle: "scale the
 ## map up huge ... it takes time to get places").
@@ -72,7 +88,7 @@ const ACTS := ["", "Act 1: Cold Orbit", "Act 2: Open War", "Act 3: Hammer of Mar
 const YEAR := 2471                # the war's year: an operation's stardate is YEAR.<its "day">
 const INTERLUDE_AFTER := 4.0      # seconds after an operation ends before the fade (and the wrap-up talk is done)
 const INTERLUDE_LATEST := 20.0    # fade by then even if someone is still talking
-const STORY_WORLDS := ["Luna", "Deimos"]   # worlds the operations take or lose: tidy_world leaves them be
+const STORY_WORLDS := ["Luna", "Deimos", "Mars"]   # worlds the operations take or lose: tidy_world leaves them be
 const PORT_MARKUP := 0.25         # on the free port's prices for Terrans once the records were stolen
 const BREACH_WARN_EVERY := 30.0   # Hale's "hold your fire" between operations
 ## Lantern Squadron's own pilots: their ships, purses and holds go on from
@@ -228,6 +244,7 @@ func tidy_world() -> void:
 		if s.is_prize and world.is_pilot(s.prize_of):
 			continue           # a prize the player took flies on with them
 		world.remove_ship(s)
+	keep_mars()
 	for p in world.planets:
 		if p.body_name in STORY_WORLDS:
 			continue
@@ -242,10 +259,40 @@ func tidy_world() -> void:
 			Ground.seed_planet(p, GameData.STARBASES.get(p.owner_race, "") == p.body_name)
 
 
+## Once Mars is Terran (Siege of Mars) the Drengin starbase that stood
+## over it is gone for good: it never relaunches there.
+func keep_mars() -> void:
+	if flags.get("mars", "") != "taken":
+		return
+	for s in world.ships.duplicate():
+		if s.is_starbase() and s.race_id == 2:
+			world.remove_ship(s)
+
+
 ## Once the Accord is gone the Arceans stay out of Terra's war with Mars,
-## unless the story has turned them.
+## unless the story has turned them; once the Hammer is gone the Drengin
+## have made their peace too.
 func keep_peace() -> void:
-	world.peace = [[0, 1]] if not world.accord and flags.get("arceans", "") != "hostile" else []
+	var pairs := []
+	if not world.accord and flags.get("arceans", "") != "hostile":
+		pairs.append([0, 1])
+	if not world.accord and flags.get("war", "") == "won":
+		pairs.append([1, 2])
+	world.peace = pairs
+
+
+## The briefing's lines for the operation on offer: a line written
+## "id?flag=value" is only read when the story remembers that.
+func brief_lines() -> Array:
+	var out := []
+	for e in current().get("brief", []):
+		var parts: PackedStringArray = str(e).split("?")
+		if parts.size() > 1:
+			var kv: PackedStringArray = parts[1].split("=")
+			if str(flags.get(kv[0], "")) != (kv[1] if kv.size() > 1 else "true"):
+				continue
+		out.append(parts[0])
+	return out
 
 
 ## Behind the stardate card: days pass, the pilots are back at their
@@ -501,7 +548,7 @@ func on_breach(attacker: Node, victim: Node) -> void:
 			return
 	if attacker == world.player and world.elapsed - _last_warn > BREACH_WARN_EVERY:
 		_last_warn = world.elapsed
-		say("breach_warn" if world.accord else "breach_warn_arcean")
+		say("breach_warn" if world.accord else ("breach_warn_peace" if victim is Ship and victim.race_id == 2 else "breach_warn_arcean"))
 
 
 ## A friend online would pick `key` (the host's StoryChoice shows the tally).

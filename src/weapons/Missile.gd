@@ -174,7 +174,7 @@ func _in_cone(t: Node2D) -> bool:
 	return absf(angle_difference(velocity.angle(), to.angle())) <= float(data.get("cone", HEAD_CONE))
 
 
-func _keeps(t: Node2D, delta: float) -> bool:
+func _keeps(t, delta: float) -> bool:     # untyped: the target may have been freed
 	if t == null or not is_instance_valid(t) or (t is Ship and t.dead):
 		return false
 	if _lock_ok(t):
