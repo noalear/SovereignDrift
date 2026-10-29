@@ -209,7 +209,7 @@ func _interlude_check() -> void:
 	st.unlock_at = INF
 	st.interlude_at = w.elapsed
 	for i in 30:
-		await physics_frame
+		await _frames(1)                # the last words of the operation said, it fades
 		if main.interlude != null:
 			break
 	_check(main.interlude != null, "between operations the screen fades to the next stardate")
@@ -250,33 +250,100 @@ func _first_watch() -> void:
 	_check(st.objectives().size() >= 1 and not st.marks().is_empty(), "the first objective and its mark")
 	_put(p, cormorant.global_position + Vector2(200, 0), cormorant.velocity)
 	await _frames(20)
-	_check(op.done("meet") and op.stage == "escort", "meeting the Cormorant starts the escort")
-	_check(cormorant.autopilot, "the Cormorant sets off for the free port")
+	_check(op.done("meet") and op.stage == "leave_earth", "meeting the Cormorant starts the escort")
+	_check(cormorant.autopilot and not cormorant.warping, "the Cormorant burns out from Earth without jumping on her own")
 	var port: Ship = op.get("port")
-	# part way: the Drengin scout comes to look
+	var earth := w.planet_by_name["Earth"] as Planet
+	var course := (port.global_position - cormorant.global_position).normalized()
+	var out: Vector2 = earth.global_position + course * (earth.radius + float(op.CLEAR_OF_EARTH) + 400.0)
+	_put(cormorant, out, cormorant.velocity)
+	cormorant.rotation = course.angle()
+	_put(p, out + course.orthogonal() * 250.0, cormorant.velocity)
+	await _frames(10)
+	_check(op.stage == "escort" and op.jumps_ok, "clear of Earth, the Cormorant is ready to jump with her escort")
+	# the player jumps for the port: she jumps too
+	p.rotation = course.angle()
+	p.reset_physics_interpolation()
+	p.energy = p.energy_max
+	p.start_warp()
+	var jumped := false
+	for i in 60 * 4:
+		await _frames(1)
+		jumped = jumped or cormorant.warping
+		if jumped:
+			break
+	_check(jumped and not op.solo, "the Cormorant jumps on the player's lead")
+	# halfway: the scout's jammer pulls everyone out of warp
 	var half: Vector2 = cormorant.global_position.lerp(port.global_position, 0.6)
 	_put(cormorant, half, cormorant.velocity)
-	# fly tight beside the Cormorant, with Brandt coming up into his slot
-	_put(p, half + Vector2(0, cormorant.size + p.size + 40.0), cormorant.velocity)
-	_put(brandt, half + Vector2(-500, cormorant.size + 120.0), cormorant.velocity)
+	_put(p, half + course.orthogonal() * (cormorant.size + p.size + 40.0), cormorant.velocity)
+	_put(brandt, half + course.orthogonal() * -(cormorant.size + 120.0) - course * 500.0, cormorant.velocity)
+	await _frames(3)
+	var scout: Ship = op.get("scout")
+	_check(op.stage == "shadowed" and scout != null and is_instance_valid(scout), "halfway a Drengin scout pulls the flight out of warp")
+	_check(not cormorant.warping and not p.warping, "the Cormorant and the player drop out of warp (%s, %s)" % [cormorant.warping, p.warping])
 	var closest := INF
-	for i in 60 * 8:
+	var ran := false
+	var guarded := 0.0
+	for i in 60 * 24:
 		await _frames(1)
 		if is_instance_valid(brandt) and is_instance_valid(cormorant):
 			closest = minf(closest, brandt.global_position.distance_to(cormorant.global_position) - brandt.size - cormorant.size)
+		if op.scout_mode == "run" and is_instance_valid(scout) and op.scan > 0.0:
+			ran = true
+			var left := Vector2.RIGHT.rotated(cormorant.rotation).orthogonal()
+			guarded = signf(left.dot(p.global_position - cormorant.global_position)) * op.run_side
+			break
 	_check(closest > 0.0, "Lt. Brandt keeps clear of the Cormorant on the leader's wing (closest gap %.0f)" % closest)
-	var scout: Ship = op.get("scout")
-	_check(scout != null and is_instance_valid(scout) and op.stage == "shadowed", "a Drengin scout shadows the flight")
-	_check(scout != null and is_instance_valid(scout) and scout.target != p and p.last_attacker != scout, "the scout never fires under the Accord")
-	var flying := cormorant.velocity.length()
-	_check(cormorant.autopilot and not cormorant.warping, "the Cormorant flies on without warping ahead (%.0f px/s)" % flying)
-	# the port: the scout jams, leaves, and the flight goes home
+	_check(ran and op.scan > 0.0, "the scout makes a run at the Cormorant and starts reading her hold (%.0f%%)" % (op.scan * 100.0))
+	_check(guarded < 0.0, "it runs in on the side the player is not guarding")
+	_check(is_instance_valid(scout) and scout.target != p and p.last_attacker != scout, "the scout never fires under the Accord")
+	# a bump is no shot across the Accord
+	w._impact(scout.body, p.body, w.IMPACT_THRESHOLD + 40.0, scout.global_position)
+	await _frames(2)
+	_check(st.op == op and st.failed == "", "bumping the scout is not firing first")
+	# crowd it: it turns away
+	var runs: int = op.runs
+	var read: float = op.scan
+	var to_c: Vector2 = (cormorant.global_position - scout.global_position).normalized()
+	_put(p, scout.global_position + to_c * (scout.size + p.size + 150.0), scout.velocity)
+	await _frames(3)
+	_check(op.scout_mode == "off" and op.scan <= read + 0.01, "a pilot in its face turns the scout away (%s)" % op.scout_mode)
+	# its last run crowded off, it leaves without the manifest
+	op.runs = op.RUNS
+	op.scout_mode = "run"
+	op.scout_t = 0.0
+	_put(p, scout.global_position + to_c * (scout.size + p.size + 150.0), scout.velocity)
+	await _frames(3)
+	_check(op.scout_mode == "leave" and op.done("crowd") and st.flags.get("fw_manifest", "") == "safe", "crowded off its last run, the scout leaves without her manifest")
+	# then raiders: fair game
+	for i in 60 * 12:
+		await _frames(1)
+		if op.stage == "raid":
+			break
+	var raiders: Array = op.get("raiders")
+	_check(op.stage == "raid" and raiders.size() >= 3, "raiders in pirate colours come for the Cormorant (%d)" % raiders.size())
+	_check(not is_instance_valid(scout) or not w.ships.has(scout) or scout.global_position.distance_to(cormorant.global_position) > 2500.0, "the scout is gone before they come")
+	for r in raiders:
+		if is_instance_valid(r) and not r.dead:
+			r.take_damage(99999.0, p, r.global_position)
+	await _frames(5)
+	_check(st.op == op and st.failed == "" and op.stage == "last_leg", "shooting the raiders is fair: on to the port")
+	# nobody leads the last jump: she goes alone after a wait
+	_put(p, cormorant.global_position + course.orthogonal() * 300.0, cormorant.velocity)
+	op.stage_time = op.JUMP_WAIT + 1.0
+	jumped = false
+	for i in 60 * 4:
+		await _frames(1)
+		jumped = jumped or cormorant.warping
+		if jumped:
+			break
+	_check(jumped and op.solo, "with nobody leading, the Cormorant jumps for the port alone")
+	# the port: then home
 	_put(cormorant, port.global_position + Vector2(400.0, 0), port.velocity)
 	_put(p, port.global_position + Vector2(550.0, 0), port.velocity)
 	await _frames(30)
-	_check(op.done("escort"), "the Cormorant arrives at the free port")
-	await _frames(60 * 6)
-	_check(op.stage == "home", "then home to the starbase")
+	_check(op.done("escort") and op.stage == "home", "the Cormorant arrives at the free port, then home to the starbase")
 	var base := w.starbase_of(1)
 	_put(p, base.global_position + Vector2(300, 0), base.velocity)
 	await _frames(10)
@@ -565,11 +632,28 @@ func _accord_breaks() -> void:
 	_check(w.accord, "the Accord holds while Kesh Varr speaks")
 	await _frames(60 * 5)
 	_check(not w.accord and heard.has("ab_kesh_1"), "then it is over")
-	op.stage_time = 360.0 - 1.0
+	_put(p, luna.global_position + Vector2(luna.radius + 600.0, 0), luna.velocity)
+	op.stage_time = op.HOLD_TIME - 1.0
 	await _frames(3)
 	_check(op.get("fleet").size() == 11, "every wave of the assault came (%d ships)" % op.get("fleet").size())
 	await _frames(70)
-	_check(op.stage == "home" and w.story.flags.get("luna", "") == "held", "six minutes held: the fleet arrives")
+	_check(op.stage == "home" and w.story.flags.get("luna", "") == "held", "four minutes held: the fleet arrives")
+	var relief: Array = op.get("relief")
+	var warped := 0
+	for s in relief:
+		if is_instance_valid(s) and (s.warping or s.global_position.distance_to(luna.global_position) < op.RELIEF_FROM * 0.6):
+			warped += 1
+	_check(relief.size() == 8 and warped == 8, "Okafor's fleet of eight warps in together (%d of %d)" % [warped, relief.size()])
+	var near := 0
+	for i in 60 * 10:
+		await _frames(1)
+		near = 0
+		for s in relief:
+			if is_instance_valid(s) and not s.warping and s.global_position.distance_to(luna.global_position) < 3500.0:
+				near += 1
+		if near >= 6:
+			break
+	_check(near >= 6, "and drops out over Luna (%d)" % near)
 	var base := w.starbase_of(1)
 	_put(p, base.global_position + Vector2(300, 0), base.velocity)
 	await _frames(10)
@@ -601,7 +685,12 @@ func _shields_down() -> void:
 	var p := w.player
 	var deimos: Planet = w.planet_by_name["Deimos"]
 	var droppers: Array = op.get("droppers")
-	_check(deimos.owner_race == 2 and deimos.pshield_up() and droppers.size() == 2, "Deimos is Drengin behind its shield, and two drop ships come along")
+	_check(deimos.owner_race == 2 and deimos.pshield_up() and droppers.size() == 2, "Deimos is Drengin behind its shield, and two drop ships stand by")
+	_check(op.get("strike").size() == 3 and op.get("escort").size() == 2, "a strike group of three flies with the squad, two more guard the drop ships")
+	var mars: Planet = w.planet_by_name["Mars"]
+	var phobos: Planet = w.planet_by_name["Phobos"]
+	_check(mars.is_defenceless() and phobos.is_defenceless(), "Mars's and Phobos's guns are busy with the fleet")
+	_check(droppers[0].global_position.distance_to(deimos.global_position) > op.STAGING * 0.8 and op.guns_near(droppers[0].global_position, [mars, phobos]) > 4000.0, "the drop ships wait well out of Deimos's guns (%.0f)" % droppers[0].global_position.distance_to(deimos.global_position))
 	_check(droppers[0].troop_count() == 6 and droppers[0].design_name == "DropShip", "each drop ship carries troops (%d)" % droppers[0].troop_count())
 	_put(p, deimos.global_position + Vector2(deimos.radius + 3000.0, 0), deimos.velocity)
 	await _frames(5)
@@ -609,7 +698,13 @@ func _shields_down() -> void:
 	_check(droppers[0].landing_refusal(deimos) != "", "nothing lands through the shield")
 	deimos.take_damage(1e6, p)
 	await _frames(5)
-	_check(not deimos.pshield_up() and op.stage == "drop", "shooting the shield down sends the drop ships in")
+	_check(not deimos.pshield_up() and op.stage == "drop", "the shield comes down")
+	await _frames(30)
+	_check(droppers[0].global_position.distance_to(deimos.global_position) > op.STAGING * 0.7, "the drop ships wait to be called")
+	_check(w.story.signal_label() != "", "the story key calls them (%s)" % w.story.signal_label())
+	main._story_key()
+	await _frames(2)
+	_check(op.called and op.done("call") and droppers[0].nav_target == deimos and droppers[0].warp_block == 0.0, "called in, they head for Deimos")
 	for d in droppers:
 		_put(d, deimos.global_position + Vector2(deimos.radius + 300.0, 0).rotated(randf() * TAU), deimos.velocity)
 	for i in 60 * 12:

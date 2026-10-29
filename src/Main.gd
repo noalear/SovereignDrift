@@ -772,6 +772,11 @@ func _story_key() -> void:
 		retry_operation()
 	elif st.briefing_ready():
 		open_briefing()
+	elif st.signal_label() != "":
+		st.give_signal(world.player)
+	elif st.op_title() != "" and st.mirror:
+		Net.client_command("signal")     # the host's operation decides what it means
+		world.notify(world.player, "Operation %s under way: %s" % [st.op_title(), st.objective_line()])
 	elif st.op_title() != "":
 		world.notify(world.player, "Operation %s under way: %s" % [st.op_title(), st.objective_line()])
 	elif st.index >= Story.OPS.size():

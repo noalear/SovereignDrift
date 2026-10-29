@@ -100,6 +100,7 @@ var accord := false
 ## Like the Accord, a ship that fires across it is fair game for a while.
 var peace: Array = []
 const BREACH_MEMORY := 25.0      # seconds a ship that broke the Accord stays fair game
+var _bumping := false           # the damage being dealt is a collision's
 var autosave_timer := AUTOSAVE_EVERY
 const AUTOSAVE_EVERY := 120.0
 var duel_score := [0, 0]         # practice: [your kills, their kills]
@@ -1084,19 +1085,24 @@ func _impact(victim: PhysicsBody, other: PhysicsBody, v: float, point: Vector2) 
 	var dmg := (v - IMPACT_THRESHOLD) * 0.6 * share
 	if node is Ship:
 		var attacker: Node = other.node
+		var rammed := false
 		if other.node is Ship:
 			# a ram prow turns a collision into a weapon when it hits nose first
 			var o: Ship = other.node
 			var n := (node.global_position - o.global_position).normalized()
 			if o.ram_power > 0.0 and o.forward().dot(n) > 0.7:
 				dmg *= o.ram_power
+				rammed = true
 			if node.ram_power > 0.0 and node.forward().dot(-n) > 0.7:
 				dmg /= node.ram_power
 			# wingmates bump without credit for the crash
 			if o.team() == node.team():
 				dmg *= 0.5
 				attacker = null
+		# a bump is no first shot across the Accord; a ram prow's blow is
+		_bumping = not rammed
 		node.take_damage(dmg, attacker, point)
+		_bumping = false
 	elif node is Debris:
 		node.take_damage(dmg * 0.5, other.node, point)
 
@@ -1519,7 +1525,7 @@ func _collect_powerups() -> void:
 # ----------------------------------------------------------- game events
 
 func _on_ship_damaged(s: Ship, amount: float) -> void:
-	if keeps_peace() and s.last_attacker is Ship and s.last_attacker != s and Time.get_ticks_msec() / 1000.0 - s.last_attacked_at < 0.1:
+	if keeps_peace() and not _bumping and is_instance_valid(s.last_attacker) and s.last_attacker is Ship and s.last_attacker != s and Time.get_ticks_msec() / 1000.0 - s.last_attacked_at < 0.1:
 		accord_breach(s.last_attacker, s)
 	if s.is_player:
 		last_player_damage = elapsed

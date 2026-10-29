@@ -42,11 +42,11 @@ const OPS := [
 		"script": "res://src/campaign/ops/PicketLine.gd"},
 	{"id": "accord_breaks", "act": 1, "title": "The Accord Breaks", "where": "Luna", "wait": 20.0, "day": 322,
 		"call": "call_accord_breaks", "brief": ["ab_brief_1", "ab_brief_2", "ab_brief_3"],
-		"summary": "The Drengin come for Luna. Hold it with Lt. Brandt for six minutes until the fleet arrives. If Luna falls, fall back: the war goes on either way.",
+		"summary": "The Drengin come for Luna. Hold it with Lt. Brandt for four minutes until the fleet warps in. If Luna falls, fall back: the war goes on either way.",
 		"script": "res://src/campaign/ops/AccordBreaks.gd"},
 	{"id": "shields_down", "act": 2, "title": "Shields Down", "where": "Deimos, over Mars", "wait": 20.0, "day": 341,
 		"call": "call_shields_down", "brief": ["sd_brief_1", "sd_brief_2", "sd_brief_3"],
-		"summary": "Shoot down Deimos's planetary shield, cover the drop ships Anvil and Bastion down to the surface, and hold over the ground battle until Deimos is Terran.",
+		"summary": "With a strike group along, shoot down Deimos's planetary shield, call the drop ships Anvil and Bastion in with the story key, cover them down to the surface, and hold over the ground battle until Deimos is Terran.",
 		"script": "res://src/campaign/ops/ShieldsDown.gd"},
 	{"id": "wolf_pack", "act": 2, "title": "Wolf Pack", "where": "The Venus to Mars lane", "wait": 20.0, "day": 348,
 		"call": "call_wolf_pack", "brief": ["wp_brief_1", "wp_brief_2", "wp_brief_3"],
@@ -285,6 +285,16 @@ func in_op() -> bool:
 
 
 ## The operation under way ("" between operations).
+## The story key mid-operation, on the host: the operation's signal.
+func signal_label() -> String:
+	return op.signal_label() if op != null and not mirror else ""
+
+
+func give_signal(by: Ship) -> void:
+	if op != null and not mirror and op.signal_label() != "":
+		op.on_signal(by)
+
+
 func op_title() -> String:
 	if op != null:
 		return op.spec.get("title", "")
