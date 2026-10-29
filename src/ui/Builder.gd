@@ -1797,7 +1797,7 @@ func _section_label(pos: Vector2, text: String, extra: String = "") -> void:
 
 ## A part's picture from the parts sheet, fitted inside `box`.
 func _icon(id: String, box: Rect2, alpha: float = 1.0) -> void:
-	var tex := ShipArt.part_texture(ShipArt.module_icon(id))
+	var tex := ShipArt.part_texture(ShipArt.race_part_icon(ShipArt.module_icon(id), art_race))
 	if tex == null:
 		return
 	var ts := Vector2(tex.get_size())

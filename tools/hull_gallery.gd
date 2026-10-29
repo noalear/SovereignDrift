@@ -2,7 +2,8 @@
 # for checking the hull paintings, the weapon sockets and the turrets on
 # them: hulls.png (all empires on one sheet) and hulls_<empire>.png (one
 # empire close up).  SF_HULLS=Trader,DropShip,... draws those hulls instead
-# (the support ships and stations of the Resources update).
+# (the support ships and stations of the Resources update).  SF_WEAPON=4001
+# arms every mount with that weapon (to check one turret on every hull).
 #   xvfb-run -a -s "-screen 0 1920x1080x24" godot --path . --rendering-driver opengl3 -s tools/hull_gallery.gd
 extends SceneTree
 
@@ -91,4 +92,8 @@ func _ship(hull: String, race: int, centre: Vector2, box: Vector2) -> void:
 	var length := size * ShipArt.LENGTH
 	var scale := minf(box.x / length, box.y / (length * aspect))
 	var design: Dictionary = gd.stock_design(hull)
+	if OS.has_environment("SF_WEAPON"):
+		design = design.duplicate(true)
+		for w in design["weapons"]:
+			w[0] = OS.get_environment("SF_WEAPON")
 	ShipArt.draw_ship(canvas, design, race, size, gd.race(race)["color"], 0.5, 1.0, 0.0, Transform2D(0.0, Vector2.ONE * scale, 0.0, centre))

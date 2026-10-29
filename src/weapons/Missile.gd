@@ -80,7 +80,9 @@ func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vecto
 	match data["look"]:
 		"bolt": color = rc.lerp(Color.WHITE, 0.4)
 		"slug":
-			color = rc.lerp(Color(0.55, 0.9, 1.0), 0.6)
+			# the glow between the empire's rails: Arcean green, Drengin
+			# orange, Terran and Pirate blue
+			color = [Color(0.5, 1.0, 0.6), Color(0.55, 0.9, 1.0), Color(1.0, 0.6, 0.25), Color(0.5, 0.95, 1.0)][clampi(p_race, 0, 3)]
 			material = slug_material()
 		"plasma": color = rc.lerp(Color(1, 0.6, 1), 0.5)
 		"grenade": color = Color(1.0, 0.85, 0.4)
