@@ -76,6 +76,11 @@ func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vecto
 	body.angle = p_angle
 	if data["guided"]:
 		Sfx.attach_loop(self, "rocket_loop", 0.5)
+	_tint(p_race)
+
+
+## The shot's colour: its look, in the shooter's empire's colours.
+func _tint(p_race: int) -> void:
 	var rc: Color = GameData.race(p_race)["color"]
 	match data["look"]:
 		"bolt": color = rc.lerp(Color.WHITE, 0.4)
@@ -92,6 +97,26 @@ func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vecto
 		"disruptor": color = Color(0.7, 0.4, 1.0)
 		"drone": color = rc.lerp(Color.WHITE, 0.2)
 		"tracer": color = Color(1.0, 0.92, 0.6)
+
+
+## Turned by a Deflector shield (World._deflect_shots): the shot leaves
+## from `pos` at `vel` as the deflecting ship's own, in its colours.
+func deflect(by: Node, pos: Vector2, vel: Vector2) -> void:
+	owner_ship = by
+	owner_race = by.race_id if "race_id" in by else (by.owner_race if "owner_race" in by else owner_race)
+	owner_team = by.team() if by is Ship else owner_race
+	target = null
+	armed = 0.0
+	global_position = pos
+	velocity = vel
+	rotation = vel.angle()
+	reset_physics_interpolation()
+	if body != null:
+		body.pos = pos
+		body.prev_pos = pos
+		body.vel = vel
+	_tint(owner_race)
+	queue_redraw()
 
 
 func _physics_process(delta: float) -> void:

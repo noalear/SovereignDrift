@@ -6,7 +6,7 @@ class_name ShieldBubble
 extends Node2D
 
 ## Which look the shader gives each shield family.
-const FAMILY_LOOK := {"deflector": 0, "barrier": 1, "flicker": 2}
+const FAMILY_LOOK := {"standard": 0, "barrier": 1, "flicker": 2, "deflector": 3}
 
 static var _shader: Shader = null
 static var _white: ImageTexture = null

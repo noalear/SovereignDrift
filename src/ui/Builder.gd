@@ -2945,6 +2945,8 @@ func _part_info(id: String) -> String:
 		"shield":
 			var fam: Dictionary = GameData.SHIELD_FAMILIES[GameData.shield_family(id)]
 			var leak := "  leaks %d%% of half the hits" % int(fam["leak"] * 100.0) if fam["leak"] > 0.0 else ""
+			if fam.has("deflect"):
+				leak = "  turns gun rounds and lasers back"
 			return "%s %d  %d%%/s after %.1f s%s" % [fam["label"].to_lower(), p[0], int(fam["rate"] * 100.0), fam["pause"], leak]
 		"armor":
 			var res: Dictionary = GameData.ARMOR[id]["resist"]

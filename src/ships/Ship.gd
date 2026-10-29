@@ -108,7 +108,7 @@ var shield_focus := 0              # GameData.SHIELD_FOCUS index
 var shield_pause := [0.0, 0.0]     # front, rear: seconds before the half recharges
 var shields_raised := true         # lowered shields draw nothing and give nothing off
 var shield_boot := 0.0             # seconds left raising them
-var shield_family := "deflector"   # GameData.SHIELD_FAMILIES
+var shield_family := "standard"    # GameData.SHIELD_FAMILIES
 var hull := 100.0
 var hull_max := 100.0
 var armor := 0.0                   # 1 with an armor coat on
@@ -1672,24 +1672,32 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 	var rel := _aim_angle(w)
 	var ang := rotation + rel
 	var origin := global_position + Vector2.RIGHT.rotated(ang) * size * 0.6
-	var hit: Dictionary = world.raycast_beam(self, origin, Vector2.RIGHT.rotated(ang), w["range"])
+	# an enemy Deflector turns the beam, and it is that ship's beam from there
+	var hit: Dictionary = world.trace_beam(self, origin, Vector2.RIGHT.rotated(ang), w["range"])
 	var end: Vector2 = hit["point"]
+	var path: Array = hit["path"]
+	# a beam spreads with distance: full burn up close, less at full reach
+	var reach := clampf(hit["travel"] / maxf(w["range"], 1.0), 0.0, 1.0)
+	var dmg: float = w["dps"] * delta * systems.weapon_efficiency(w["index"]) * lerpf(1.0, GameData.BEAM_FALLOFF, reach)
+	for b in hit["bounces"]:
+		b[0].deflect_hit(dmg, b[1], "beam")
+		_beam_burn(w, b[0], b[1], delta)
 	if hit["body"] != null and not Net.is_client():   # damage is the host's
-		# a beam spreads with distance: full burn up close, less at full reach
-		var reach := clampf(origin.distance_to(end) / maxf(w["range"], 1.0), 0.0, 1.0)
-		var dmg: float = w["dps"] * delta * systems.weapon_efficiency(w["index"]) * lerpf(1.0, GameData.BEAM_FALLOFF, reach)
+		var by: Node = hit["owner"]
 		if hit["body"] is Ship:
-			hit["body"].take_damage(dmg, self, end, 1.0, "", 0.1, "beam")
+			hit["body"].take_damage(dmg, by, end, 1.0, "", 0.1, "beam")
 		else:
-			hit["body"].take_damage(dmg, self, end, "beam")
+			hit["body"].take_damage(dmg, by, end, "beam")
 		# a beam leans on what it burns
-		world.push_node(hit["body"], Vector2.RIGHT.rotated(ang) * w["dps"] * delta * World.IMPULSE_PER_DAMAGE * 0.5, end)
+		var along: Vector2 = (end - path[path.size() - 2]).normalized()
+		world.push_node(hit["body"], along * w["dps"] * delta * World.IMPULSE_PER_DAMAGE * 0.5, end)
 	if hit["body"] != null:
 		_beam_burn(w, hit["body"], end, delta)
-	beam_targets.append([origin, end])
-	# the beam itself is drawn by the world's Fx, so a laser is seen as well as felt
-	if world != null and world.has_method("add_beam"):
-		world.add_beam(origin, end, race_color())
+	for i in path.size() - 1:
+		beam_targets.append([path[i], path[i + 1]])
+		# the beam itself is drawn by the world's Fx, so a laser is seen as well as felt
+		if world != null and world.has_method("add_beam"):
+			world.add_beam(path[i], path[i + 1], race_color() if i == 0 else hit["bounces"][i - 1][0].race_color())
 	# bigger hulls hum lower
 	Sfx.beam(self, clampf(1.3 - size / 80.0, 0.7, 1.2), int(str(w["id"]).right(1)))
 
@@ -1706,7 +1714,7 @@ func _beam_burn(w: Dictionary, body: Node, at: Vector2, delta: float) -> void:
 	w["burn"] = BEAM_BURN_EVERY
 	var shielded: bool = body is Ship and body.shield > 0.0
 	if body is Ship:
-		var col: Color = Color(0.6, 0.85, 1.0) if shielded else body.race_color()
+		var col: Color = (World.DEFLECT_SPARK if body.deflects(at) else Color(0.6, 0.85, 1.0)) if shielded else body.race_color()
 		world.spawn_sparks(at, 3, col)
 		if shielded:
 			Sfx.play(Sfx.leveled("shield", body.module_levels.get("shield", 1)), at, 0.3, randf_range(0.95, 1.1))
@@ -1789,6 +1797,47 @@ func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_
 	damaged.emit(self, amount)
 	if hull <= 0.0:
 		_die(attacker)
+
+
+## Deflector shields (GameData.SHIELD_FAMILIES "deflect"): is the shield
+## up and turning shots away?  `at` asks about the half facing that point.
+func deflects(at: Vector2 = Vector2.INF) -> bool:
+	if dead or not shields_raised or shield_boot > 0.0 or shield_max <= 0.0 or land_scale < 0.5:
+		return false
+	if not GameData.SHIELD_FAMILIES[shield_family].has("deflect"):
+		return false
+	if at == Vector2.INF:
+		return shield_front > 0.0 or shield_rear > 0.0
+	var front := cos((at - global_position).angle() - rotation) >= 0.0
+	return (shield_front if front else shield_rear) > 0.0
+
+
+## The shield bubble, in ship space: [centre, half size] of its ellipse.
+## Deflected shots bounce off this edge.
+func shield_ellipse() -> Array:
+	if shield_bubble != null:
+		return [shield_bubble.position, shield_bubble.half]
+	return [Vector2.ZERO, Vector2.ONE * (size * 0.6 + 8.0)]
+
+
+## A gun round or a laser glanced off the Deflector at `at`: the half it
+## struck pays the family's "deflect" share of what the hit would have
+## taken out of it, and holds its recharge back as for any hit.
+func deflect_hit(amount: float, at: Vector2, dtype: String) -> void:
+	last_hit_angle = (at - global_position).angle() - rotation
+	hit_flash = 0.08
+	if Net.is_client():
+		return                       # the charge is the host's; snapshots bring it
+	var fam: Dictionary = GameData.SHIELD_FAMILIES[shield_family]
+	var front := cos(last_hit_angle) >= 0.0
+	var cost: float = amount * GameData.damage_mult(dtype, "shield") * float(fam.get("deflect", 1.0))
+	var charge: float = maxf((shield_front if front else shield_rear) - cost, 0.0)
+	if front:
+		shield_front = charge
+	else:
+		shield_rear = charge
+	var half := 0 if front else 1
+	shield_pause[half] = maxf(shield_pause[half], fam["zero_pause"] if charge <= 0.01 else fam["pause"])
 
 
 ## Pass a hit's hull damage on to the systems near where it landed.

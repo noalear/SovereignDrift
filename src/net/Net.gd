@@ -12,7 +12,7 @@ signal session_ended(reason: String)
 signal round_restarted()       # the host started the next Conquest round (client)
 
 const PORT := 7777
-const PROTOCOL := 28   # 28: guided shots carry their target; 27: story signals (the story key calls in drop ships); 26: outfitting wingmen; 25: the story's stardate interludes; 24: story co-op
+const PROTOCOL := 29   # 29: Deflector shields turn shots (shield families renamed); 28: guided shots carry their target; 27: story signals (the story key calls in drop ships); 26: outfitting wingmen; 25: the story's stardate interludes; 24: story co-op
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -613,6 +613,14 @@ func host_shot(m: Node, owner: Node, missile_id: String, pos: Vector2, vel: Vect
 	_rpc_shot.rpc(mid, owner_id, race, missile_id, pos, vel, angle, target_id)
 
 
+## A Deflector turned a shot: where it leaves from, how fast, and whose it is now.
+func host_deflect(m: Node) -> void:
+	if not is_host() or seats.is_empty() or not m.has_meta("net_id"):
+		return
+	var by: Node = m.owner_ship
+	_rpc_deflect.rpc(m.get_meta("net_id"), by.net_id if by is Ship else 0, m.owner_race, m.global_position, m.velocity)
+
+
 func host_boom(m: Node, pos: Vector2, splash: float) -> void:
 	if not is_host() or seats.is_empty() or not m.has_meta("net_id"):
 		return
@@ -1048,6 +1056,20 @@ func _rpc_shot(mid: int, owner_id: int, race: int, missile_id: String, pos: Vect
 		tgt = null
 	world.spawn_missile(owner if owner != null else _race_stub(race), missile_id, pos, vel, angle, tgt)
 	world.missiles[world.missiles.size() - 1].set_meta("net_id", mid)
+
+
+@rpc("authority", "reliable")
+func _rpc_deflect(mid: int, owner_id: int, race: int, pos: Vector2, vel: Vector2) -> void:
+	if world == null:
+		return
+	var by: Node = ships_by_id.get(owner_id, null)
+	if by == null or not is_instance_valid(by):
+		by = _race_stub(race)
+	for m in world.missiles:
+		if is_instance_valid(m) and m.has_meta("net_id") and m.get_meta("net_id") == mid and not m.exploded:
+			m.deflect(by, pos, vel)
+			world.fx.spark(pos, 4, world.DEFLECT_SPARK)
+			return
 
 
 var _stubs := {}

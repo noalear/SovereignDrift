@@ -8,11 +8,13 @@ shader_type canvas_item;
 // land and ripple across it, and it shatters when it fails.
 //
 // Each shield family has its own look (GameData.SHIELD_FAMILIES):
-//  0 Deflector: the hex bubble;
+//  0 Standard: the hex bubble;
 //  1 Barrier: a heavy double shell of broad overlapping plates that
 //    breathes slowly, a touch warmer;
 //  2 Flicker: no cells, a thin skin of fast interference bands and
-//    sparkles that never quite holds still, a touch cooler.
+//    sparkles that never quite holds still, a touch cooler;
+//  3 Deflector: a hard, mirror-bright rim (the edge shots bounce off)
+//    over a skin of triangular facets, with a glint sweeping round it.
 // A shield being raised sweeps in from the hull outward.
 
 uniform float strength = 1.0;       // shield / shield_max
@@ -23,7 +25,7 @@ uniform vec2 aspect = vec2(1.0, 0.5);   // bubble half size, normalised to the l
 uniform vec4 hits[4];               // xy: point on the bubble (-1..1), z: age (s), w: weight
 uniform float collapse = 1.0;       // seconds since the shield went down
 uniform float guard = 0.0;          // respawn protection, 0..1
-uniform int family = 0;             // 0 Deflector, 1 Barrier, 2 Flicker
+uniform int family = 0;             // 0 Standard, 1 Barrier, 2 Flicker, 3 Deflector
 uniform float boot = 0.0;           // raising: 1 at the start of the boot, 0 when up
 
 float hash(vec2 p) {
@@ -105,8 +107,30 @@ void fragment() {
 		if (s_here < 0.25) {
 			flick *= 0.4 + 0.6 * step(0.5, hash(vec2(floor(t * 40.0), 3.3)));
 		}
+	} else if (family == 3) {
+		// Deflector: triangular facets and a crisp mirror rim; a glint runs
+		// round the edge, and the rim is where shots glance off
+		vec2 cp = wp * 7.0 / (0.6 + 0.4 * z);
+		vec2 tri = vec2(cp.x + cp.y * 0.57735, cp.y * 1.1547);
+		vec2 ti = floor(tri);
+		vec2 tf = fract(tri);
+		float up = step(tf.x + tf.y, 1.0);
+		float edge_t = min(min(tf.x, tf.y), abs(1.0 - tf.x - tf.y));
+		h = vec3(edge_t, ti + vec2(up * 0.5, 0.0));
+		line = 1.0 - smoothstep(0.0, 0.06, edge_t);
+		float cell = hash(h.yz);
+		intact = step(cell, s_here * 1.15 - 0.05);
+		float ang = atan(p.y, p.x);
+		float glint = pow(0.5 + 0.5 * cos(ang - TIME * 1.7), 24.0);
+		float sheen = 0.5 + 0.5 * sin(dot(wp, vec2(9.0, 5.0)) - TIME * 2.2);
+		float edge = exp(-pow((r - 0.93) * 30.0, 2.0)) * (0.55 + 0.45 * s_here);
+		col = vec3(0.88, 0.93, 1.0);
+		body = (0.05 * soft + 0.08 * rim) * (0.5 + 0.5 * intact) * (0.8 + 0.4 * sheen)
+			+ 0.07 * line * intact * (0.4 + rim) * soft
+			+ 0.22 * edge * (0.6 + 1.4 * glint);
+		flick = s_here < 0.25 ? 0.5 + 0.5 * step(0.4, hash(h.yz + floor(TIME * 18.0))) : 1.0;
 	} else {
-		// Deflector: hex cells, a little bent toward the rim
+		// Standard: hex cells, a little bent toward the rim
 		vec2 cp = wp * 9.0 / (0.6 + 0.4 * z);
 		h = hex(cp);
 		line = 1.0 - smoothstep(0.0, 0.07, h.x);

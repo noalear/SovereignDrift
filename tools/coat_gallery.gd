@@ -94,7 +94,7 @@ func _ship(hull: String, race: int, coat: String, centre: Vector2, box: Vector2)
 	ShipArt.draw_ship(canvas, design, race, size, gd.race(race)["color"], 0.5, 1.0, 0.0, Transform2D(0.0, Vector2.ONE * scale, 0.0, centre))
 
 
-## Three rows of shield bubbles (Deflector, Barrier, Flicker), each full,
+## Four rows of shield bubbles (Standard, Barrier, Flicker, Deflector), each full,
 ## half charged, and halfway through being raised.
 func _shield_page() -> void:
 	var vp := Vector2(root.get_visible_rect().size)
@@ -102,11 +102,11 @@ func _shield_page() -> void:
 	var img := Image.create(4, 4, false, Image.FORMAT_RGBA8)
 	img.fill(Color.WHITE)
 	var white := ImageTexture.create_from_image(img)
-	var fams := ["Deflector", "Barrier", "Flicker"]
+	var fams := ["Standard", "Barrier", "Flicker", "Deflector"]
 	var states := [["full", 1.0, 0.0], ["half", 0.45, 0.0], ["raising", 0.0, 0.5]]
-	for f in 3:
+	for f in 4:
 		for k in 3:
-			var centre := Vector2((k + 0.5) * vp.x / 3.0, (f + 0.5) * vp.y / 3.0)
+			var centre := Vector2((k + 0.5) * vp.x / 3.0, (f + 0.5) * vp.y / 4.0)
 			bubbles.append([null, centre, "%s, %s" % [fams[f], states[k][0]]])
 			var spr := Sprite2D.new()
 			spr.texture = white

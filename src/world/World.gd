@@ -754,6 +754,11 @@ func _physics_process(delta: float) -> void:
 	_update_sensor_links()
 	if Net.is_client():
 		Net.client_tick(delta)   # the host collides, scores and respawns
+		# shots fly on as the host fired them (steered by Missile itself);
+		# the host says where they go off, or where a Deflector turned them
+		for m in missiles:
+			if not m.exploded:
+				m.global_position += m.velocity * delta
 		# what the HUD shows from local state: the Sun's heat and the
 		# planet tally (the host burns and counts for real)
 		sun_heat = heat_at(player.global_position) if player != null and not player.dead else 0.0
@@ -763,6 +768,7 @@ func _physics_process(delta: float) -> void:
 		return
 	sun_heat = 0.0
 	_keep_station()
+	_deflect_shots(delta)
 	# everything that flies fills in its forces, the space moves it, and
 	# then each node takes its new state back
 	for s in ships:
@@ -1300,29 +1306,137 @@ func _shoot_down_munitions() -> void:
 				break
 
 
+## Deflector shields (Ship.deflects): a gun round about to cross the
+## bubble of an enemy ship's Deflector this step glances off its edge like
+## a pool ball off the cushion (the angle in is the angle out, in the
+## ship's own frame) and is that ship's shot from then on: it spares the
+## ship's friends and hits its enemies, the one who fired it included.
+## Missiles, torpedoes, mines and drones are not turned (Kyle).
+func _deflect_shots(delta: float) -> void:
+	var shields := []
+	for s in ships:
+		if s.deflects() and not s.warping:
+			shields.append(s)
+	if shields.is_empty():
+		return
+	for m: Missile in missiles:
+		if not is_instance_valid(m) or m.exploded or not m.is_gun_shot():
+			continue
+		for s: Ship in shields:
+			if s == m.owner_ship or s.team() == m.owner_team or s.dead:
+				continue
+			var rel: Vector2 = m.velocity - s.velocity
+			var hit := bubble_hit(s, m.global_position, rel * delta, 1.0)
+			if hit.is_empty() or rel.dot(hit["normal"]) >= 0.0 or not s.deflects(hit["point"]):
+				continue
+			var n: Vector2 = hit["normal"]
+			var out: Vector2 = rel - 2.0 * rel.dot(n) * n
+			s.deflect_hit(m.warhead, hit["point"], m.data.get("dtype", "kinetic"))
+			m.deflect(s, hit["point"] + n * (m.radius + 1.0), s.velocity + out)
+			deflected += 1
+			fx.spark(hit["point"], 4, DEFLECT_SPARK)
+			Sfx.play(Sfx.leveled("shield", s.module_levels.get("shield", 1)), hit["point"], 0.35, randf_range(1.15, 1.35))
+			Net.host_deflect(m)
+			break
+
+
+const DEFLECT_SPARK := Color(0.85, 0.95, 1.0)
+var deflected := 0                     # shots turned by Deflectors (for the tests)
+
+
+## Where the path from `a` along `d` (t from 0 to `max_t`) first enters the
+## ship's shield bubble: {"t", "point", "normal"} (the outward normal of
+## the ellipse there), or {} when it misses or starts inside.
+func bubble_hit(s: Ship, a: Vector2, d: Vector2, max_t: float) -> Dictionary:
+	var e: Array = s.shield_ellipse()
+	var c: Vector2 = e[0]
+	var h: Vector2 = e[1]
+	var rot: float = s.global_rotation
+	# into the bubble's frame, scaled so the ellipse is the unit circle
+	var la: Vector2 = (a - s.global_position).rotated(-rot) - c
+	var ld: Vector2 = d.rotated(-rot)
+	var p := la / h
+	var q := ld / h
+	var qa := q.dot(q)
+	var cc := p.dot(p) - 1.0
+	if qa < 1e-9 or cc <= 0.0:
+		return {}
+	var b := p.dot(q)
+	var disc := b * b - qa * cc
+	if disc < 0.0:
+		return {}
+	var t := (-b - sqrt(disc)) / qa
+	if t < 0.0 or t > max_t:
+		return {}
+	var lp := la + ld * t
+	return {"t": t, "point": s.global_position + (lp + c).rotated(rot), "normal": (lp / (h * h)).normalized().rotated(rot)}
+
+
+## A beam's whole path: it glances off enemy Deflectors (Ship.deflects) up
+## to MAX_BEAM_BOUNCES times, each one making it the deflecting ship's.
+## {"body", "point" (the end), "owner" (whose beam it is by then), "path"
+## (origin, each bounce, the end), "bounces" ([ship, point] each), "travel"}.
+const MAX_BEAM_BOUNCES := 3
+
+func trace_beam(shooter: Node, origin: Vector2, dir: Vector2, range_px: float) -> Dictionary:
+	var owner := shooter
+	var from := origin
+	var d := dir
+	var left := range_px
+	var path := [origin]
+	var bounces := []
+	while true:
+		var hit := raycast_beam(owner, from, d, left)
+		path.append(hit["point"])
+		left -= from.distance_to(hit["point"])
+		if not hit.get("deflect", false) or bounces.size() >= MAX_BEAM_BOUNCES:
+			var body: Node2D = null if hit.get("deflect", false) else hit["body"]
+			return {"body": body, "point": hit["point"], "owner": owner, "path": path, "bounces": bounces, "travel": range_px - left}
+		var n: Vector2 = hit["normal"]
+		bounces.append([hit["body"], hit["point"]])
+		d = d - 2.0 * d.dot(n) * n
+		from = hit["point"] + n
+		owner = hit["body"]
+	return {}
+
+
 func raycast_beam(shooter: Node, origin: Vector2, dir: Vector2, range_px: float) -> Dictionary:
 	var best_t := range_px
 	var best: Node2D = null
+	var deflect := false
+	var normal := Vector2.ZERO
 	var shooter_race: int = shooter.race_id if "race_id" in shooter else shooter.owner_race
 	var shooter_team: int = shooter.team() if shooter is Ship else shooter_race
 	for s in ships:
 		if s.dead or s == shooter or s.team() == shooter_team or s.warping or s.is_landing() or s.race_id == GameData.NEUTRAL:
 			continue
+		if s.deflects():
+			# a Deflector's bubble turns the beam at its edge
+			var bh := bubble_hit(s, origin, dir, best_t)
+			if not bh.is_empty() and s.deflects(bh["point"]):
+				best_t = bh["t"]
+				best = s
+				deflect = true
+				normal = bh["normal"]
+				continue
 		var t := space.ray_body(origin, dir, s.body, best_t)
 		if t >= 0.0 and t < best_t:
 			best_t = t
 			best = s
+			deflect = false
 	for d in debris:
 		var t := space.ray_body(origin, dir, d.body, best_t)
 		if t >= 0.0 and t < best_t:
 			best_t = t
 			best = d
+			deflect = false
 	for p in planets:
 		var t := _ray_circle(origin, dir, p.global_position, p.radius)
 		if t >= 0.0 and t < best_t:
 			best_t = t
 			best = p if (p.is_colonised() and p.owner_race != shooter_race) else null
-	return {"body": best, "point": origin + dir * best_t}
+			deflect = false
+	return {"body": best, "point": origin + dir * best_t, "deflect": deflect, "normal": normal}
 
 
 func _ray_circle(o: Vector2, d: Vector2, c: Vector2, r: float) -> float:
@@ -1399,11 +1513,13 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 			push_node(hit, dir * m.warhead * IMPULSE_PER_DAMAGE + m.momentum(), at)
 		fx.explosion(pos, 6.0 + m.radius * 2.0, m.color, false, "impact")
 		return
-	# area damage falls off with distance
+	# area damage falls off with the distance to the hull itself (from the
+	# centre less half the size, a torpedo that went off by a long nose
+	# did nothing at all)
 	for s in ships:
 		if s.dead or s.team() == m.owner_team:
 			continue
-		var d := pos.distance_to(s.global_position) - s.size * 0.5
+		var d: float = s.body.surface_distance(pos)
 		if d < splash:
 			var f := 1.0 - maxf(d, 0.0) / splash
 			# the blast hits the side of the hull that faces it
