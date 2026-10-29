@@ -12,7 +12,7 @@ signal session_ended(reason: String)
 signal round_restarted()       # the host started the next Conquest round (client)
 
 const PORT := 7777
-const PROTOCOL := 26   # 26: outfitting wingmen; 25: the story's stardate interludes; 24: story co-op
+const PROTOCOL := 27   # 27: story signals (the story key calls in drop ships); 26: outfitting wingmen; 25: the story's stardate interludes; 24: story co-op
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
