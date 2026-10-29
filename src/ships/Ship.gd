@@ -574,6 +574,13 @@ func speed() -> float:
 	return velocity.length()
 
 
+## Which way the ship is going, for map and radar marks: along its velocity
+## against the local frame, or its facing when it is all but parked.
+func travel_dir() -> Vector2:
+	var v := local_velocity()
+	return v / v.length() if v.length() > 12.0 else forward()
+
+
 ## Velocity of the local rest frame: the planet whose gravity we sit in,
 ## or the sun.  Brakes, the speed limit and the HUD work against it, so
 ## "stopped" means parked beside the planet, not against the stars.

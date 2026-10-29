@@ -187,10 +187,11 @@ func _draw() -> void:
 			draw_rect(Rect2(pos - Vector2(4, 4), Vector2(8, 8)), col)
 			draw_rect(Rect2(pos - Vector2(6, 6), Vector2(12, 12)), Color(col.r, col.g, col.b, 0.6), false, 1.0)
 		else:
-			var fwd := Vector2.RIGHT.rotated(sh.rotation)
+			# a narrow dart along the ship's course
+			var fwd := sh.travel_dir()
 			var side := fwd.orthogonal()
-			var sz := 4.0 + sh.size * 0.05
-			draw_colored_polygon(PackedVector2Array([pos + fwd * sz * 1.6, pos - fwd * sz + side * sz, pos - fwd * sz - side * sz]), col)
+			var sz := 3.5 + sh.size * 0.04
+			draw_colored_polygon(PackedVector2Array([pos + fwd * sz * 2.2, pos - fwd * sz * 1.3 + side * sz, pos - fwd * sz * 1.3 - side * sz]), col)
 			ship_marks.append(Rect2(pos - Vector2(9, 9), Vector2(18, 18)))
 		# a convoy: a ring round the supply ship, a line to each escort in sight
 		if sh.convoy:

@@ -669,11 +669,11 @@ func _draw_radar(p: Ship, vp: Vector2) -> void:
 		if s.is_station:
 			draw_rect(Rect2(c + d - Vector2(4, 4), Vector2(8, 8)), col)
 		else:
-			draw_circle(c + d, 3.0, col)
+			_heading_mark(c + d, s.travel_dir(), 3.5, col)
 		if hostile and not s.is_station:
-			draw_arc(c + d, 5.0, 0, TAU, 12, Color(1.0, 0.25, 0.2, 0.9), 1.2)
+			draw_arc(c + d, 7.0, 0, TAU, 14, Color(1.0, 0.25, 0.2, 0.9), 1.2)
 		if s == p.target:
-			draw_arc(c + d, 7.0, 0, TAU, 16, Color.WHITE, 1.5)
+			draw_arc(c + d, 9.0, 0, TAU, 18, Color.WHITE, 1.5)
 	# ghosts: where lost contacts were last seen, drifting on as they went
 	var now := p.sensors.now()
 	for id in p.sensors.last_seen.keys():
@@ -693,11 +693,21 @@ func _draw_radar(p: Ship, vp: Vector2) -> void:
 			var a0 := k * TAU / 4.0 + time
 			draw_arc(c + d, 5.0, a0, a0 + TAU / 8.0, 4, Color(0.8, 0.8, 0.85, 0.6 * fade), 1.2)
 	_draw_signature(p, c, r)
-	# own ship
-	var fwd := Vector2.RIGHT.rotated(p.rotation)
-	draw_line(c, c + fwd * 10.0, Color.WHITE, 2.0)
-	draw_circle(c, 3.0, Color.WHITE)
+	# own ship: the mark points where you are going, the tick where you face
+	draw_line(c + p.forward() * 10.0, c + p.forward() * 16.0, Color(1, 1, 1, 0.6), 1.5)
+	_heading_mark(c, p.travel_dir(), 4.0, Color.WHITE)
 	draw_string(font, c + Vector2(-r, r + 22), "Radar %d   +/- zoom" % int(radar_range), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.6, 0.9, 0.7, 0.8))
+
+
+## A ship on the radar: a narrow dart pointing along dir, about s across.
+func _heading_mark(at: Vector2, dir: Vector2, s: float, col: Color) -> void:
+	var side := dir.orthogonal()
+	for k in 2:
+		# a dark rim first so the dart reads over planets
+		var e := s + (1.2 if k == 0 else 0.0)
+		var tip := at + dir * e * 2.2
+		var tail := at - dir * e * 1.3
+		draw_colored_polygon(PackedVector2Array([tip, tail + side * e, tail - side * e]), Color(0, 0, 0, 0.55) if k == 0 else col)
 
 
 
