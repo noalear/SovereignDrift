@@ -148,10 +148,13 @@ func status(s: Ship) -> String:
 	var ai := _ai(s)
 	if ai == null:
 		return ""
+	if ai.sent_home:
+		var hull := ceili(s.hull / maxf(s.hull_max, 1.0) * 100.0)
+		if s.is_landed():
+			return "repairing %d%%" % hull
+		return "going home %d%%" % hull
 	if s.is_landing():
 		return "landed"
-	if ai.sent_home:
-		return "home for repairs %d%%" % int(s.hull / maxf(s.hull_max, 1.0) * 100.0)
 	if s.is_disabled():
 		return "disabled!"
 	var t: Variant = s.target
