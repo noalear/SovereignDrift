@@ -1850,6 +1850,10 @@ func _follow_jump(delta: float) -> bool:
 		return true
 	if ship.qdrv <= 0.0 or ship.energy <= FOLLOW_JUMP_ENERGY or ship.systems.is_offline("qdrv") or ship.engines_out():
 		return false
+	# a human leader's jump is always followed; behind a computer leader
+	# the pause after a warp still holds, so a convoy never flickers
+	if ship.warp_block > 0.0 and not world.wing._human(escort):
+		return false
 	var diff := wrapf(escort.rotation - ship.rotation, -PI, PI)
 	i["turn"] = clampf(diff * 3.0, -1.0, 1.0)
 	i["thrust"] = 1.0 if absf(diff) < 0.5 else 0.0
