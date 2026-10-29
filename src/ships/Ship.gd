@@ -557,6 +557,10 @@ func _build_weapons() -> void:
 			entry["range"] = GameData.beam_range(w[0])
 			entry["dps"] = GameData.beam_dps(w[0])
 			entry["rate"] = 0.0
+		if is_free_aim(entry):
+			var wide := free_aim_arc(float(w[3]), float(w[4]), float(w[5]))
+			entry["arc0"] = deg_to_rad(wide.x)
+			entry["arc1"] = deg_to_rad(wide.y)
 		weapons.append(entry)
 		if is_turret(entry) or is_free_aim(entry):
 			has_turret = true
@@ -1488,9 +1492,21 @@ func is_turret(w: Dictionary) -> bool:
 ## Shots that aim themselves from any mount, whatever its arc (Kyle: the
 ## disruptor is a lock/mouse weapon, it never fires down a rear rack).
 const FREE_AIM_SHOTS := ["020"]
+## ...all the way round, whatever arc its mount has; the shipyard shows it
+## so and turning one only sets where it rests (Kyle: turnable, and a
+## larger arc than a plain mount's).
+const FREE_AIM_ARC := 360.0
 
 func is_free_aim(w: Dictionary) -> bool:
 	return w["kind"] == "tube" and w["missile"] in FREE_AIM_SHOTS
+
+
+## A free-aim weapon's arc (degrees) on a mount facing `fire` with the arc
+## `arc0`..`arc1`: at least FREE_AIM_ARC wide, centred on the facing.
+static func free_aim_arc(fire: float, arc0: float, arc1: float) -> Vector2:
+	if arc1 - arc0 >= FREE_AIM_ARC:
+		return Vector2(arc0, arc1)
+	return Vector2(fire - FREE_AIM_ARC * 0.5, fire + FREE_AIM_ARC * 0.5)
 
 
 ## How far `rel` (ship-relative, -PI..PI) lies from the middle of a mount's
@@ -1579,14 +1595,17 @@ func _lead_angle(w: Dictionary, t: Node2D) -> float:
 ## else straight off the nose: never down the mount's own arc, which on a
 ## rear rack is behind the ship.
 func _free_aim(w: Dictionary) -> float:
+	var rel := 0.0
 	var foe := _locked_foe()
 	if foe != null:
-		return _lead_angle(w, foe)
-	if aim_point != Vector2.INF:
-		return wrapf((aim_point - global_position).angle() - rotation, -PI, PI)
-	if target != null and is_instance_valid(target) and not (target is Ship and target.dead):
-		return _lead_angle(w, target)
-	return 0.0
+		rel = _lead_angle(w, foe)
+	elif aim_point != Vector2.INF:
+		rel = wrapf((aim_point - global_position).angle() - rotation, -PI, PI)
+	elif target != null and is_instance_valid(target) and not (target is Ship and target.dead):
+		rel = _lead_angle(w, target)
+	if in_arc(w, rel):
+		return rel
+	return clamp_to_arc(w, rel)
 
 
 func _fire_tube(w: Dictionary) -> void:
