@@ -1,16 +1,25 @@
 ## Operation 5, The Accord Breaks: Kesh Varr ends the Accord on every
 ## channel and the Drengin come for Luna.  The player and Lt. Brandt hold
-## it for six minutes until the fleet arrives.  It fails forward: if Luna
+## it for four minutes until the fleet warps in.  It fails forward: if Luna
 ## falls, the story goes on without it (flags.luna = "lost").  Either way
 ## the war is hot from here on.
 extends StoryOp
 
-const HOLD_TIME := 360.0          # seconds until the fleet arrives
+const HOLD_TIME := 240.0          # seconds until the fleet arrives
 const WAVES := [                  # [seconds in, designs]
 	[8.0, ["Destroyer", "Scout", "Scout", "Scout"]],
-	[130.0, ["Cruiser", "Destroyer", "Scout"]],
-	[250.0, ["Destroyer", "Destroyer", "Scout", "Scout"]],
+	[80.0, ["Cruiser", "Destroyer", "Scout"]],
+	[150.0, ["Destroyer", "Destroyer", "Scout", "Scout"]],
 ]
+## Admiral Okafor's fleet: [design, name], warping in from Earth's side.
+const RELIEF := [
+	["Battleship", "TSS Dauntless"], ["Cruiser", "TSS Resolute"], ["Cruiser", "TSS Vigilant"],
+	["Destroyer", "TSS Steadfast"], ["Destroyer", "TSS Valiant"], ["Destroyer", "TSS Tenacity"],
+	["Scout", "TSS Swift"], ["Scout", "TSS Kestrel"],
+]
+const RELIEF_FROM := 9000.0       # how far out from Luna they start their jump
+const RELIEF_PACE := 1800.0       # the fleet's warp speed, slowest drive or not
+const RELIEF_DROP := 1600.0       # and how far from Luna the first row drops out
 const WAVE_FROM := 4200.0         # from Luna, on the Mars side
 const FALL_AFTER := 35.0          # seconds with Luna's defences down and Drengin overhead
 const OVERHEAD := 2600.0
@@ -21,6 +30,7 @@ var brandt: Ship
 var fleet: Array = []             # the Drengin assault, as spawned
 var wave := 0
 var down_t := 0.0                 # seconds Luna has lain open
+var relief: Array = []            # Okafor's fleet
 
 
 func setup() -> void:
@@ -76,6 +86,7 @@ func step(delta: float) -> void:
 			if left <= 0.0:
 				_held()
 		"home":
+			_relief_in()
 			var base: Ship = world.starbase_of(1)
 			if base != null and pilot_near(base.global_position, HOME_REACH) != null:
 				complete("home")
@@ -131,18 +142,47 @@ func _lost() -> void:
 	_home()
 
 
-## The fleet that arrives stays in the war as Terran warships of one life
-## each (kept in saves like a ship built to order).
+## The fleet warps in together from Earth's side and drops out over Luna;
+## it clears what is left of the assault and leaves with the operation.
 func _relief() -> void:
 	var earth := planet("Earth")
-	for k in 3:
-		var at := luna.global_position + Vector2(900, 0).rotated(TAU * k / 3.0)
-		var s: Ship = world.spawn_ship("Terran Captain %d" % (k + 1), 1, "Destroyer" if k > 0 else "Cruiser", "TSS %s" % ["Resolute", "Vigilant", "Steadfast"][k], at, luna.velocity, 7)
-		s.remove_meta("tutorial")
-		s.set_meta("ordered", true)
-		Net.host_ship_added(s)
+	var dir := (earth.global_position - luna.global_position).angle() if earth != null else PI
+	var from := luna.global_position + Vector2(RELIEF_FROM, 0).rotated(dir)
+	for k in RELIEF.size():
+		var row := k / 3
+		var at := from + Vector2(row * 260.0, (k % 3 - 1) * 240.0 + row * 120.0).rotated(dir)
+		var s := spawn("Terran Captain %d" % (k + 1), 1, RELIEF[k][0], RELIEF[k][1], at, luna.velocity, 7)
+		s.rotation = dir + PI
+		s.reset_physics_interpolation()
 		var ai: AIPilot = s.get_node("AI")
 		ai.home = earth
+		ai.patrol_point = luna.global_position + Vector2(luna.radius + 700.0 + row * 200.0, 0).rotated(dir + (k % 3 - 1) * 0.35)
+		ai.set_physics_process(false)     # the jump is the operation's; the captains fight once out
+		s.inputs["brake"] = false
+		s.energy = s.energy_max
+		s.warp_block = 0.0
+		s.start_warp()
+		s.warp_pace = RELIEF_PACE        # the fleet jumps as one
+		relief.append(s)
+
+
+## The fleet's jump: each ship drops out short of Luna, in its row, and
+## its captain takes over.
+func _relief_in() -> void:
+	for k in relief.size():
+		var s: Ship = relief[k]
+		if not alive(s):
+			continue
+		var ai: AIPilot = s.get_node("AI")
+		if ai.is_physics_processing():
+			continue
+		s.inputs["brake"] = false
+		s.inputs["thrust"] = 0.0
+		var stop := luna.radius + RELIEF_DROP + (k / 3) * 300.0
+		if not s.warping or s.global_position.distance_to(luna.global_position) < stop:
+			if s.warping:
+				s.end_warp()
+			ai.set_physics_process(true)
 
 
 func _home() -> void:

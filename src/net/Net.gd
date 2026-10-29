@@ -555,6 +555,9 @@ func _rpc_command(cmd: String) -> void:
 			world.troop_command(s, cmd.get_slice(":", 1), cmd.get_slice(":", 2))
 		_ when cmd.begins_with("job:"):
 			world.job_command(s, int(cmd.get_slice(":", 1)))
+		"signal":
+			if world.story != null:
+				world.story.give_signal(s)
 		_ when cmd.begins_with("vote:"):
 			if world.story != null:
 				var who: String = pilot_names.get(multiplayer.get_remote_sender_id(), s.pilot_name)

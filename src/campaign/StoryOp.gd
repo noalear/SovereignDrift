@@ -204,6 +204,17 @@ func on_breach(_attacker: Node, _victim: Node) -> void:
 
 
 ## The player answered a choice put with ask().
+## What the story key does mid-operation ("" when it only reports the
+## objective), and doing it for the pilot `by` (a friend's press comes
+## through Net).
+func signal_label() -> String:
+	return ""
+
+
+func on_signal(_by: Ship) -> void:
+	pass
+
+
 func on_choice(_id: String, _key: String) -> void:
 	pass
 

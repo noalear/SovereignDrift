@@ -108,6 +108,8 @@ static func why_not(captor: Node, victim: Node) -> String:
 		return "starbase"
 	if victim.race_id == GameData.NEUTRAL:
 		return "neutral"
+	if victim.has_meta("no_boarding"):
+		return "guarded"               # a story ship the operation keeps whole
 	if victim.is_landing():
 		return "landed"
 	if victim.is_station:
