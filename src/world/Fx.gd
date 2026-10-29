@@ -14,6 +14,7 @@ var shards: Array = []       # pieces of a wrecked painting {tex, poly, uvs, pos
 var droplets: Array = []     # Arcean coolant {pos, vel, age, wet, life, size}
 var gravel: Array = []       # bits of a broken asteroid {pos, vel, age, life, size, color}
 var ripples: Array = []      # time ripples from quantum jumps and sensor pings {pos, age, life, size, kind, color}
+var muzzles: Array = []      # mass driver discharges {pos, vel, ang, age, life, size, color}
 var glow: Node2D             # additive layer
 const WRECK_LIFE := 3.2
 
@@ -195,6 +196,13 @@ func beam(a: Vector2, b: Vector2, color: Color) -> void:
 	beams.append({"a": a, "b": b, "color": color, "age": 0.0})
 
 
+## A mass driver fires: a white flash at the muzzle, a blue jet of
+## ionised gas thrown forward with the slug, a faint puff venting off the
+## rails to each side.  It rides along with the shooter.
+func muzzle_flash(pos: Vector2, ang: float, vel: Vector2, color: Color, size: float = 10.0) -> void:
+	muzzles.append({"pos": pos, "vel": vel, "ang": ang, "age": 0.0, "life": 0.16, "size": size, "color": color})
+
+
 ## A quantum jump tears time: rings of warped light race out from the
 ## spot like a sonic boom.
 func time_ripple(pos: Vector2, ship_size: float) -> void:
@@ -244,6 +252,10 @@ func _process(delta: float) -> void:
 		g["age"] += delta
 		g["pos"] += g["vel"] * delta
 	gravel = gravel.filter(func(g): return g["age"] < g["life"])
+	for m in muzzles:
+		m["age"] += delta
+		m["pos"] += m["vel"] * delta
+	muzzles = muzzles.filter(func(m): return m["age"] < m["life"])
 	for r in ripples:
 		r["age"] += delta
 	ripples = ripples.filter(func(r): return r["age"] < r["life"])
@@ -352,8 +364,30 @@ func _draw_glow() -> void:
 		var tail: Vector2 = d["vel"] * 0.03
 		glow.draw_line(d["pos"] - tail, d["pos"], Color(0.4, 1.0, 0.6, 0.5), r)
 		glow.draw_texture_rect(soft, Rect2(d["pos"] - Vector2(r, r) * 2.0, Vector2(r, r) * 4.0), false, Color(0.55, 1.0, 0.65, 0.9))
+	for m in muzzles:
+		_draw_muzzle(soft, m)
 	for s in sparks:
 		var t: float = s["age"] / s["life"]
 		var c: Color = s["color"]
 		c.a = 1.0 - t
 		glow.draw_line(s["pos"], s["pos"] - s["vel"] * 0.04, c, 2.0)
+
+
+func _draw_muzzle(soft: Texture2D, m: Dictionary) -> void:
+	var t: float = m["age"] / m["life"]
+	var k := (1.0 - t) * (1.0 - t)
+	var sz: float = m["size"]
+	var c: Color = m["color"]
+	glow.draw_set_transform(m["pos"], m["ang"])
+	# the jet, stretching out ahead as it fades
+	var jet := sz * (2.5 + 5.0 * t)
+	glow.draw_texture_rect(soft, Rect2(-sz * 0.4, -sz * 0.7, jet, sz * 1.4), false, Color(c.r, c.g, c.b, 0.75 * k))
+	glow.draw_texture_rect(soft, Rect2(-sz * 0.2, -sz * 0.3, jet * 0.6, sz * 0.6), false, Color(1, 1, 1, 0.9 * k))
+	# gas venting sideways out of the rails
+	var vent := sz * (0.8 + 1.6 * t)
+	for side in [-1.0, 1.0]:
+		glow.draw_texture_rect(soft, Rect2(-sz * 0.9 - vent * 0.4, side * (sz * 0.2 + vent * 0.5) - vent * 0.4, vent * 0.8, vent * 0.8), false, Color(c.r, c.g, c.b, 0.35 * k))
+	# the white flash itself
+	var f := sz * (1.4 - 0.6 * t)
+	glow.draw_texture_rect(soft, Rect2(-f, -f, f * 2.0, f * 2.0), false, Color(1, 1, 1, k))
+	glow.draw_set_transform(Vector2.ZERO)
