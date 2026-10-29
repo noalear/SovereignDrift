@@ -405,10 +405,13 @@ func is_disabled() -> bool:
 
 ## A station whose shields are down and whose hull is broken open: a
 ## boarding party can get in (see Capture).  Ships are boarded when
-## disabled instead.
+## disabled instead.  One shield half down is enough: the attacker's guns
+## only ever bring down the half facing them (Kyle, 2026-10-29).
 func is_breached() -> bool:
-	return is_station and not is_starbase() and shield <= shield_max * Capture.STATION_BREACH_SHIELD \
-		and hull <= hull_max * Capture.STATION_BREACH_HULL
+	if not is_station or is_starbase() or hull > hull_max * Capture.STATION_BREACH_HULL:
+		return false
+	return shield_front <= shield_cap(true) * Capture.STATION_BREACH_SHIELD \
+		or shield_rear <= shield_cap(false) * Capture.STATION_BREACH_SHIELD
 
 
 ## Open to a boarding party: a ship dead in space, or a breached station.

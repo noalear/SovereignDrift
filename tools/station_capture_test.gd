@@ -130,6 +130,17 @@ func _process(_delta: float) -> bool:
 			mine.cargo = {"metals": 40.0, "ice": 12.0}
 			_check(Capture.why_not(p, mine) == "intact", "an enemy mine with its shields up can't be boarded: %s" % Capture.reason_text(Capture.why_not(p, mine), p, mine))
 			_check(not mine.boardable(), "and isn't open to boarders")
+			# guns on one side only ever bring down that shield half
+			var whole := mine.hull
+			mine.hull = mine.hull_max * 0.45
+			_check(not mine.is_breached(), "hull broken but both shield halves up: not breached")
+			mine.shield_front = 0.0
+			_check(mine.is_breached(), "hull broken and the front half down: breached")
+			mine.shield_front = mine.shield_cap(true)
+			mine.shield_rear = 0.0
+			_check(mine.is_breached(), "or the rear half down")
+			mine.shield_rear = mine.shield_cap(false)
+			mine.hull = whole
 			_breach(mine, 0.45)
 			_check(mine.is_breached() and mine.boardable(), "shields down and hull at %d%%: breached" % int(mine.hull / mine.hull_max * 100.0))
 			_check(mine.crew < mine.crew_max, "the hits thinned its crew (%.1f of %d)" % [mine.crew, mine.crew_max])
