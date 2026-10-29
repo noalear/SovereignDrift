@@ -159,10 +159,46 @@ func _hold_and_controls(b, gd) -> void:
 	while b.hold.size() < 16:
 		b.hold.append("9202")
 	b._select("hp", 0)
+	b.mounts[0]["new"] = false              # a part the pilot owns, not one bought just now
 	var now_id: String = b.mounts[0]["id"]
 	b._mount(w0["id"] if w0["id"] != now_id else other)
 	_check(not b.confirm.is_empty() and b.mounts[0]["id"] == now_id, "swapping a weapon with the hold full asks first")
 	b._answer(1)
+	# a draft order: buying adds to the bill, taking a bought part off
+	# removes it again, money back; the ship's own credits never move
+	b.hold = []
+	b.hold_stock = {}
+	b.order = []
+	b.ship.credits = 100000
+	b.credits = b.ship.credits
+	var bank: int = b.ship.credits
+	var bay_new: int = b.modules.size()
+	b._select("bay", bay_new)
+	var buy := ""
+	for id in gd.MODULES:
+		if gd.is_bay_part(id) and not id in gd.STATION_ONLY and gd.price(id) <= b.credits and gd.part_race(id) < 0 and gd.stacks(id) and b._bays_fit(id, -1):
+			buy = id
+			break
+	if not buy.is_empty():
+		b._mount(buy)
+		_check(b.order.size() == 1 and b._order_total() == -gd.price(buy) and b.credits == bank - gd.price(buy) and b.ship.credits == bank,
+			"buying %s puts %d cr on the order; the pilot's credits are untouched" % [gd.MODULES[buy]["name"], gd.price(buy)])
+		_check(b.modules[b.sel_index].get("new", false), "a bought part is marked new")
+		b._remove_selected()
+		_check(b.order.is_empty() and b.credits == bank and not b.hold.has(buy), "taking it off again drops it from the order, not into the hold")
+		b._select("bay", b.modules.size())
+		b._mount(buy)
+	var hull_now: String = b.hull
+	var other_hull := "Destroyer" if hull_now != "Destroyer" else "Scout"
+	b._switch_hull(other_hull)
+	_check(not b.order.any(func(e): return e["kind"] == "buy"), "a hull switch takes the parts being bought off the order")
+	_check(b.order.filter(func(e): return e["kind"] == "hull").size() <= 1, "one hull on the order at most")
+	b._switch_hull(hull_now)
+	_check(b.order.is_empty() and b.credits == bank, "switching back leaves an empty order (%s)" % [b.order])
+	b._leave()
+	_check(not b.confirm.is_empty() or not b._dirty(), "Cancel with changes asks first")
+	if not b.confirm.is_empty():
+		b._answer(b.confirm["back"])
 	# a traded-in hull takes its stock parts back
 	b.hold = []
 	b.hold_stock = {}
@@ -202,7 +238,58 @@ func _hold_and_controls(b, gd) -> void:
 	await process_frame
 	await process_frame
 	b._command("accept")
-	_check(b.sel_kind == "bay" and b.focus_key.begins_with("part:"), "picking a slot hands the focus to its parts (%s)" % b.focus_key)
+	_check(b.sel_kind == "bay" and b.focus_key.begins_with("type:"), "picking an empty slot hands the focus to the part types (%s)" % b.focus_key)
+	await process_frame
+	await process_frame
+	var view: Array = b._catalogue_view()
+	_check(not view.is_empty() and view.all(func(e): return e["kind"] == "type"), "Add a part lists part types first (%d types)" % view.size())
+	var first_type: String = b.focus_key.trim_prefix("type:")
+	b._command("accept")
+	await process_frame
+	_check(b.cat_type == first_type and b.focus_key.begins_with("part:"), "A / Enter opens a type and focuses its first part (%s)" % b.focus_key)
+	view = b._catalogue_view()
+	_check(view.all(func(e): return e["kind"] == "group" or b._part_type(e["id"]) == first_type), "an open type lists only its own parts")
+	b._command("back")
+	_check(b.cat_type == "" and b.focus_key == "type:" + first_type, "B / Esc goes back to the type buttons (%s)" % b.focus_key)
+	# a type with families of several marks folds them under a header
+	var grouped := ""
+	for t in b.TYPE_ORDER:
+		b.cat_type = t
+		if b._catalogue_view().any(func(e): return e["kind"] == "group"):
+			grouped = t
+			break
+	b.cat_type = ""
+	if grouped != "":
+		b.focus_key = "type:" + grouped
+		await process_frame
+		await process_frame
+		b._command("accept")
+		await process_frame
+		var grp: Dictionary = b._catalogue_view().filter(func(e): return e["kind"] == "group")[0]
+		var n_open: int = b._catalogue_view().size()
+		b.focus_key = grp["key"]
+		await process_frame
+		await process_frame
+		b._command("accept")
+		await process_frame
+		_check(b._catalogue_view().size() < n_open and b.focus_key == grp["key"], "A / Enter on a group header folds it (%s)" % grp["name"])
+		b._command("accept")
+		await process_frame
+		_check(b._catalogue_view().size() == n_open, "... and unfolds it again")
+		b._command("back")
+	else:
+		_check(false, "no part type has a family of several marks")
+	# fit something that adds a bay rather than swapping one (power plants swap)
+	var add_type := first_type
+	for t in ["Repair", "Defence", "Drones", "Missiles", "Mines"]:
+		if b._catalogue_view().any(func(e): return e["key"] == "type:" + t and e["ok"] > 0):
+			add_type = t
+			break
+	b.focus_key = "type:" + add_type
+	await process_frame
+	await process_frame
+	b._command("accept")
+	await process_frame
 	await process_frame
 	await process_frame
 	var n_mods: int = b.modules.size()
@@ -210,15 +297,17 @@ func _hold_and_controls(b, gd) -> void:
 	b._command("accept")
 	await process_frame
 	_check(b.modules.size() >= n_mods and b.modules.map(func(m): return m["id"]).has(part) and b.focus_key.begins_with("bay:"), "A / Enter fits the part and goes back to the slot (%s)" % b.focus_key)
+	var cr_before: int = b.credits
 	b._command("remove")
-	_check(b.hold.has(part), "Y / Del takes the focused part off to the hold")
+	_check(not b.hold.has(part) and b.credits == cr_before + gd.price(part) and not b.order.any(func(e): return e["id"] == part),
+		"Y / Del takes a part bought in this order back off it, money back")
 	b.focus_key = "hold:%d" % b.hold.find("9202")
 	var cr: int = b.credits
 	b._command("remove")
 	_check(not b.hold.has("9202") and b.credits > cr, "Y / Del on a hold row sells it")
-	b._command("back")
-	b._command("back")
-	b._command("back")
+	for n in 3:
+		if b.confirm.is_empty():
+			b._command("back")
 	_check(not b.confirm.is_empty(), "backing out of a changed ship asks before leaving")
 	b._command("back")
 	_check(b.confirm.is_empty() and main.builder != null, "B / Esc on that question keeps building")
@@ -228,6 +317,9 @@ func _hold_and_controls(b, gd) -> void:
 	b.credits = 100000
 	var p = main.world.player
 	b._command("launch")
+	if not b.order.is_empty():
+		_check(not b.confirm.is_empty() and b.confirm.has("lines"), "Accept shows the itemised bill first (%d lines)" % b.confirm.get("lines", []).size())
+		b._command("accept")
 	if main.builder == null:
 		_check(p.hold_stock.get(stock_id, 0) == 1, "the ship keeps which hold parts are stock")
 	else:

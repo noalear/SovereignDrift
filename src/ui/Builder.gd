@@ -8,7 +8,11 @@
 ## (hulls, the ship's mounts and bays, the parts list, the hold); the arrows
 ## or D-pad move inside and across them, Tab or LB/RB jump between them.
 ## Parts taken off the ship go to the hold; when it is full the yard asks
-## whether to sell them on the spot or not do it at all.
+## whether to sell them or not do it at all.
+##
+## Everything here is a draft order: nothing is bought, sold or fitted until
+## the pilot accepts (an itemised bill first), and Cancel drops it all.  A
+## part bought in this order and taken off again simply leaves the order.
 class_name Builder
 extends Control
 
@@ -52,6 +56,7 @@ var modules: Array = []             # bay parts: {"id", "stock"}
 var hold: Array = []
 var hold_stock: Dictionary = {}     # id -> how many in the hold came off a stock fit
 var taken: Array = []               # stock parts moved to the hold from the hull on the slip
+var order: Array = []               # the bill so far: {"kind": "buy"|"sell"|"hull", "id", "amount"} (amount < 0 costs)
 var blueprints: Array = []
 var credits := 0
 var hull_paid := 0                  # credits spent on the hull this visit
@@ -80,6 +85,9 @@ var _opened_at := 0
 var _repeat_dir := Vector2i.ZERO
 var _repeat_t := 0.0
 var _sb := StyleBoxFlat.new()
+var cat_type := ""                  # the part type open in the list; "" shows the type buttons
+var collapsed := {}                 # family name -> true while that group is folded
+var preview_id := ""                # the catalogue part under the pointer or focus: shown fitted, not bought
 
 
 func open(p_ship: Ship, p_base: Ship, p_world: World) -> void:
@@ -135,24 +143,75 @@ func _load_hull(name: String, fit: Dictionary, initial: bool) -> void:
 func _strip_to_hold() -> void:
 	for m in mounts:
 		if m != null and not m["stock"]:
-			_to_hold(m["id"], false)
+			_to_hold(m["id"], false, m.get("new", false))
 	for m in modules:
 		if not m["stock"]:
-			_to_hold(m["id"], false)
+			_to_hold(m["id"], false, m.get("new", false))
 
 
 ## A part comes off the ship into the hold.  With the hold full it is sold
 ## when the pilot already agreed to (sell_overflow), else noted in
 ## `overflow` so the guarded action can be undone and the pilot asked.
-func _to_hold(id: String, stock: bool) -> void:
+## A part bought in this order (`new`) leaves the order instead.
+func _to_hold(id: String, stock: bool, new: bool = false) -> void:
+	if new and _unbuy(id):
+		return
 	if hold.size() < Ship.HOLD_SIZE:
 		hold.append(id)
 		if stock:
 			hold_stock[id] = int(hold_stock.get(id, 0)) + 1
 	elif sell_overflow:
-		credits += _sale_value(id, stock)
+		_order_add("sell", id, _sale_value(id, stock))
 	else:
 		overflow.append([id, stock])
+
+
+# ------------------------------------------------------------ the order
+
+func _order_add(kind: String, id: String, amount: int) -> void:
+	order.append({"kind": kind, "id": id, "amount": amount})
+	credits += amount
+
+
+## Take a part bought in this order back off it, money back.
+func _unbuy(id: String) -> bool:
+	for k in range(order.size() - 1, -1, -1):
+		if order[k]["kind"] == "buy" and order[k]["id"] == id:
+			credits -= order[k]["amount"]
+			order.remove_at(k)
+			return true
+	return false
+
+
+func _order_total() -> int:
+	var t := 0
+	for e in order:
+		t += e["amount"]
+	return t
+
+
+## The bill as rows: [label, amount], like parts summed.
+func _order_lines() -> Array:
+	var rows := {}
+	var keys := []
+	for e in order:
+		var k: String = e["kind"] + ":" + e["id"]
+		if not rows.has(k):
+			rows[k] = [e["kind"], e["id"], 0, 0]
+			keys.append(k)
+		rows[k][2] += 1
+		rows[k][3] += e["amount"]
+	var out := []
+	for k in keys:
+		var r: Array = rows[k]
+		var name: String = GameData.hull_label(r[1]) + " hull" if r[0] == "hull" else GameData.MODULES[r[1]]["name"]
+		var verb: String = {"buy": "Buy", "sell": "Sell", "hull": "Buy"}[r[0]]
+		out.append(["%s %s%s" % [verb, name, (" x%d" % r[2]) if r[2] > 1 else ""], r[3]])
+	return out
+
+
+static func _money(v: int) -> String:
+	return "%s%d cr" % ["+" if v > 0 else ("−" if v < 0 else ""), absi(v)]
 
 
 func _sale_value(id: String, stock: bool) -> int:
@@ -192,7 +251,7 @@ func _say(text: String) -> void:
 
 func _snapshot() -> Dictionary:
 	return {"hull": hull, "hardpoints": hardpoints, "mounts": mounts.duplicate(true), "modules": modules.duplicate(true),
-		"hold": hold.duplicate(), "hold_stock": hold_stock.duplicate(), "taken": taken.duplicate(), "credits": credits,
+		"hold": hold.duplicate(), "hold_stock": hold_stock.duplicate(), "taken": taken.duplicate(), "order": order.duplicate(true), "credits": credits,
 		"hull_paid": hull_paid, "sel_kind": sel_kind, "sel_index": sel_index, "cat_mode": cat_mode, "cat_scroll": cat_scroll,
 		"status": status, "status_time": status_time}
 
@@ -205,6 +264,7 @@ func _restore(s: Dictionary) -> void:
 	hold = s["hold"]
 	hold_stock = s["hold_stock"]
 	taken = s["taken"]
+	order = s["order"]
 	credits = s["credits"]
 	hull_paid = s["hull_paid"]
 	sel_kind = s["sel_kind"]
@@ -238,11 +298,11 @@ func _guarded(action: Callable) -> void:
 		names.append(GameData.MODULES[p[0]]["name"])
 	var what: String = names[0] if names.size() == 1 else "%d parts (%s)" % [names.size(), ", ".join(names)]
 	_ask("Hold full", "Your hold is full (%d / %d), so %s %s nowhere to go." % [hold.size(), Ship.HOLD_SIZE, what, "has" if names.size() == 1 else "have"], [
-		["Sell for %d cr" % value, func():
+		["Sell it  (+%d cr)" % value, func():
 			sell_overflow = true
 			action.call()
 			sell_overflow = false
-			_say("%s sold for %d credits." % [what, value])
+			_say("%s will be sold for %d credits when you accept." % [what, value])
 			Sfx.play_ui("pickup", 0.4)],
 		["Cancel", func(): _say("Nothing changed.")],
 	])
@@ -329,7 +389,7 @@ func _problems() -> Array:
 
 ## Anything changed since the yard opened?
 func _dirty() -> bool:
-	return hull != orig_hull or credits != ship.credits or hold != ship.hold or current_design()["weapons"] != orig_design["weapons"] \
+	return not order.is_empty() or hull != orig_hull or credits != ship.credits or hold != ship.hold or current_design()["weapons"] != orig_design["weapons"] \
 		or current_design()["modules"] != orig_design["modules"]
 
 
@@ -358,12 +418,19 @@ func _switch_hull_now(name: String) -> void:
 			_drop_stock_count(id)
 			returned += 1
 	taken.clear()
-	credits += hull_paid
-	credits -= cost
+	for k in range(order.size() - 1, -1, -1):
+		if order[k]["kind"] == "hull":
+			credits -= order[k]["amount"]
+			order.remove_at(k)
+	if cost > 0:
+		_order_add("hull", name, -cost)
 	hull_paid = cost
+	var bought := order.size()
 	_load_hull(name, {}, false)
+	var dropped := bought - order.size()
 	Sfx.play_ui("dock", 0.5)
-	_say("%s on the slip: stock fit loaded, your own parts are in the hold%s." % [GameData.hull_label(name),
+	_say("%s on the slip%s: stock fit loaded, your own parts are in the hold%s%s." % [GameData.hull_label(name), (" (%d cr on the order)" % cost) if cost > 0 else "",
+		(", %d part%s you were buying came off the order" % [dropped, "" if dropped == 1 else "s"]) if dropped > 0 else "",
 		(", %d stock part%s went back with the old hull" % [returned, "" if returned == 1 else "s"]) if returned > 0 else ""])
 
 
@@ -392,7 +459,7 @@ func _mount_now(id: String) -> void:
 	if from_hold:
 		stock = _take_from_hold(id)
 	else:
-		credits -= cost
+		_order_add("buy", id, -cost)
 	var swapped: Array = []
 	if sel_kind == "hp":
 		var group := GameData.default_weapon_group(id)
@@ -402,19 +469,19 @@ func _mount_now(id: String) -> void:
 			if _same_family(old["id"], id):
 				group = int(old.get("group", group))     # an upgrade keeps its fire group
 		_unmount_hp(sel_index)
-		mounts[sel_index] = {"id": id, "stock": stock, "group": group}
+		mounts[sel_index] = {"id": id, "stock": stock, "group": group, "new": not from_hold}
 	elif sel_kind == "bay":
 		if sel_index >= 0 and sel_index < modules.size():
 			swapped.append(GameData.MODULES[modules[sel_index]["id"]]["name"])
 			_unmount_bay(sel_index)
-			modules.insert(sel_index, {"id": id, "stock": stock})
+			modules.insert(sel_index, {"id": id, "stock": stock, "new": not from_hold})
 		else:
-			modules.append({"id": id, "stock": stock})
+			modules.append({"id": id, "stock": stock, "new": not from_hold})
 			sel_index = modules.size() - 1
 		swapped += _one_of_a_kind(sel_index)
 	Sfx.play_ui("click", 0.5)
-	_say("%s fitted%s%s." % [GameData.MODULES[id]["name"], " from the hold" if from_hold else " for %d credits" % cost,
-		(", %s to the hold" % ", ".join(swapped)) if not swapped.is_empty() else ""])
+	_say("%s %s%s." % [GameData.MODULES[id]["name"], "fitted from the hold" if from_hold else "added to the order (%d cr)" % cost,
+		(", %s off" % ", ".join(swapped)) if not swapped.is_empty() else ""])
 
 
 ## A ship carries one part of each kind except engines, shields and
@@ -444,7 +511,7 @@ func _unmount_hp(i: int) -> void:
 	var m = mounts[i]
 	if m == null:
 		return
-	_to_hold(m["id"], m["stock"])
+	_to_hold(m["id"], m["stock"], m.get("new", false))
 	if m["stock"]:
 		taken.append(m["id"])
 	mounts[i] = null
@@ -454,7 +521,7 @@ func _unmount_bay(i: int) -> void:
 	if i < 0 or i >= modules.size():
 		return
 	var m: Dictionary = modules[i]
-	_to_hold(m["id"], m["stock"])
+	_to_hold(m["id"], m["stock"], m.get("new", false))
 	if m["stock"]:
 		taken.append(m["id"])
 	modules.remove_at(i)
@@ -468,15 +535,22 @@ func _remove_selected_now() -> void:
 	if sel_kind == "hp" and sel_index >= 0 and sel_index < mounts.size():
 		var m = mounts[sel_index]
 		if m != null:
-			_say("%s moved to the hold." % GameData.MODULES[m["id"]]["name"])
+			_say(_off_text(m))
 			_unmount_hp(sel_index)
 			Sfx.play_ui("click", 0.4)
 	elif sel_kind == "bay" and sel_index >= 0 and sel_index < modules.size():
 		var m: Dictionary = modules[sel_index]
-		_say("%s moved to the hold." % GameData.MODULES[m["id"]]["name"])
+		_say(_off_text(m))
 		_unmount_bay(sel_index)
 		sel_index = mini(sel_index, modules.size())
 		Sfx.play_ui("click", 0.4)
+
+
+func _off_text(m: Dictionary) -> String:
+	var name: String = GameData.MODULES[m["id"]]["name"]
+	if m.get("new", false):
+		return "%s taken off the order (%d cr back)." % [name, GameData.price(m["id"])]
+	return "%s moved to the hold." % name
 
 
 const GROUP_COLORS := [Color(0.35, 0.65, 1.0), Color(1.0, 0.6, 0.3), Color(0.5, 0.95, 0.5), Color(0.9, 0.5, 0.95)]
@@ -562,12 +636,12 @@ func _sell_hold(i: int) -> void:
 	var id: String = hold[i]
 	var stock := _hold_is_stock(i)
 	var v := _sale_value(id, stock)
-	credits += v
+	_order_add("sell", id, v)
 	hold.remove_at(i)
 	if stock:
 		_drop_stock_count(id)
 	Sfx.play_ui("pickup", 0.4)
-	_say("%s sold for %d credits%s." % [GameData.MODULES[id]["name"], v, " (stock parts sell for scrap)" if stock else ""])
+	_say("%s will be sold for %d credits when you accept%s." % [GameData.MODULES[id]["name"], v, " (stock parts sell for scrap)" if stock else ""])
 	if focus_key.begins_with("hold:") and not hold.is_empty():
 		focus_key = "hold:%d" % mini(i, hold.size() - 1)
 
@@ -587,6 +661,23 @@ func _launch() -> void:
 	queue_free()
 
 
+## Accept: with anything on the bill, show it first; then fit and launch.
+func _accept() -> void:
+	var problems := _problems()
+	if not problems.is_empty():
+		_say(problems[0])
+		Sfx.play_ui("ui_back", 0.5)
+		return
+	if order.is_empty():
+		_launch()
+		return
+	var t := _order_total()
+	confirm = {"title": "Accept the order?", "text": "You have %d cr. Nothing is paid until you accept." % ship.credits, "lines": _order_lines(),
+		"total": t, "options": [["Accept  %s" % _money(t), _launch], ["Keep editing", func(): pass]], "back": 1}
+	focus_key = "modal:0"
+	Sfx.play_ui("notify", 0.5)
+
+
 func _cancel() -> void:
 	closed.emit(false)
 	queue_free()
@@ -597,9 +688,9 @@ func _leave() -> void:
 	if not _dirty():
 		_cancel()
 		return
-	_ask("Leave the shipyard?", "Your changes to the ship, the hold and your credits will be undone.", [
-		["Leave", _cancel],
-		["Keep building", func(): pass],
+	_ask("Cancel the order?", "Nothing has been bought or sold yet. Your ship, your hold and your credits stay as they were.", [
+		["Discard changes", _cancel],
+		["Keep editing", func(): pass],
 	])
 
 
@@ -750,6 +841,7 @@ func _command(cmd: String) -> void:
 			if not _selected_part().is_empty():
 				cat_mode = "switch" if cat_mode == "upgrade" else "upgrade"
 				cat_scroll = 0.0
+				cat_type = ""
 				Sfx.play_ui("click", 0.4)
 		"remove":
 			if focus_key.begins_with("hold:"):
@@ -767,7 +859,7 @@ func _command(cmd: String) -> void:
 			if not slot.is_empty() and slot[0] == "hp":
 				_cycle_group(slot[1])
 		"launch":
-			_launch()
+			_accept()
 	_refocus()
 
 
@@ -783,7 +875,7 @@ func _section_of(key: String) -> String:
 	match key.get_slice(":", 0):
 		"hull": return "hulls"
 		"hp", "bay": return "fit"
-		"part": return "parts"
+		"part", "type", "grp": return "parts"
 		"hold": return "hold"
 	return ""
 
@@ -793,7 +885,10 @@ func _section_of(key: String) -> String:
 func _back() -> void:
 	Sfx.play_ui("ui_back", 0.5)
 	var sec := _section_of(focus_key)
-	if sec == "parts" and (sel_kind == "hp" or sel_kind == "bay"):
+	if sec == "parts" and cat_type != "" and _use_types():
+		focus_key = "type:" + cat_type          # back to the type buttons
+		cat_type = ""
+	elif sec == "parts" and (sel_kind == "hp" or sel_kind == "bay"):
 		focus_key = "%s:%d" % [sel_kind, sel_index]
 	elif sec == "hold" and sel_kind == "hold":
 		sel_kind = ""
@@ -821,17 +916,27 @@ func _activate_focus() -> void:
 	if confirm.is_empty():
 		# a picked slot hands the focus to its parts; a fitted part hands it back
 		if key.begins_with("hp:") or key.begins_with("bay:"):
-			var rows := _catalogue_rows()
-			if rows.is_empty() and not _selected_part().is_empty():
+			if _catalogue_rows().is_empty() and not _selected_part().is_empty():
 				cat_mode = "switch"         # nothing better: show what else fits
-				rows = _catalogue_rows()
-			for e in rows:
-				if e["ok"]:
-					focus_key = "part:" + e["id"]
-					break
+			_focus_first_part()
+		elif key.begins_with("type:"):
+			_focus_first_part()
 		elif key.begins_with("part:") and (sel_kind == "hp" or sel_kind == "bay"):
 			focus_key = "%s:%d" % [sel_kind, sel_index]
 	_refocus()
+
+
+## Put the focus on the first thing worth picking in the parts list.
+func _focus_first_part() -> void:
+	var view := _catalogue_view()
+	cat_scroll = 0.0
+	for e in view:
+		# the first type with something that fits, or the first part that fits
+		if (e["kind"] == "type" and e["ok"] > 0) or (e["kind"] == "part" and e["ok"]):
+			focus_key = e["key"]
+			return
+	if not view.is_empty():
+		focus_key = view[0]["key"]
 
 
 func _focus_index() -> int:
@@ -850,8 +955,8 @@ func _list_keys(sec: String) -> Array:
 				out.append("hull:" + n)
 		"parts":
 			if sel_kind == "hp" or sel_kind == "bay":
-				for e in _catalogue_rows():
-					out.append("part:" + e["id"])
+				for e in _catalogue_view():
+					out.append(e["key"])
 		"hold":
 			for i in hold.size():
 				out.append("hold:%d" % i)
@@ -867,7 +972,20 @@ func _list_keys(sec: String) -> Array:
 ## it), anything else goes to the nearest control that way on screen.
 func _move_focus(dir: Vector2i) -> void:
 	var sec := _section_of(focus_key)
-	if dir.y != 0 and sec in ["hulls", "parts", "hold"]:
+	if focus_key.begins_with("type:"):
+		# the type buttons sit two to a row
+		var keys := _list_keys("parts")
+		var at := keys.find(focus_key)
+		var to := at + dir.y * 2 + dir.x
+		if dir.x != 0 and (to < 0 or to >= keys.size() or to / 2 != at / 2):
+			to = -1                 # off the row: on to the neighbouring section
+		if at >= 0 and to >= 0 and to < keys.size():
+			focus_key = keys[to]
+			Sfx.play_ui("click", 0.2)
+			return
+		if dir.y != 0:
+			return
+	elif dir.y != 0 and sec in ["hulls", "parts", "hold"]:
 		var keys := _list_keys(sec)
 		var at := keys.find(focus_key)
 		if at >= 0 and at + dir.y >= 0 and at + dir.y < keys.size():
@@ -958,11 +1076,19 @@ func _refocus() -> void:
 
 
 func _scroll_to_focus() -> void:
-	if focus_key.begins_with("part:"):
-		var at := _list_keys("parts").find(focus_key)
-		var visible := maxi(int(cat_rect.size.y / CAT_ROW), 1)
-		if at >= 0:
-			cat_scroll = clampf(cat_scroll, at - visible + 1, at)
+	if focus_key.begins_with("part:") or focus_key.begins_with("grp:"):
+		var view := _catalogue_view()
+		var at := -1
+		for k in view.size():
+			if view[k]["key"] == focus_key:
+				at = k
+		if at < 0:
+			return
+		var start := clampi(int(cat_scroll), 0, at)
+		# the rows from `start` to the focus must fit the list's height
+		while start < at and _rows_height(view, start, at + 1) > cat_rect.size.y:
+			start += 1
+		cat_scroll = start
 	elif focus_key.begins_with("hold:"):
 		var at := int(focus_key.trim_prefix("hold:"))
 		var visible := maxi(int(hold_rect.size.y / HOLD_ROW), 1)
@@ -989,6 +1115,7 @@ func _process(delta: float) -> void:
 # --------------------------------------------------------------- drawing
 
 const CAT_ROW := 38.0
+const GROUP_ROW := 32.0
 const HOLD_ROW := 31.0
 
 
@@ -1096,6 +1223,7 @@ static func _func_color(id: String) -> Color:
 
 
 func _draw() -> void:
+	preview_id = _preview_part()        # from last frame's buttons, before they are rebuilt
 	buttons.clear()
 	var vp := get_viewport_rect().size
 	draw_rect(Rect2(Vector2.ZERO, vp), BG)
@@ -1127,14 +1255,26 @@ func _draw_header(r: Rect2, rc: Color) -> void:
 	draw_string(font, r.position + Vector2(22, 52), "%s   ·   %s %s" % [base.ship_name, GameData.rank_name(ship.rank), ship.pilot_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DIM)
 	# credits and the yard's building stock, in pills
 	var x := r.position.x + 330
-	var cr := "%d cr" % credits
+	var cr := "%d cr" % ship.credits
 	var cw := font.get_string_size(cr, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x + 48
 	var pill := Rect2(x, r.position.y + 13, cw, 38)
 	_card(pill, Color(0.12, 0.1, 0.04, 0.9), Color(GOLD.r, GOLD.g, GOLD.b, 0.5), 19.0)
 	draw_circle(pill.position + Vector2(19, 19), 8.0, GOLD)
 	draw_circle(pill.position + Vector2(19, 19), 4.5, Color(0.55, 0.42, 0.1))
 	draw_string(font, pill.position + Vector2(34, 27), cr, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, GOLD)
-	x = pill.end.x + 14
+	x = pill.end.x + 10
+	# the bill so far: nothing is paid until Accept
+	if not order.is_empty():
+		var t := _order_total()
+		var ot := "Order  %s" % _money(t)
+		var lt := "→  %d cr left" % credits
+		var ow := font.get_string_size(ot, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x + font.get_string_size(lt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x + 46
+		var op := Rect2(x, r.position.y + 16, ow, 32)
+		_card(op, Color(0.07, 0.1, 0.17, 0.95), Color(GOLD.r, GOLD.g, GOLD.b, 0.35), 16.0)
+		draw_string(font, op.position + Vector2(14, 22), ot, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, GOOD if t > 0 else (TEXT if t == 0 else GOLD))
+		draw_string(font, op.position + Vector2(op.size.x - 14 - font.get_string_size(lt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x, 21), lt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DIM)
+		x = op.end.x + 10
+	x += 4
 	var stock := world.yard_stock(base)
 	draw_string(font, Vector2(x, r.position.y + 37), "Yard stock", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DIM)
 	x += 76
@@ -1147,8 +1287,8 @@ func _draw_header(r: Rect2, rc: Color) -> void:
 		draw_string(font, p.position + Vector2(22, 17), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, TEXT)
 		x += w + 6
 	var problems := _problems()
-	_button(Rect2(r.end.x - 316, r.position.y + 12, 170, 40), "Launch", _launch, problems.is_empty(), 18, true, "", _key("launch"))
-	_button(Rect2(r.end.x - 138, r.position.y + 12, 124, 40), "Leave", _leave, true, 18, false, "", _key("back") if sel_kind == "" else "")
+	_button(Rect2(r.end.x - 316, r.position.y + 12, 170, 40), "Accept", _accept, problems.is_empty(), 18, true, "", _key("launch"))
+	_button(Rect2(r.end.x - 138, r.position.y + 12, 124, 40), "Cancel", _leave, true, 18, false, "", _key("back") if sel_kind == "" else "")
 
 
 func _draw_footer(r: Rect2) -> void:
@@ -1185,7 +1325,12 @@ func _hints() -> Array:
 		"fit":
 			out.append([_key("accept"), "Choose part"])
 		"parts":
-			out.append([_key("accept"), "Fit"])
+			if focus_key.begins_with("type:"):
+				out.append([_key("accept"), "Open"])
+			elif focus_key.begins_with("grp:"):
+				out.append([_key("accept"), "Fold / unfold"])
+			else:
+				out.append([_key("accept"), "Add to order"])
 		"hold":
 			out.append([_key("accept"), "Equip"])
 			out.append([_key("remove"), "Sell"])
@@ -1196,8 +1341,8 @@ func _hints() -> Array:
 	if not _selected_part().is_empty():
 		out.append([_key("switch"), "Upgrades" if cat_mode == "switch" else "Switch out"])
 	out.append([_key("section"), "Section"])
-	out.append([_key("back"), "Back" if sel_kind != "" or sec != "fit" else "Leave"])
-	out.append([_key("launch"), "Launch"])
+	out.append([_key("back"), "Back" if sel_kind != "" or sec != "fit" else "Cancel"])
+	out.append([_key("launch"), "Accept"])
 	return out
 
 
@@ -1205,7 +1350,9 @@ func _draw_modal(vp: Vector2) -> void:
 	draw_rect(Rect2(Vector2.ZERO, vp), Color(0, 0, 0, 0.6))
 	var w := 600.0
 	var lines := _wrap(confirm["text"], w - 56, 16)
-	var h := 150.0 + lines.size() * 22.0
+	var bill: Array = confirm.get("lines", [])
+	var shown := mini(bill.size(), 12)
+	var h := 150.0 + lines.size() * 22.0 + (shown * 26.0 + 58.0 if not bill.is_empty() else 0.0)
 	var r := Rect2(vp.x * 0.5 - w * 0.5, vp.y * 0.5 - h * 0.5, w, h)
 	_card(r, Color(0.05, 0.08, 0.15, 0.99), Color(GOLD.r, GOLD.g, GOLD.b, 0.6), 12.0, 2.0)
 	draw_string(font, r.position + Vector2(28, 42), confirm["title"], HORIZONTAL_ALIGNMENT_LEFT, -1, 22, GOLD)
@@ -1213,6 +1360,20 @@ func _draw_modal(vp: Vector2) -> void:
 	for ln in lines:
 		draw_string(font, Vector2(r.position.x + 28, y), ln, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, TEXT)
 		y += 22
+	# an itemised bill: what is bought and sold, and the total
+	if not bill.is_empty():
+		y += 8
+		for k in shown:
+			var row: Array = bill[k] if k < 11 or bill.size() <= 12 else ["%d more lines" % (bill.size() - 11), 0]
+			draw_string(font, Vector2(r.position.x + 40, y), _fit(row[0], w - 220, 15), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, TEXT)
+			if row[1] != 0:
+				draw_string(font, Vector2(r.end.x - 188, y), _money(row[1]), HORIZONTAL_ALIGNMENT_RIGHT, 150, 15, GOOD if row[1] > 0 else GOLD)
+			y += 26
+		draw_line(Vector2(r.position.x + 40, y - 14), Vector2(r.end.x - 38, y - 14), LINE, 1.0)
+		var t: int = confirm["total"]
+		draw_string(font, Vector2(r.position.x + 40, y + 8), "Total", HORIZONTAL_ALIGNMENT_LEFT, -1, 17, TEXT)
+		draw_string(font, Vector2(r.end.x - 188, y + 8), _money(t), HORIZONTAL_ALIGNMENT_RIGHT, 150, 17, GOOD if t > 0 else GOLD)
+		draw_string(font, Vector2(r.position.x + 40, y + 30), "You will have %d cr left." % (ship.credits + t), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DIM)
 	var opts: Array = confirm["options"]
 	var bw := 200.0
 	var bx := r.end.x - 28 - opts.size() * (bw + 12) + 12
@@ -1313,7 +1474,7 @@ func _draw_left(r: Rect2, rc: Color) -> void:
 			var nw := minf(font.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x, row.size.x - 230)
 			draw_string(font, row.position + Vector2(48 + nw, 18), "stock", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, FAINT)
 		_button(Rect2(row.end.x - 136, row.position.y + 3, 56, row.size.y - 6), "Equip", _equip_hold.bind(i), not _equip_slot(id).is_empty(), 12)
-		_button(Rect2(row.end.x - 76, row.position.y + 3, 72, row.size.y - 6), "Sell %d" % _sale_value(id, stock), _sell_hold.bind(i), true, 12)
+		_button(Rect2(row.end.x - 76, row.position.y + 3, 72, row.size.y - 6), "Sell +%d" % _sale_value(id, stock), _sell_hold.bind(i), true, 12)
 		_focus_ring(row, key)
 		y += HOLD_ROW
 	if hold.size() > visible:
@@ -1336,6 +1497,7 @@ func _select(kind: String, index: int) -> void:
 	sel_index = index
 	cat_scroll = 0.0
 	cat_mode = "upgrade"
+	cat_type = ""
 
 
 func _draw_centre(r: Rect2, rc: Color) -> void:
@@ -1367,7 +1529,11 @@ func _draw_centre(r: Rect2, rc: Color) -> void:
 	var tex := ShipArt.hull_texture(hull, base.race_id)
 	if tex != null:
 		scale = minf(scale, 1.9 * tex.get_width() / (size * ShipArt.LENGTH))
-	ShipArt.draw_ship(self, design, base.race_id, size, rc, 0.4 + 0.2 * sin(time * 3.0), 1.0, 0.0, Transform2D(0.0, Vector2.ONE * scale, 0.0, centre))
+	# the part in focus in the list is shown on the ship before it is bought
+	var look := design if preview_id == "" else _design_with(preview_id)
+	ShipArt.draw_ship(self, look, base.race_id, size, rc, 0.4 + 0.2 * sin(time * 3.0), 1.0, 0.0, Transform2D(0.0, Vector2.ONE * scale, 0.0, centre))
+	if preview_id != "":
+		draw_string(font, Vector2(pic.position.x + 16, pic.end.y - 14), "Preview: %s fitted, not bought yet" % GameData.MODULES[preview_id]["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, GOLD)
 	# hardpoints: a small numbered badge on each turret; names live in the
 	# list below, and only the mount in focus shows its firing arc
 	var spots := ShipArt.hardpoint_spots(hull, base.race_id, size)
@@ -1536,7 +1702,7 @@ func _preview_part() -> String:
 
 func _draw_right(r: Rect2) -> void:
 	_card(r, CARD, LINE, 10.0)
-	var preview := _preview_part()
+	var preview := preview_id
 	var design := current_design() if preview == "" else _design_with(preview)
 	var st := GameData.stats_for(design)
 	var was := GameData.stats_for(orig_design)
@@ -1670,6 +1836,7 @@ func _draw_catalogue(r: Rect2) -> void:
 		_button(Rect2(r.end.x - 118, y - 4, 118, 26), "To hold", _remove_selected, true, 13, false, "", _key("remove"))
 		_button(Rect2(r.end.x - 250, y - 4, 126, 26), "Upgrades" if cat_mode == "switch" else "Switch out", func():
 			cat_mode = "switch" if cat_mode == "upgrade" else "upgrade"
+			cat_type = ""
 			cat_scroll = 0.0, true, 13, false, "", _key("switch"))
 		y += 14
 	y += 12
@@ -1678,33 +1845,228 @@ func _draw_catalogue(r: Rect2) -> void:
 		_card(cat_rect, Color(0, 0, 0, 0.2), Color(1, 1, 1, 0.04), 8.0)
 		draw_string(font, cat_rect.position + Vector2(0, cat_rect.size.y * 0.5), "Choose a weapon mount or a bay to see what fits.", HORIZONTAL_ALIGNMENT_CENTER, cat_rect.size.x, 14, FAINT)
 		return
-	var list := _catalogue_rows()
-	if list.is_empty() and not current.is_empty():
+	var view := _catalogue_view()
+	if view.is_empty() and not current.is_empty():
 		draw_string(font, cat_rect.position + Vector2(8, 22), "This is the best of its kind. Switch out to see what else fits.", HORIZONTAL_ALIGNMENT_LEFT, cat_rect.size.x - 16, 13, DIM)
 		return
-	var visible := maxi(int(cat_rect.size.y / CAT_ROW), 1)
-	cat_scroll = clampf(cat_scroll, 0.0, maxf(list.size() - visible, 0.0))
+	if _use_types() and cat_type == "":
+		_draw_types(view)
+		return
+	if _use_types():
+		# the open type: a way back to the buttons
+		var hdr := Rect2(cat_rect.position.x, cat_rect.position.y, cat_rect.size.x - 8, 26)
+		buttons.append([hdr, func():
+			cat_type = ""
+			cat_scroll = 0.0, true, "", Callable()])
+		var lit := hover == buttons.size() - 1
+		draw_string(font, hdr.position + Vector2(4, 18), "‹  All part types", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, TEXT if lit else LABEL)
+		draw_string(font, hdr.position + Vector2(0, 18), cat_type.to_upper(), HORIZONTAL_ALIGNMENT_RIGHT, hdr.size.x - 4, 14, GOLD)
+		cat_rect = Rect2(cat_rect.position + Vector2(0, 32), cat_rect.size - Vector2(0, 32))
+	cat_scroll = clampf(cat_scroll, 0.0, maxf(view.size() - 1, 0.0))
 	var start := int(cat_scroll)
-	for k in range(start, mini(list.size(), start + visible)):
-		var e: Dictionary = list[k]
-		var row := Rect2(cat_rect.position.x, cat_rect.position.y + (k - start) * CAT_ROW, cat_rect.size.x - 8, CAT_ROW - 4)
-		var enabled: bool = e["ok"]
-		var key: String = "part:" + e["id"]
-		buttons.append([row, _mount.bind(e["id"]), enabled, key, Callable()])
-		var idx := buttons.size() - 1
-		var lit := hover == idx or (kb_nav and focus_key == key)
-		_card(row, CARD_HI if lit and enabled else (Color(0.055, 0.085, 0.15, 0.9) if enabled else Color(0.04, 0.05, 0.07, 0.7)), Color(0.5, 0.65, 0.95, 0.2 if enabled else 0.08), 7.0)
-		_icon(e["id"], Rect2(row.position.x + 6, row.position.y + 3, 36, row.size.y - 6), 1.0 if enabled else 0.35)
-		var col := TEXT if enabled else FAINT
-		draw_string(font, row.position + Vector2(50, 15), _fit(e["name"], row.size.x - 170, 14), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, col)
-		draw_string(font, row.position + Vector2(50, 29), _fit(e["info"], row.size.x - 170, 11), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, DIM if enabled else Color(0.36, 0.38, 0.44))
-		draw_string(font, row.position + Vector2(row.size.x - 122, 22), e["price"], HORIZONTAL_ALIGNMENT_RIGHT, 112, 13, e["pcol"])
-		_focus_ring(row, key)
-	if list.size() > visible:
-		var frac := float(visible) / list.size()
+	var y0 := cat_rect.position.y
+	var last := start
+	for k in range(start, view.size()):
+		var e: Dictionary = view[k]
+		var h := _row_h(e)
+		if y0 + h - 4 > cat_rect.end.y:
+			break
+		last = k
+		if e["kind"] == "group":
+			_draw_group(Rect2(cat_rect.position.x, y0, cat_rect.size.x - 8, h - 4), e)
+		else:
+			var indent := 16.0 if e.get("indent", false) else 0.0
+			_draw_part_row(Rect2(cat_rect.position.x + indent, y0, cat_rect.size.x - 8 - indent, h - 4), e)
+		y0 += h
+	if start > 0 or last < view.size() - 1:
+		var frac := float(last - start + 1) / view.size()
 		var th := cat_rect.size.y * frac
-		var ty := cat_rect.position.y + (cat_rect.size.y - th) * (cat_scroll / maxf(list.size() - visible, 1.0))
+		var ty := cat_rect.position.y + (cat_rect.size.y - th) * (float(start) / maxf(view.size() - (last - start + 1), 1.0))
 		draw_rect(Rect2(cat_rect.end.x - 3, ty, 3, th), Color(0.5, 0.7, 1.0, 0.5))
+
+
+func _draw_part_row(row: Rect2, e: Dictionary) -> void:
+	var enabled: bool = e["ok"]
+	var key: String = e["key"]
+	buttons.append([row, _mount.bind(e["id"]), enabled, key, Callable()])
+	var idx := buttons.size() - 1
+	var lit := hover == idx or (kb_nav and focus_key == key)
+	_card(row, CARD_HI if lit and enabled else (Color(0.055, 0.085, 0.15, 0.9) if enabled else Color(0.04, 0.05, 0.07, 0.7)), Color(0.5, 0.65, 0.95, 0.2 if enabled else 0.08), 7.0)
+	_icon(e["id"], Rect2(row.position.x + 6, row.position.y + 3, 36, row.size.y - 6), 1.0 if enabled else 0.35)
+	var col := TEXT if enabled else FAINT
+	draw_string(font, row.position + Vector2(50, 15), _fit(e["name"], row.size.x - 170, 14), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, col)
+	draw_string(font, row.position + Vector2(50, 29), _fit(e["info"], row.size.x - 170, 11), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, DIM if enabled else Color(0.36, 0.38, 0.44))
+	draw_string(font, row.position + Vector2(row.size.x - 122, 22), e["price"], HORIZONTAL_ALIGNMENT_RIGHT, 112, 13, e["pcol"])
+	_focus_ring(row, key)
+
+
+## A family's header: click (or A) folds it.
+func _draw_group(row: Rect2, e: Dictionary) -> void:
+	var key: String = e["key"]
+	buttons.append([row, _toggle_group.bind(e["name"]), true, key, Callable()])
+	var lit := hover == buttons.size() - 1 or (kb_nav and focus_key == key)
+	_card(row, CARD_HI if lit else Color(0.07, 0.1, 0.17, 0.9), Color(GOLD.r, GOLD.g, GOLD.b, 0.25), 6.0)
+	draw_string(font, row.position + Vector2(10, 19), "▾" if e["open"] else "▸", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, GOLD)
+	draw_string(font, row.position + Vector2(30, 19), e["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, TEXT)
+	var nw := font.get_string_size(e["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+	draw_string(font, row.position + Vector2(40 + nw, 19), e["levels"], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, DIM)
+	draw_string(font, row.position + Vector2(0, 19), e["from"], HORIZONTAL_ALIGNMENT_RIGHT, row.size.x - 10, 12, DIM)
+	_focus_ring(row, key)
+
+
+## The part types as buttons, two to a row.
+func _draw_types(view: Array) -> void:
+	var cw := (cat_rect.size.x - 8 - 8) / 2.0
+	var th := clampf((cat_rect.size.y - 8.0) / ceilf(view.size() / 2.0), 44.0, 64.0)
+	for k in view.size():
+		var e: Dictionary = view[k]
+		var r := Rect2(cat_rect.position.x + (k % 2) * (cw + 8), cat_rect.position.y + (k / 2) * th, cw, th - 8)
+		var enabled: bool = e["n"] > 0
+		var key: String = e["key"]
+		buttons.append([r, _open_type.bind(e["name"]), enabled, key, Callable()])
+		var lit := hover == buttons.size() - 1 or (kb_nav and focus_key == key)
+		_card(r, CARD_HI if lit else Color(0.055, 0.085, 0.15, 0.9), Color(_func_color(e["icon"]), 0.45 if e["ok"] > 0 else 0.15), 8.0)
+		var well := Rect2(r.position + Vector2(6, 6), Vector2(r.size.y - 12, r.size.y - 12))
+		_card(well, Color(0.02, 0.03, 0.06, 0.9), Color(_func_color(e["icon"]), 0.4), 6.0)
+		_icon(e["icon"], well.grow(-3), 1.0 if e["ok"] > 0 else 0.4)
+		var tx := well.end.x + 10
+		draw_string(font, Vector2(tx, r.position.y + r.size.y * 0.5 - 2), e["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, TEXT if e["ok"] > 0 else FAINT)
+		var sub := "%d parts%s" % [e["n"], ("  ·  from %d cr" % e["from"]) if e["from"] > 0 else ""] if e["ok"] > 0 else "%d, none you can fit" % e["n"]
+		draw_string(font, Vector2(tx, r.position.y + r.size.y * 0.5 + 15), _fit(sub, r.end.x - tx - 8, 12), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, DIM)
+		_focus_ring(r, key)
+
+
+func _open_type(t: String) -> void:
+	cat_type = t
+	cat_scroll = 0.0
+	Sfx.play_ui("click", 0.4)
+
+
+func _toggle_group(name: String) -> void:
+	collapsed[name] = not collapsed.get(name, false)
+	Sfx.play_ui("click", 0.3)
+
+
+func _row_h(e: Dictionary) -> float:
+	return GROUP_ROW if e["kind"] == "group" else CAT_ROW
+
+
+func _rows_height(view: Array, from: int, to: int) -> float:
+	var h := 0.0
+	for k in range(from, mini(to, view.size())):
+		h += _row_h(view[k])
+	return h
+
+
+## Show the type buttons, then a type's parts grouped by family?  For an
+## empty slot and for Switch out; upgrades of a fitted part stay a short list.
+func _use_types() -> bool:
+	return (sel_kind == "hp" or sel_kind == "bay") and (_selected_part().is_empty() or cat_mode == "switch")
+
+
+const TYPE_ORDER := ["Lasers", "Guns", "Missiles", "Torpedoes", "Mines", "Drones",
+	"Power", "Engines", "Drives", "Shields", "Armor", "Sensors", "Stealth", "Repair", "Defence", "Other"]
+
+
+## The list's part type for a module ("Shields", "Guns", ...).
+static func _part_type(id: String) -> String:
+	var mod: Dictionary = GameData.MODULES[id]
+	match mod["func"]:
+		"beam": return "Lasers"
+		"tube":
+			match ShipArt.weapon_icon(id):
+				"missile": return "Missiles"
+				"grenade": return "Torpedoes"
+				"mine": return "Mines"
+				"drone": return "Drones"
+			return "Guns"
+		"power": return "Power"
+		"eng": return "Engines"
+		"qdrv", "boost", "brake": return "Drives"
+		"shield": return "Shields"
+		"armor": return "Armor"
+		"sensor": return "Sensors"
+		"jammer", "heatsink", "stealth": return "Stealth"
+		"regen", "repair": return "Repair"
+		"pdc", "ram": return "Defence"
+	return "Other"
+
+
+## A part's family: its name without the mark ("Shield IV" -> "Shield").
+static func _family(id: String) -> String:
+	var name: String = GameData.MODULES[id]["name"]
+	var words := name.split(" ")
+	if words.size() > 1 and words[-1] in ["I", "II", "III", "IV", "V", "VI", "VII"]:
+		words.remove_at(words.size() - 1)
+	return " ".join(words)
+
+
+## What the parts list shows now, in order: type buttons, or family
+## headers and parts.  Each row has "kind" ("type", "group", "part") and a
+## focus "key".
+func _catalogue_view() -> Array:
+	var rows := _catalogue_rows()
+	var out := []
+	if not _use_types():
+		for e in rows:
+			e["kind"] = "part"
+			e["key"] = "part:" + e["id"]
+			out.append(e)
+		return out
+	if cat_type == "":
+		var types := {}
+		for e in rows:
+			var t := _part_type(e["id"])
+			if not types.has(t):
+				types[t] = {"kind": "type", "key": "type:" + t, "name": t, "n": 0, "ok": 0, "from": 0, "icon": e["id"]}
+			var d: Dictionary = types[t]
+			d["n"] += 1
+			if e["ok"]:
+				d["ok"] += 1
+				var pr := GameData.price(e["id"]) if not hold.has(e["id"]) else 0
+				if d["ok"] == 1 or pr < d["from"]:
+					d["from"] = pr
+		for t in TYPE_ORDER:
+			if types.has(t):
+				out.append(types[t])
+		return out
+	# one type: families with two or more marks get a folding header
+	var fams := {}
+	var order := []
+	for e in rows:
+		if _part_type(e["id"]) != cat_type:
+			continue
+		var f := _family(e["id"])
+		if not fams.has(f):
+			fams[f] = []
+			order.append(f)
+		fams[f].append(e)
+	for f in order:
+		var parts: Array = fams[f]
+		if parts.size() == 1:
+			var e: Dictionary = parts[0]
+			e["kind"] = "part"
+			e["key"] = "part:" + e["id"]
+			out.append(e)
+			continue
+		var open: bool = not collapsed.get(f, false)
+		var marks := []
+		var cheapest := 0
+		for e in parts:
+			var nm: String = e["name"]
+			marks.append(nm.substr(f.length()).strip_edges() if nm.length() > f.length() else "")
+			if e["ok"] and (cheapest == 0 or GameData.price(e["id"]) < cheapest):
+				cheapest = GameData.price(e["id"])
+		var levels := " ".join(marks.filter(func(m): return m != ""))
+		out.append({"kind": "group", "key": "grp:" + f, "name": f, "open": open, "levels": levels if levels != "" else "%d kinds" % parts.size(),
+			"from": ("from %d cr" % cheapest) if cheapest > 0 else ""})
+		if open:
+			for e in parts:
+				e["kind"] = "part"
+				e["key"] = "part:" + e["id"]
+				e["indent"] = true
+				out.append(e)
+	return out
 
 
 ## Rows of the catalogue for the selected slot: common parts, this
