@@ -74,21 +74,28 @@ const MODULES := {
 	"4501": {"name": "Laser I", "vol": 3, "mass": 50, "power": -200, "hp": 200, "func": "beam", "p": [30, 242, 227]},
 	"4502": {"name": "Laser II", "vol": 300, "mass": 1500, "power": -200, "hp": 200, "func": "beam", "p": [30, 300, 295]},
 	"4503": {"name": "Laser III", "vol": 4500, "mass": 20000, "power": -200, "hp": 200, "func": "beam", "p": [30, 800, 600]},
-	"5001": {"name": "Shield I", "vol": 50, "mass": 500, "power": -2, "hp": 75, "func": "shield", "p": [200]},
-	"5002": {"name": "Shield II", "vol": 100, "mass": 900, "power": -3, "hp": 100, "func": "shield", "p": [300]},
-	"5003": {"name": "Shield III", "vol": 250, "mass": 1200, "power": -4, "hp": 125, "func": "shield", "p": [400]},
-	"5004": {"name": "Shield IV", "vol": 400, "mass": 1600, "power": -5, "hp": 175, "func": "shield", "p": [500]},
-	"5005": {"name": "Shield V", "vol": 1000, "mass": 2000, "power": -6, "hp": 200, "func": "shield", "p": [800]},
-	"5006": {"name": "Shield VI", "vol": 3500, "mass": 2400, "power": -6, "hp": 250, "func": "shield", "p": [1600]},
-	"5007": {"name": "Station shield", "vol": 5000, "mass": 3000, "power": -12, "hp": 250, "func": "shield", "p": [1000]},
-	# shield families (SHIELD_FAMILIES): Barrier holds more and recharges
-	# slowly, Flicker holds less, recovers fast and lets some hits through
-	"5011": {"name": "Barrier I", "vol": 250, "mass": 1800, "power": -6, "hp": 125, "func": "shield", "p": [640], "fam": "barrier"},
-	"5012": {"name": "Barrier II", "vol": 400, "mass": 2400, "power": -8, "hp": 175, "func": "shield", "p": [800], "fam": "barrier"},
-	"5013": {"name": "Barrier III", "vol": 1000, "mass": 3000, "power": -9, "hp": 200, "func": "shield", "p": [1280], "fam": "barrier"},
-	"5021": {"name": "Flicker I", "vol": 250, "mass": 960, "power": -4, "hp": 125, "func": "shield", "p": [240], "fam": "flicker"},
-	"5022": {"name": "Flicker II", "vol": 400, "mass": 1280, "power": -5, "hp": 175, "func": "shield", "p": [300], "fam": "flicker"},
-	"5023": {"name": "Flicker III", "vol": 1000, "mass": 1600, "power": -6, "hp": 200, "func": "shield", "p": [480], "fam": "flicker"},
+	"5001": {"name": "Shield I", "vol": 50, "mass": 500, "power": -50, "hp": 75, "func": "shield", "p": [200]},
+	"5002": {"name": "Shield II", "vol": 100, "mass": 900, "power": -80, "hp": 100, "func": "shield", "p": [300]},
+	"5003": {"name": "Shield III", "vol": 250, "mass": 1200, "power": -120, "hp": 125, "func": "shield", "p": [400]},
+	"5004": {"name": "Shield IV", "vol": 400, "mass": 1600, "power": -160, "hp": 175, "func": "shield", "p": [500]},
+	"5005": {"name": "Shield V", "vol": 1000, "mass": 2000, "power": -250, "hp": 200, "func": "shield", "p": [800]},
+	"5006": {"name": "Shield VI", "vol": 3500, "mass": 2400, "power": -450, "hp": 250, "func": "shield", "p": [1600]},
+	"5007": {"name": "Station shield", "vol": 5000, "mass": 3000, "power": -600, "hp": 250, "func": "shield", "p": [1000]},
+	# shield families (SHIELD_FAMILIES): Shield I-VI are Standard; Barrier
+	# holds more and recharges slowly, Flicker holds less, recovers fast and
+	# lets some hits through.  A shield draws 35% of its power while raised
+	"5011": {"name": "Barrier I", "vol": 250, "mass": 1800, "power": -180, "hp": 125, "func": "shield", "p": [640], "fam": "barrier"},
+	"5012": {"name": "Barrier II", "vol": 400, "mass": 2400, "power": -240, "hp": 175, "func": "shield", "p": [800], "fam": "barrier"},
+	"5013": {"name": "Barrier III", "vol": 1000, "mass": 3000, "power": -360, "hp": 200, "func": "shield", "p": [1280], "fam": "barrier"},
+	"5021": {"name": "Flicker I", "vol": 250, "mass": 960, "power": -90, "hp": 125, "func": "shield", "p": [240], "fam": "flicker"},
+	"5022": {"name": "Flicker II", "vol": 400, "mass": 1280, "power": -120, "hp": 175, "func": "shield", "p": [300], "fam": "flicker"},
+	"5023": {"name": "Flicker III", "vol": 1000, "mass": 1600, "power": -180, "hp": 200, "func": "shield", "p": [480], "fam": "flicker"},
+	# Deflectors (Drengin) turn gun rounds and laser beams off the bubble's
+	# edge, and the shot is the deflecting ship's from then on; they hold
+	# less and draw far more power than the others
+	"5031": {"name": "Deflector I", "vol": 250, "mass": 1100, "power": -160, "hp": 125, "func": "shield", "p": [250], "fam": "deflector"},
+	"5032": {"name": "Deflector II", "vol": 400, "mass": 1500, "power": -260, "hp": 175, "func": "shield", "p": [350], "fam": "deflector"},
+	"5033": {"name": "Deflector III", "vol": 1000, "mass": 1900, "power": -380, "hp": 200, "func": "shield", "p": [500], "fam": "deflector"},
 	# armor coats: one per ship, each resisting damage types its own way
 	# (see ARMOR); hp is the hull it adds
 	"5501": {"name": "Plate armor I", "vol": 100, "mass": 2000, "power": 0, "hp": 300, "func": "armor", "p": [1]},
@@ -166,7 +173,7 @@ const MODULE_RACE := {
 	"5005": 0, "5006": 0, "7003": 0, "7303": 0, "7502": 0, "5101": 0, "5102": 0, "4021": 0,
 	"5504": 0, "5021": 0, "5022": 0, "5023": 0,
 	"4009": 1, "5201": 1, "5202": 1, "7102": 1, "7202": 1,
-	"5011": 1, "5012": 1, "5013": 1, "5506": 2,
+	"5011": 1, "5012": 1, "5013": 1, "5506": 2, "5031": 2, "5032": 2, "5033": 2,
 	"9101": 2, "7402": 2, "9203": 2, "5601": 2,
 }
 
@@ -341,9 +348,12 @@ static func armor_resist(coat_id: String, dtype: String) -> float:
 ## Shield families.  Every hit pauses the recharge of the shield half it
 ## lands on for "pause" seconds ("zero_pause" if it empties it), then the
 ## half recharges "rate" of its size a second.  On "leak_chance" of hits,
-## "leak" of the damage goes past the shield to the hull.
+## "leak" of the damage goes past the shield to the hull.  A "deflect"
+## shield turns gun rounds and laser beams away instead (Ship.deflects),
+## paying that share of what the hit would have taken out of it.
 const SHIELD_FAMILIES := {
-	"deflector": {"label": "Deflector", "pause": 2.5, "zero_pause": 5.0, "rate": 0.10, "leak": 0.0, "leak_chance": 0.0},
+	"standard": {"label": "Standard", "pause": 2.5, "zero_pause": 5.0, "rate": 0.10, "leak": 0.0, "leak_chance": 0.0},
+	"deflector": {"label": "Deflector", "pause": 2.5, "zero_pause": 5.0, "rate": 0.10, "leak": 0.0, "leak_chance": 0.0, "deflect": 0.5},
 	"barrier": {"label": "Barrier", "pause": 6.0, "zero_pause": 10.0, "rate": 0.05, "leak": 0.0, "leak_chance": 0.0},
 	"flicker": {"label": "Flicker", "pause": 0.8, "zero_pause": 2.0, "rate": 0.20, "leak": 0.30, "leak_chance": 0.5},
 }
@@ -355,7 +365,7 @@ const SHIELD_BOOT := 2.0            # seconds to raise lowered shields...
 const SHIELD_BOOT_CHARGE := 0.2     # ...which come up at this share of full
 
 static func shield_family(id: String) -> String:
-	return str(MODULES[id].get("fam", "deflector"))
+	return str(MODULES[id].get("fam", "standard"))
 
 
 ## Parts a ship may carry more than one of; of every other kind it takes one.
@@ -918,11 +928,37 @@ static func stock_design(hull: String, race_id: int = -1) -> Dictionary:
 	var modules: Array = d["modules"].duplicate()
 	for i in int(STOCK_PDC.get(race_id, {}).get(hull, 0)):
 		modules.append("4022")
-	return {
+	var out := {
 		"name": hull, "rank": d["rank"], "speed": d["speed"], "turn": d["turn"], "size": d["size"],
 		"dock": d.get("dock", [180, 0]), "modules": modules, "weapons": weapons,
 		"pirate": d.get("pirate", false), "aces": d.get("aces", false),
 	}
+	if RACE_SHIELDS.has(race_id) and not is_station_hull(hull):
+		_race_shields(out, RACE_SHIELDS[race_id])
+	return out
+
+
+## Each empire's own shield family in its stock ships, best mark first
+## (Kyle 2026-10-29: Deflectors are the Drengin default).
+const RACE_SHIELDS := {2: ["5033", "5032", "5031"]}
+
+## Swap a stock fit's Standard shields for the empire's own: the best mark
+## that holds no more than the old shield (and a little), fits the bays and
+## keeps the reactor out of overload; the smallest if none does.
+static func _race_shields(design: Dictionary, marks: Array) -> void:
+	var mods: Array = design["modules"]
+	for i in mods.size():
+		var old: String = mods[i]
+		if MODULES[old]["func"] != "shield" or shield_family(old) != "standard":
+			continue
+		var pick: String = marks[marks.size() - 1]
+		for id in marks:
+			mods[i] = id
+			var st := stats_for(design)
+			if MODULES[id]["p"][0] <= MODULES[old]["p"][0] + 100 and st["bay_used"] <= st["bay_cap"] and st["power_draw"] <= st["power_gen"]:
+				pick = id
+				break
+		mods[i] = pick
 
 
 ## PDCs in each empire's stock ships, by hull (in the bays, so no gun is
@@ -1082,7 +1118,7 @@ static func stats_for(design: Dictionary) -> Dictionary:
 		"heat_sink": 0.0, "has_boost": false, "boost_speed": 1.0, "boost_accel": 1.0, "pdc": 0,
 		"qdrv": 0.0, "brake_power": 0.6, "regen": 0.0, "repair": 0.0, "ram": 0.0,
 		"power_gen": 0.0, "power_draw": 0.0, "overload": 1.0, "module_levels": {}, "bay_used": 0,
-		"coat": "", "armor_mass": 0.0, "armor_sig": 1.0, "thermal_lag": 1.0, "shield_family": "deflector", "shield_draw": 0.0,
+		"coat": "", "armor_mass": 0.0, "armor_sig": 1.0, "thermal_lag": 1.0, "shield_family": "standard", "shield_draw": 0.0,
 		"bay_cap": int(HULL_BAYS.get(design["name"], 2000)), "engines": 0, "eng": 0.0,
 	}
 	var is_station: bool = is_station_hull(design["name"])

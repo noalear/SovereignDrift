@@ -417,13 +417,17 @@ func _defend(delta: float) -> void:
 			if to.length() > w["range"] + radius:
 				continue
 			var origin := global_position + to.normalized() * radius
-			var hit: Dictionary = world.raycast_beam(self, origin, to.normalized(), w["range"])
+			var hit: Dictionary = world.trace_beam(self, origin, to.normalized(), w["range"])
+			for b in hit["bounces"]:
+				b[0].deflect_hit(w["dps"] * delta, b[1], "beam")
 			if hit["body"] != null:
 				if hit["body"] is Ship:
-					hit["body"].take_damage(w["dps"] * delta, self, hit["point"], 1.0, "", 0.1, "beam")
+					hit["body"].take_damage(w["dps"] * delta, hit["owner"], hit["point"], 1.0, "", 0.1, "beam")
 				else:
-					hit["body"].take_damage(w["dps"] * delta, self, hit["point"], "beam")
-			world.add_beam(origin, hit["point"], GameData.race(owner_race)["color"])
+					hit["body"].take_damage(w["dps"] * delta, hit["owner"], hit["point"], "beam")
+			var path: Array = hit["path"]
+			for i in path.size() - 1:
+				world.add_beam(path[i], path[i + 1], GameData.race(owner_race)["color"] if i == 0 else hit["bounces"][i - 1][0].race_color())
 			if w["cooldown"] <= 0.0:
 				w["cooldown"] = 0.25
 				Sfx.play("beam", global_position, 0.3)

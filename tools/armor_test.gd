@@ -208,11 +208,11 @@ func _run(w) -> void:
 	sh.energy = sh.energy_max
 	before = sh.shield_front
 	sh._tick_shields(1.0)
-	var rate: float = gd.SHIELD_FAMILIES["deflector"]["rate"]
+	var rate: float = gd.SHIELD_FAMILIES["standard"]["rate"]
 	_check(_near(sh.shield_front - before, sh.shield_max * rate * 0.5, 1.0), "then the half recharges 10%% of its size a second (+%.1f)" % (sh.shield_front - before))
 	# empty a half: the long pause
 	sh.take_damage(sh.shield_rear / gd.damage_mult("kinetic", "shield") + 20.0, null, _point(sh, false), 1.0, "", 1.0, "kinetic")
-	_check(sh.shield_rear <= 0.01 and _near(sh.shield_pause[1], gd.SHIELD_FAMILIES["deflector"]["zero_pause"], 0.01), "a half knocked to zero waits 5 s")
+	_check(sh.shield_rear <= 0.01 and _near(sh.shield_pause[1], gd.SHIELD_FAMILIES["standard"]["zero_pause"], 0.01), "a half knocked to zero waits 5 s")
 	sh.hull = sh.hull_max
 	sh.systems.repair_all()
 	sh.apply_systems()
@@ -303,7 +303,7 @@ func _run(w) -> void:
 	_check(_ids(b.modules).count("5003") == 2 and gone.is_empty(), "shields of one family stack")
 	b.modules.append({"id": "5021", "stock": false})
 	gone = b._one_of_a_kind(b.modules.size() - 1)
-	_check(_ids(b.modules).count("5003") == 0 and _ids(b.modules).has("5021"), "a Flicker shield replaces Deflectors")
+	_check(_ids(b.modules).count("5003") == 0 and _ids(b.modules).has("5021"), "a Flicker shield replaces Standard shields")
 	b.modules.append({"id": "1002", "stock": false})
 	b._one_of_a_kind(b.modules.size() - 1)
 	b.modules.append({"id": "7002", "stock": false})
