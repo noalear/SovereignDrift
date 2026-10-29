@@ -77,6 +77,10 @@ const PREY_RANGE := 800.0
 ## A run to or from a place under an enemy colony's guns is worth this
 ## much of a safe one: taken only when nothing safer is worth doing.
 const EXPOSED_WORTH := 0.25
+## A busy warship this many times PREY_RANGE off is still worth running from.
+const MENACE_MARGIN := 1.5
+## Distance a shelter under enemy guns counts as further off.
+const TRAP_COST := 1.0e6
 ## Supply ships keep this much further off an enemy colony than its guns reach.
 const GUN_MARGIN := 350.0
 
@@ -787,8 +791,8 @@ func _job_still_good() -> bool:
 			if haul_market != null:
 				return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and Economy.surplus(job_planet, haul_res) >= 5.0 \
 					and Economy.is_market(haul_market)
-			return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and Economy.surplus(job_planet, haul_res) >= 5.0 \
-				and haul_to != null and haul_to.is_colonised() and haul_to.owner_race == ship.race_id
+			return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and haul_to != null and haul_to.is_colonised() \
+				and haul_to.owner_race == ship.race_id and Economy.spare_for(job_planet, haul_to, haul_res) >= 5.0
 		"deliver":
 			return job_planet.is_colonised() and job_planet.owner_race == ship.race_id and ship.cargo_total() >= 1.0
 		"muster":
@@ -1140,7 +1144,7 @@ func _think_hauler() -> void:
 		# running: until the warship falls well behind, or, once under the
 		# shelter's guns, until it keeps its distance
 		# (nothing to fear while nothing can hurt us)
-		foe = _nearest_warship(SAFE_RANGE if state == State.FLEE and not _sheltered() else FLEE_RANGE) if ship.invulnerable <= 0.0 else null
+		foe = _nearest_menace(SAFE_RANGE if state == State.FLEE and not _sheltered() else FLEE_RANGE) if ship.invulnerable <= 0.0 else null
 	if foe != null:
 		ship.target = foe
 		flee_from = foe
@@ -1299,7 +1303,10 @@ func _plan_haul() -> bool:
 		var worth := 0.0
 		for k in st.cargo:
 			if st.design_name != "Refinery" or k == "alloys":
-				worth += st.cargo[k] * GameData.RESOURCE_PRICE.get(k, 1.0)
+				var low := false
+				for p in ours:
+					low = low or Economy.running_low(p, k)
+				worth += st.cargo[k] * GameData.RESOURCE_PRICE.get(k, 1.0) * (UPKEEP_FIRST if low else 1.0)
 		worth *= minf(amount / maxf(_collectable(st), 1.0), 1.0)
 		# a full station stops working: fetch it first
 		var v: float = worth * (3.0 if st.cargo_space() < st.cargo_max * 0.2 else 2.0) * _safety(st) / (1500.0 + pos.distance_to(st.global_position))
@@ -1309,29 +1316,34 @@ func _plan_haul() -> bool:
 			job = "collect"
 			dock_at = st
 			haul_frame = null
-	if dock_at != null:
-		return true
+	# a colony's spare stock for another that lacks it, when it beats the runs above
 	for src in ours:
 		for k in Economy.RESOURCES:
-			var spare := minf(Economy.surplus(src, k), ship.cargo_max)
-			if spare < 20.0:
-				continue
 			for dst in ours:
-				if dst == src or Economy.makes(dst, k) >= Economy.makes(src, k) or taken.has([dst, k]):
+				if dst == src or taken.has([dst, k]):
+					continue
+				# toward a world that makes it worse, or one whose upkeep is running out
+				var low := Economy.running_low(dst, k)
+				if Economy.makes(dst, k) >= Economy.makes(src, k) and not low:
+					continue
+				var spare := minf(Economy.spare_for(src, dst, k), ship.cargo_max)
+				if spare < 20.0:
 					continue
 				var want := Economy.need(dst, k)
 				if want < 0.3:
 					continue
 				var amount := minf(spare, maxf(Economy.wanted(dst, k), 20.0))
 				var trip: float = 1500.0 + pos.distance_to(src.global_position) + src.global_position.distance_to(dst.global_position)
-				var v: float = amount * want * GameData.RESOURCE_PRICE.get(k, 1.0) * (UPKEEP_FIRST if Economy.running_low(dst, k) else 1.0) * _safety(src) * _safety(dst) / trip
+				var v: float = amount * want * GameData.RESOURCE_PRICE.get(k, 1.0) * (UPKEEP_FIRST if low else 1.0) * _safety(src) * _safety(dst) / trip
 				if v > best:
 					best = v
 					job_planet = src
 					job = "load"
 					haul_res = k
 					haul_to = dst
-	return job_planet != null
+					dock_at = null
+					haul_frame = null
+	return job_planet != null or dock_at != null
 
 
 ## The next trade run.  With goods aboard: the market that pays best for
@@ -1501,7 +1513,7 @@ func _haul_on_ground() -> void:
 					break
 				if k != haul_res and (Economy.need(haul_to, k) < 0.3 or Economy.makes(haul_to, k) >= Economy.makes(here, k)):
 					continue
-				var n := floorf(minf(minf(Economy.surplus(here, k), room), Economy.wanted(haul_to, k) + 20.0))
+				var n := floorf(minf(minf(Economy.spare_for(here, haul_to, k), room), Economy.wanted(haul_to, k) + 20.0))
 				if n >= 5.0:
 					world.cargo_command(ship, k, n)
 					room -= n
@@ -1716,9 +1728,30 @@ func _nearest_warship(reach: float) -> Ship:
 	return best
 
 
+## The nearest enemy warship within `reach` that would come for us: a
+## player, a raider, one already after us, or one close enough to pick us
+## off in passing (PREY_RANGE).  A warship busy with its own fight further
+## off leaves supply ships alone, so hiding from it only wastes the run.
+func _nearest_menace(reach: float) -> Ship:
+	var best: Ship = null
+	var best_d := reach
+	for s in world.ships:
+		if s.dead or s.support or s.is_station or s.team() == ship.team() or s.race_id == GameData.NEUTRAL or s.is_landing() or s.is_disabled():
+			continue
+		var d: float = s.global_position.distance_to(ship.global_position)
+		if d >= best_d or not s.visible_to(ship):
+			continue
+		var ai: AIPilot = s.get_node_or_null("AI")
+		if ai == null or ai.raid or s.target == ship or d < PREY_RANGE * MENACE_MARGIN:
+			best_d = d
+			best = s
+	return best
+
+
 ## Where to run from a warship: the nearest friendly colony with its guns
 ## up, or friendly station, counting a place the warship lies toward as
-## further off.
+## further off.  A station under an enemy colony's guns is a trap (their
+## warships never leave), so it is a last resort.
 func _shelter(foe: Ship) -> Node2D:
 	var best: Node2D = null
 	var best_v := INF
@@ -1734,6 +1767,9 @@ func _shelter(foe: Ship) -> Node2D:
 	for n in places:
 		var to: Vector2 = n.global_position - at
 		var v := to.length() * (1.0 + 2.0 * maxf(to.normalized().dot(from), 0.0))
+		_exposed.erase(n)
+		if _safety(n) < 1.0:
+			v += TRAP_COST
 		if v < best_v:
 			best_v = v
 			best = n

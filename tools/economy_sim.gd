@@ -209,5 +209,32 @@ func _report(w: World) -> void:
 		if p.is_colonised() and p.owner_race <= 2 and p.stock.get("fuel", 0.0) >= 0.0:
 			fuel.append("%s %d" % [p.body_name, int(p.stock.get("fuel", 0.0))])
 	print("    fuel: %s" % ", ".join(fuel))
+	# what each empire's haulers are doing, and the Fuel its colonies could send home
+	for race in [0, 1, 2]:
+		var h: Planet = w._home_planet(race)
+		var runs := []
+		for s in w.ships:
+			var ai: AIPilot = s.get_node_or_null("AI") if s.support and not s.dead and s.race_id == race else null
+			if ai != null and not ai.trader and not ai.dropper:
+				var at: Node2D = ai.dock_at if ai.dock_at != null else (ai.job_planet as Node2D)
+				runs.append("%s %s %s%s" % [AIPilot.State.keys()[ai.state], ai.job, ai.haul_res,
+					("@" + (at.body_name if at is Planet else (at as Ship).design_name)) if at != null else ""])
+		var spare := []
+		for p in w.planets:
+			if p.is_colonised() and p.owner_race == race and p != h and Economy.spare_for(p, h, "fuel") >= 5.0:
+				spare.append("%s %d" % [p.body_name, int(Economy.spare_for(p, h, "fuel"))])
+		print("    %s haulers: %s   fuel to spare for %s: %s" % [gd.race(race)["name"].substr(0, 4), ", ".join(runs), h.body_name, ", ".join(spare)])
+		for s in w.ships:
+			var ai: AIPilot = s.get_node_or_null("AI") if s.support and not s.dead and s.race_id == race else null
+			if ai != null and ai.state == AIPilot.State.FLEE and ai.flee_from != null and is_instance_valid(ai.flee_from):
+				var f: Ship = ai.flee_from
+				var fa: AIPilot = f.get_node_or_null("AI")
+				var at: String = "-"
+				if ai.shelter != null and is_instance_valid(ai.shelter):
+					at = ai.shelter.body_name if ai.shelter is Planet else ai.shelter.design_name
+				print("      flee %s at %s%s from %s %s %d px, %s%s" % [s.ship_name, at, " (sheltered)" if ai._sheltered() else "", gd.race(f.race_id)["name"].substr(0, 4),
+					f.design_name, int(f.global_position.distance_to(s.global_position)), "hunting us" if f.target == s else "busy",
+					(" " + AIPilot.State.keys()[fa.state]) if fa != null else " (player)"])
 	line += " | battles %d taken %d convoys %d raided %d kits %d jobs %d fled %d" % [tally["battles"], tally["taken"], tally["convoys"], tally["raided"], tally["kits"], jobs, tally["fled"]]
 	print(line)
+

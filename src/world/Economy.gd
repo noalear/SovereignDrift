@@ -252,6 +252,20 @@ static func running_low(p: Planet, k: String) -> bool:
 	return burn > 0.0 and p.stock.get(k, 0.0) < burn * FUEL_RESERVE
 
 
+## What a colony can spare of a resource for a run to `dst`: its surplus,
+## or, when `dst` is running low on it, all but the colony's own FUEL_RESERVE
+## minutes of upkeep and LOW_KEEP units (a moon's Fuel for its world's shield).
+static func spare_for(src: Planet, dst: Planet, k: String) -> float:
+	var spare := surplus(src, k)
+	if dst != null and running_low(dst, k):
+		var keep: float = Ground.upkeep_rate(src).get(k, 0.0) * FUEL_RESERVE + LOW_KEEP
+		spare = maxf(spare, src.stock.get(k, 0.0) - keep)
+	return spare
+
+
+const LOW_KEEP := 10.0
+
+
 ## A fresh game: every colony starts with a few minutes of its own output.
 func seed_stocks() -> void:
 	for p in world.planets:
