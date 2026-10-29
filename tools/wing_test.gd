@@ -168,15 +168,28 @@ func _start() -> void:
 	await _wait(30)
 	var hai: AIPilot = hurt.get_node("AI")
 	_check(hai.sent_home and hai.state == AIPilot.State.RETREAT, "Return to base: home for repairs")
-	_check(w.wing.status(hurt).begins_with("home"), "the HUD says so (%s)" % w.wing.status(hurt))
-	_put(hurt, hai.home.global_position + Vector2(hai.home.radius + 220.0, 0), hai.home.velocity)
-	hurt.hull = hurt.hull_max
-	hurt.shield = hurt.shield_max
-	hurt.energy = hurt.energy_max
-	hurt.fuel = hurt.fuel_max
-	hurt.crew = hurt.crew_max
-	await _wait(60)
-	_check(not hai.sent_home and hai.state == AIPilot.State.ESCORT, "mended, it flies back to the wing")
+	_check(w.wing.status(hurt).begins_with("going home"), "the HUD says so (%s)" % w.wing.status(hurt))
+	# a battered prize-like wreck near home (Kyle 2026-10-29: one sat at
+	# "home for repairs 0%" for good): it lands, the spaceport mends it,
+	# and it lifts off and rejoins
+	_put(hurt, hai.home.global_position + Vector2(hai.home.radius + 900.0, 0), hai.home.velocity)
+	hurt.hull = hurt.hull_max * 0.004
+	hurt.crew = maxf(1.0, hurt.crew_max * 0.3)
+	var landed := false
+	var said := ""
+	var back := false
+	for sec in 120:
+		await _wait(60)
+		if hurt.is_landed():
+			landed = true
+			if said == "":
+				said = w.wing.status(hurt)
+		if not hai.sent_home and hai.state == AIPilot.State.ESCORT and not hurt.is_landing():
+			back = true
+			break
+	_check(landed, "sent home, it lands at %s" % hai.home.body_name)
+	_check(said.begins_with("repairing"), "the HUD shows the repair (%s)" % said)
+	_check(back and hurt.hull > hurt.hull_max * 0.9, "mended (hull %d%%), it lifts off and flies back to the wing" % int(hurt.hull / hurt.hull_max * 100.0))
 	# --- the leader dies: the wing goes home and waits
 	p.invulnerable = 0.0
 	p.take_damage(1e7, null)
@@ -249,6 +262,11 @@ func _start() -> void:
 	w.wing_command(p, "dismiss")
 	_check(w.wing.called(p).is_empty() and wing.all(func(s): return s.get_node("AI").escort == null), "Dismiss sends the called pilots back to the empire")
 	# --- a player's call comes before a computer admiral's
+	# (first free whoever our own computer admirals called up meanwhile)
+	for s in w.ships:
+		var sai: AIPilot = s.get_node_or_null("AI") if s.race_id == p.race_id and not s.dead else null
+		if sai != null and sai.called and sai.escort != p:
+			sai.leave_wing()
 	var mates := w.ships.filter(func(s): return s.race_id == p.race_id and not s.dead and not s.is_player and not s.support and not s.is_station and s.get_node_or_null("AI") != null and s.get_node("AI").escort == null)
 	var boss: Ship = mates[0]
 	boss.rank = 12

@@ -422,7 +422,7 @@ func _think() -> void:
 			if home == null:
 				state = State.PATROL
 				sent_home = false
-			elif hull_frac > 0.9 and shield_frac > 0.8 and ship.energy > ship.energy_max * 0.6 and ship.fuel_fraction() > 0.6 and ship.crew_fraction() > 0.8:
+			elif _mended():
 				if in_wing and lead == null:
 					pass                # mended: wait here for the leader to relaunch
 				elif sent_home:
@@ -729,7 +729,10 @@ func _act(delta: float) -> void:
 			else:
 				_fly_to_job(delta)
 		State.RETREAT:
-			if home != null:
+			var port := _repair_port()
+			if port != null:
+				_land_on(port, delta)   # a friendly spaceport patches the hull up
+			elif home != null:
 				var p := home.global_position + (ship.global_position - home.global_position).normalized() * (home.radius + 220.0)
 				_steer_to(p, delta, true)
 				i["boost"] = _boost_ok(BOOST_KEEP_ATTACK) and ship.global_position.distance_to(p) > 800.0
@@ -738,6 +741,50 @@ func _act(delta: float) -> void:
 
 
 # ------------------------------------------------------------ colonists
+
+## Where a retreating ship lands to be mended: home when it is still ours
+## and has a surface, else the nearest friendly colony that has one.  Null
+## when there is none: the ship waits by home, where at least the tanks
+## and the crew are made up.
+func _repair_port() -> Planet:
+	if home != null and home.is_colonised() and home.owner_race == ship.race_id and home.has_surface():
+		return home
+	var best: Planet = null
+	var best_d := INF
+	for p in world.planets:
+		if p.is_colonised() and p.owner_race == ship.race_id and p.has_surface():
+			var d: float = p.global_position.distance_to(ship.global_position)
+			if d < best_d:
+				best_d = d
+				best = p
+	return best
+
+
+## Hull, shields, energy, fuel and crew all good enough to fly again.
+func _mended() -> bool:
+	return ship.hull > ship.hull_max * 0.9 and (ship.shield_max <= 0.0 or ship.shield > ship.shield_max * 0.8) \
+		and ship.energy > ship.energy_max * 0.6 and ship.fuel_fraction() > 0.6 and ship.crew_fraction() > 0.8
+
+
+## Landed for repairs (World._landed_ships and _refuel do the mending):
+## lift off once mended, back to the wing or to patrol.  A wingman whose
+## leader is down waits on the ground for it to relaunch.
+func _repair_on_ground() -> void:
+	if not _mended():
+		return
+	var in_wing := escort != null and is_instance_valid(escort) and not convoy_guard
+	if in_wing and escort.dead:
+		return
+	world.try_land(ship)              # lift off
+	if in_wing:
+		sent_home = false
+		state = State.ESCORT
+		world.wing.report(ship, "back")
+	else:
+		sent_home = false
+		state = State.PATROL
+		patrol_point = _random_patrol_point()
+
 
 ## Pick the next colonist run.  With an empty cabin: a friendly colony that
 ## can spare people.  With colonists aboard: an enemy colony whose defences
@@ -876,7 +923,11 @@ static func _collectable(st: Ship) -> float:
 
 ## Fly down to the job's world, slow to a landing speed above it, land.
 func _fly_to_job(delta: float) -> void:
-	var p := job_planet
+	_land_on(job_planet, delta)
+
+
+## Fly down to `p`, slow to a landing speed above it, land.
+func _land_on(p: Planet, delta: float) -> void:
 	if p == null or not is_instance_valid(p):
 		return
 	var i := ship.inputs
@@ -909,6 +960,9 @@ func _fly_to_job(delta: float) -> void:
 ## then lift off for the next run.
 func _think_on_ground() -> void:
 	if not ship.is_landed():
+		return
+	if state == State.RETREAT:
+		_repair_on_ground()
 		return
 	ground_time += 0.35
 	if hauler:
