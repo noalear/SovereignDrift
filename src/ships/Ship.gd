@@ -1437,6 +1437,25 @@ func is_free_aim(w: Dictionary) -> bool:
 	return w["kind"] == "tube" and w["missile"] in FREE_AIM_SHOTS
 
 
+## How far `rel` (ship-relative, -PI..PI) lies from the middle of a mount's
+## arc, wrapped, so an arc the shipyard turned past astern still works.
+static func _off_arc_mid(w: Dictionary, rel: float) -> float:
+	return wrapf(rel - (w["arc0"] + w["arc1"]) * 0.5, -PI, PI)
+
+
+## Is `rel` inside the mount's arc?
+static func in_arc(w: Dictionary, rel: float, slack: float = 0.01) -> bool:
+	if w["arc1"] - w["arc0"] >= TAU - 0.2:
+		return true
+	return absf(_off_arc_mid(w, rel)) <= (w["arc1"] - w["arc0"]) * 0.5 + slack
+
+
+## `rel` held inside the mount's arc.
+static func clamp_to_arc(w: Dictionary, rel: float) -> float:
+	var half: float = (w["arc1"] - w["arc0"]) * 0.5
+	return (w["arc0"] + w["arc1"]) * 0.5 + clampf(_off_arc_mid(w, rel), -half, half)
+
+
 func _aim_angle(w: Dictionary) -> float:
 	# Fire toward the target if it is inside the arc, else straight down the arc centre.
 	var centre: float = w["fire_angle"]
@@ -1453,12 +1472,10 @@ func _aim_angle(w: Dictionary) -> float:
 		var rel := wrapf((aim_point - global_position).angle() - rotation, -PI, PI)
 		if w["arc1"] - w["arc0"] >= TAU - 0.2:
 			return rel
-		return clampf(rel, w["arc0"], w["arc1"])
+		return clamp_to_arc(w, rel)
 	if target != null and is_instance_valid(target) and not (target is Ship and target.dead):
 		var rel := _lead_angle(w, target)
-		if rel >= w["arc0"] - 0.01 and rel <= w["arc1"] + 0.01:
-			return rel
-		if w["arc1"] - w["arc0"] >= TAU - 0.2:
+		if in_arc(w, rel):
 			return rel
 	return centre
 
@@ -1474,7 +1491,7 @@ func _beam_lock(w: Dictionary) -> float:
 	if to.length() > w["range"] + t.size:
 		return INF
 	var rel := wrapf(to.angle() - rotation, -PI, PI)
-	if w["arc1"] - w["arc0"] < TAU - 0.2 and (rel < w["arc0"] - 0.01 or rel > w["arc1"] + 0.01):
+	if not in_arc(w, rel):
 		return INF
 	return rel
 

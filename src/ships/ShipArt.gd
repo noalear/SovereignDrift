@@ -73,6 +73,7 @@ static var _masks := {}
 static var _spots := {}
 static var _models := {}
 static var _engines := {}
+static var _sockets_cache := {}
 static var _coats := {}            # "<painting path>|<coat id>" -> Texture2D, or the Image a worker baked
 static var _coat_jobs := {}        # the same keys -> WorkerThreadPool task, while it bakes
 static var _coat_lock := Mutex.new()
@@ -444,6 +445,123 @@ static func weapon_spots(hull_name: String, race_id: int, size: float, weapons: 
 	return out
 
 
+## Sockets for the systems that show on a hull, as [x from the stern,
+## spread from the keel to the edge] fractions: "boost" for booster pods
+## (mirrored pairs on the aft flanks, beside the engines), "ext" for point
+## defence turrets and shield emitters (mirrored flank pairs, bow, stern).
+## Listed in the order empty sockets are filled.
+const SOCKET_PLAN := {
+	"boost": [[0.12, 0.9], [0.24, 0.85]],
+	"ext": [[0.5, 0.62], [0.82, 0.0], [0.66, 0.58], [0.34, 0.62], [0.2, 0.0]],
+}
+## Which socket set each placed system uses.
+const SOCKET_KIND := {"pdc": "ext", "shield": "ext", "boost": "boost"}
+
+
+## A hull's system sockets of one kind (SOCKET_PLAN), on the painting and
+## clear of the weapon mounts and of each other.  A mirrored pair stays
+## mirrored when the painting allows it.
+static func system_sockets(hull_name: String, race_id: int, size: float, kind: String) -> Array:
+	var key := "%s|%d|%.2f" % [hull_name, race_id, size]
+	if not _sockets_cache.has(key):
+		_sockets_cache[key] = _make_sockets(hull_name, race_id, size)
+	return _sockets_cache[key][kind]
+
+
+static func _make_sockets(hull_name: String, race_id: int, size: float) -> Dictionary:
+	var tex := hull_texture(hull_name, race_id)
+	var rect := _hull_rect(tex, size, GameData.is_station_hull(hull_name))
+	var mask := hull_mask(tex)
+	var taken: Array = hardpoint_spots(hull_name, race_id, size).duplicate()
+	# boosters ride beside the engines, not out on a wing tip
+	var engine_reach := rect.size.y * 0.28
+	var painted := painted_engines(tex)
+	if not painted.is_empty():
+		engine_reach = 0.0
+		for e in painted:
+			engine_reach = maxf(engine_reach, (absf(e["y"]) + e["h"] * 0.5) * rect.size.y)
+	var out := {}
+	for kind in ["boost", "ext"]:
+		var r := size * (0.09 if kind == "ext" else 0.1)
+		var list := []
+		for plan in SOCKET_PLAN[kind]:
+			var x: float = rect.position.x + float(plan[0]) * rect.size.x
+			# how far the hull reaches either side of the keel at this station
+			var reach := rect.size.y * 0.25
+			if not mask.is_empty():
+				var gw: int = mask["gw"]
+				var gh: int = mask["gh"]
+				var gx := clampi(int((x - rect.position.x) / rect.size.x * gw), 0, gw - 1)
+				var top := gh
+				var bottom := -1
+				for gy in gh:
+					if mask["depth"][gy * gw + gx] > 0.0:
+						top = mini(top, gy)
+						bottom = maxi(bottom, gy)
+				if bottom >= 0:
+					var up := -(rect.position.y + top * rect.size.y / gh)
+					var down := rect.position.y + (bottom + 1) * rect.size.y / gh
+					reach = maxf(minf(up, down) - r * 0.6, 0.0)
+			if kind == "boost":
+				reach = minf(reach, engine_reach + r * 1.6)
+			var spread: float = plan[1]
+			if spread <= 0.0:
+				var p := _snap(mask, rect, Vector2(x, 0.0), r * 0.5, taken, r * 1.7)
+				taken.append(p)
+				list.append(p)
+				continue
+			var a := _snap(mask, rect, Vector2(x, -reach * spread), r * 0.5, taken, r * 1.7)
+			taken.append(a)
+			var b := Vector2(a.x, -a.y)
+			if absf(a.y) < r or (not mask.is_empty() and (_depth_at(mask, rect, b) < r * 0.5 or not _clear_of(b, taken, r * 1.7))):
+				b = _snap(mask, rect, Vector2(x, reach * spread), r * 0.5, taken, r * 1.7)
+			taken.append(b)
+			list.append(a)
+			list.append(b)
+		out[kind] = list
+	return out
+
+
+## Which socket of its kind each placed system on a fit sits in:
+## func ("pdc", "shield", "boost") -> one socket index per such module in
+## fit order (-1 when every socket is full).  A design's own "places"
+## (the shipyard's picks, the same shape) are kept when they are valid
+## and free; the rest fill the first empty sockets.
+static func socket_choice(fit: Dictionary, hull_name: String, race_id: int, size: float) -> Dictionary:
+	var counts := {}
+	for id in fit.get("modules", []):
+		var f: String = GameData.MODULES[id]["func"]
+		if SOCKET_KIND.has(f):
+			counts[f] = counts.get(f, 0) + 1
+	var out := {}
+	var used := {"ext": {}, "boost": {}}
+	var wanted: Dictionary = fit.get("places", {})
+	for f in counts:
+		var n_sockets := system_sockets(hull_name, race_id, size, SOCKET_KIND[f]).size()
+		var picks := []
+		var asked: Array = wanted.get(f, [])
+		for k in counts[f]:
+			var want := int(asked[k]) if k < asked.size() else -1
+			if want >= 0 and want < n_sockets and not used[SOCKET_KIND[f]].has(want):
+				used[SOCKET_KIND[f]][want] = true
+				picks.append(want)
+			else:
+				picks.append(-1)
+		out[f] = picks
+	for f in out:
+		var free: Dictionary = used[SOCKET_KIND[f]]
+		var n_sockets := system_sockets(hull_name, race_id, size, SOCKET_KIND[f]).size()
+		for k in out[f].size():
+			if out[f][k] >= 0:
+				continue
+			for i in n_sockets:
+				if not free.has(i):
+					free[i] = true
+					out[f][k] = i
+					break
+	return out
+
+
 # ----------------------------------------------------------------- model
 
 ## Build the model: the hull sprite rect, nozzles and the part overlays.
@@ -469,8 +587,15 @@ static func build_model(design: Variant, race_id: int, size: float) -> Dictionar
 		var n_eng: int = counts.get("eng", 2 if hull_name != "Scout" else 1)
 		var eng_tier: int = counts.get("eng_tier", 2)
 		m["nozzles"] = _nozzle_points(m, hull_name, size, n_eng, eng_tier)
+		# systems in sockets first, so the rest keep clear of them
+		var choice := socket_choice(fit, hull_name, race_id, size)
+		_placed_systems(m, size, choice)
+		_pdc_mounts(m, size, counts.get("pdc", 0), choice.get("pdc", []))
+		# the other parts keep clear of every socket, so any can be used
+		m["taken"] += system_sockets(hull_name, race_id, size, "boost") + system_sockets(hull_name, race_id, size, "ext")
 		_system_overlays(m, size, counts)
-	_pdc_mounts(m, size, counts.get("pdc", 0))
+	else:
+		_pdc_mounts(m, size, counts.get("pdc", 0))
 	if not m["station"]:
 		_sockets(m, size)
 	var weapons: Array = fit["weapons"] if not fit.is_empty() else GameData.SHIPS[hull_name]["weapons"]
@@ -806,12 +931,8 @@ static func _system_overlays(m: Dictionary, size: float, counts: Dictionary) -> 
 	var rect: Rect2 = m["rect"]
 	var hw := rect.size.y * 0.5          # half height of the hull sprite
 	var s := size
-	# engines are part of each painting; one pair of booster pods sits on
-	# the aft flanks
-	if counts.get("boost", 0) > 0:
-		var bx := rect.position.x + rect.size.x * 0.24
-		_overlay(m, "booster", Vector2(bx, -hw * 0.4), s * 0.24, 0.0, 0.95)
-		_overlay(m, "booster", Vector2(bx, hw * 0.4), s * 0.24, 0.0, 0.95)
+	# (engines are part of each painting; boosters and shield emitters sit
+	# in sockets: _placed_systems)
 	# quantum drive fins over the stern
 	var qt: int = counts.get("qdrv_tier", 0)
 	if qt > 0:
@@ -820,12 +941,6 @@ static func _system_overlays(m: Dictionary, size: float, counts: Dictionary) -> 
 	var pt: int = counts.get("power_tier", 0)
 	if pt > 0:
 		_overlay(m, "reactor", Vector2(-s * 0.15, 0), s * (0.22 + 0.03 * pt), 0.0, 0.95)
-	# shield emitter domes along the flanks, a pair per module
-	var shields: int = counts.get("shield", 0)
-	for k in shields:
-		var x := s * (0.15 - 0.4 * k)
-		_overlay(m, "shield", Vector2(x, -hw * 0.6), s * 0.16, 0.0, 0.95)
-		_overlay(m, "shield", Vector2(x, hw * 0.6), s * 0.16, 0.0, 0.95)
 	# (armor is a coat over the whole painting: coat_texture)
 	# sensor dish forward, bigger by tier
 	var st: int = counts.get("sensor_tier", 0)
@@ -843,21 +958,44 @@ static func _system_overlays(m: Dictionary, size: float, counts: Dictionary) -> 
 		_overlay(m, "ram", Vector2(rect.end.x + s * 0.05, 0), s * 0.5, 0.0, 1.0, 0.25, true)
 
 
-## Where each PDC turret sits: the flanks amidships first, then the bow
-## and the stern, then the aft flanks, kept on the hull and clear of the
-## other parts.  PointDefence fires from these spots.
-static func _pdc_mounts(m: Dictionary, size: float, n: int) -> void:
+## Booster pods and shield emitter domes, one per module, each in its
+## socket (socket_choice); any past the last socket find room nearby.
+static func _placed_systems(m: Dictionary, size: float, choice: Dictionary) -> void:
+	var s := size
+	for f in ["boost", "shield"]:
+		var sockets := system_sockets(m["hull"], m["race"], size, SOCKET_KIND[f])
+		var icon := "booster" if f == "boost" else "shield"
+		var width := s * (0.24 if f == "boost" else 0.16)
+		for k in choice.get(f, []):
+			if k >= 0 and k < sockets.size():
+				m["taken"].append(sockets[k])
+				_overlay(m, icon, sockets[k], width, 0.0, 0.95, 0.5, true)
+			else:
+				_overlay(m, icon, Vector2(-s * 0.3, 0.0), width, 0.0, 0.95)
+
+
+## Where each PDC turret sits: in its socket when the hull has sockets
+## (`picks`, from socket_choice), else the flanks amidships first, then
+## the bow and the stern, then the aft flanks, kept on the hull and clear
+## of the other parts.  PointDefence fires from these spots.
+static func _pdc_mounts(m: Dictionary, size: float, n: int, picks: Array = []) -> void:
 	if n <= 0:
 		return
 	var hw: float = m["rect"].size.y * 0.5
 	var s := size
 	var spots := [Vector2(s * 0.05, -hw * 0.55), Vector2(s * 0.05, hw * 0.55), Vector2(s * 0.5, 0),
 		Vector2(-s * 0.55, 0), Vector2(-s * 0.3, -hw * 0.5), Vector2(-s * 0.3, hw * 0.5)]
+	var sockets := system_sockets(m["hull"], m["race"], size, "ext") if not picks.is_empty() else []
 	var t := part_texture("rapid")
 	var w := clampf(s * 0.36, 11.0, 30.0)
 	for i in n:
-		var p: Vector2 = spots[i % spots.size()] * (1.0 - 0.15 * int(i / spots.size()))
-		p = _snap(m["mask"], m["rect"], p, w * 0.3, m["taken"], w * 0.8)
+		var p: Vector2
+		var k: int = picks[i] if i < picks.size() else -1
+		if k >= 0 and k < sockets.size():
+			p = sockets[k]
+		else:
+			p = spots[i % spots.size()] * (1.0 - 0.15 * int(i / spots.size()))
+			p = _snap(m["mask"], m["rect"], p, w * 0.3, m["taken"], w * 0.8)
 		m["taken"].append(p)
 		m["pdc"].append({"tex": t, "pos": p, "w": w, "h": w * (t.get_height() / float(t.get_width()) if t != null else 0.5),
 			"rest": p.angle() if p.length() > 0.5 else 0.0})

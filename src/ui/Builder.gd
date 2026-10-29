@@ -88,6 +88,11 @@ var _sb := StyleBoxFlat.new()
 var cat_type := ""                  # the part type open in the list; "" shows the type buttons
 var collapsed := {}                 # family name -> true while that group is folded
 var preview_id := ""                # the catalogue part under the pointer or focus: shown fitted, not bought
+var turns: Array = []               # per hardpoint: how far the pilot turned its turret, in degrees
+var placing: Dictionary = {}        # picking a place: {"kind": "move"|"equip"|"socket", "from", "id", "targets": [keys]}
+var _sock_btn := {}                 # button index -> socket, for the sockets drawn on the slip
+var _pad_axes := {}                 # trigger / right stick -> last direction, so a push acts once
+const TURN_STEP := 15
 
 
 func open(p_ship: Ship, p_base: Ship, p_world: World) -> void:
@@ -124,17 +129,30 @@ func _load_hull(name: String, fit: Dictionary, initial: bool) -> void:
 	if fit.is_empty():
 		fit = GameData.stock_design(name, ship.race_id)
 	mounts = []
+	turns = []
 	for i in hardpoints.size():
 		mounts.append(null)
+		turns.append(0)
 	for w in fit["weapons"]:
 		# match the fit's weapons to hardpoints by mount angle and radius
 		for i in hardpoints.size():
 			if mounts[i] == null and hardpoints[i][0] == w[1] and hardpoints[i][1] == w[2]:
 				mounts[i] = {"id": w[0], "stock": true, "group": GameData.weapon_group_of(w)}
+				turns[i] = wrapi(int(round(float(w[3]) - float(hardpoints[i][2]))), -180, 180)
 				break
 	modules = []
+	var seen := {}
+	var places: Dictionary = fit.get("places", {})
 	for id in fit["modules"]:
-		modules.append({"id": id, "stock": true})
+		var e := {"id": id, "stock": true}
+		var f: String = GameData.MODULES[id]["func"]
+		if ShipArt.SOCKET_KIND.has(f):
+			var k: int = seen.get(f, 0)
+			seen[f] = k + 1
+			var picks: Array = places.get(f, [])
+			e["spot"] = int(picks[k]) if k < picks.size() else -1
+		modules.append(e)
+	placing = {}
 	sel_kind = ""
 	sel_index = -1
 	cat_scroll = 0.0
@@ -250,7 +268,7 @@ func _say(text: String) -> void:
 # ------------------------------------------------- full hold: ask first
 
 func _snapshot() -> Dictionary:
-	return {"hull": hull, "hardpoints": hardpoints, "mounts": mounts.duplicate(true), "modules": modules.duplicate(true),
+	return {"hull": hull, "hardpoints": hardpoints, "mounts": mounts.duplicate(true), "turns": turns.duplicate(), "modules": modules.duplicate(true),
 		"hold": hold.duplicate(), "hold_stock": hold_stock.duplicate(), "taken": taken.duplicate(), "order": order.duplicate(true), "credits": credits,
 		"hull_paid": hull_paid, "sel_kind": sel_kind, "sel_index": sel_index, "cat_mode": cat_mode, "cat_scroll": cat_scroll,
 		"status": status, "status_time": status_time}
@@ -260,6 +278,7 @@ func _restore(s: Dictionary) -> void:
 	hull = s["hull"]
 	hardpoints = s["hardpoints"]
 	mounts = s["mounts"]
+	turns = s["turns"]
 	modules = s["modules"]
 	hold = s["hold"]
 	hold_stock = s["hold_stock"]
@@ -328,14 +347,35 @@ func _answer(i: int) -> void:
 func current_design() -> Dictionary:
 	var d := GameData.stock_design(hull)
 	d["modules"] = []
+	var places := {}
+	var picked := false
 	for m in modules:
 		d["modules"].append(m["id"])
+		var f: String = GameData.MODULES[m["id"]]["func"]
+		if ShipArt.SOCKET_KIND.has(f):
+			if not places.has(f):
+				places[f] = []
+			places[f].append(int(m.get("spot", -1)))
+			picked = picked or int(m.get("spot", -1)) >= 0
+	if picked:
+		d["places"] = places          # where the pilot put PDCs, shields and boosters
 	d["weapons"] = []
 	for i in hardpoints.size():
 		if mounts[i] != null:
-			var hp: Array = hardpoints[i]
+			var hp := _hp_turned(i)
 			d["weapons"].append([mounts[i]["id"], hp[0], hp[1], hp[2], hp[3], hp[4], int(mounts[i].get("group", GameData.default_weapon_group(mounts[i]["id"])))])
 	return d
+
+
+## A hardpoint with the pilot's turn applied to its facing and arc.
+func _hp_turned(i: int) -> Array:
+	var hp: Array = hardpoints[i].duplicate()
+	var t: int = turns[i] if i < turns.size() else 0
+	if t != 0:
+		hp[2] = int(hp[2]) + t
+		hp[3] = int(hp[3]) + t
+		hp[4] = int(hp[4]) + t
+	return hp
 
 
 ## The design as it would be with `id` fitted in the selected slot, for the
@@ -390,7 +430,7 @@ func _problems() -> Array:
 ## Anything changed since the yard opened?
 func _dirty() -> bool:
 	return not order.is_empty() or hull != orig_hull or credits != ship.credits or hold != ship.hold or current_design()["weapons"] != orig_design["weapons"] \
-		or current_design()["modules"] != orig_design["modules"]
+		or current_design()["modules"] != orig_design["modules"] or current_design().get("places", {}) != orig_design.get("places", {})
 
 
 func _hull_price(name: String) -> int:
@@ -473,8 +513,12 @@ func _mount_now(id: String) -> void:
 	elif sel_kind == "bay":
 		if sel_index >= 0 and sel_index < modules.size():
 			swapped.append(GameData.MODULES[modules[sel_index]["id"]]["name"])
+			var same: bool = GameData.MODULES[modules[sel_index]["id"]]["func"] == GameData.MODULES[id]["func"]
+			var spot: int = modules[sel_index].get("spot", -1)
 			_unmount_bay(sel_index)
 			modules.insert(sel_index, {"id": id, "stock": stock, "new": not from_hold})
+			if same and spot >= 0:
+				modules[sel_index]["spot"] = spot      # the new part goes where the old one sat
 		else:
 			modules.append({"id": id, "stock": stock, "new": not from_hold})
 			sel_index = modules.size() - 1
@@ -553,6 +597,203 @@ func _off_text(m: Dictionary) -> String:
 	return "%s moved to the hold." % name
 
 
+# ------------------------------------------------- moving and turning
+
+## The socket kind ("ext", "boost") a bay part sits in on the hull, or "".
+static func _socket_kind(id: String) -> String:
+	return ShipArt.SOCKET_KIND.get(GameData.MODULES[id]["func"], "")
+
+
+## The hull sockets of one kind, in the slip's model space.
+func _sockets(kind: String) -> Array:
+	return ShipArt.system_sockets(hull, base.race_id, current_design()["size"], kind)
+
+
+## Which socket each socketed bay part sits in now: bay index -> socket.
+func _socket_of_bays() -> Dictionary:
+	var d := current_design()
+	var choice := ShipArt.socket_choice(d, hull, base.race_id, d["size"])
+	var seen := {}
+	var out := {}
+	for i in modules.size():
+		var f: String = GameData.MODULES[modules[i]["id"]]["func"]
+		if ShipArt.SOCKET_KIND.has(f):
+			var k: int = seen.get(f, 0)
+			seen[f] = k + 1
+			var picks: Array = choice.get(f, [])
+			out[i] = picks[k] if k < picks.size() else -1
+	return out
+
+
+## Put bay part `bay` in socket `k`; a part already there takes its old place.
+func _set_socket(bay: int, k: int) -> void:
+	if bay < 0 or bay >= modules.size():
+		return
+	var kind := _socket_kind(modules[bay]["id"])
+	if kind == "":
+		return
+	var now := _socket_of_bays()
+	for i in now:
+		modules[i]["spot"] = now[i]      # pin everything where it is drawn
+	var old: int = now.get(bay, -1)
+	for i in now:
+		if i != bay and now[i] == k and _socket_kind(modules[i]["id"]) == kind:
+			modules[i]["spot"] = old
+	modules[bay]["spot"] = k
+	Sfx.play_ui("click", 0.5)
+	_say("%s moved. Placing parts is free." % GameData.MODULES[modules[bay]["id"]]["name"])
+
+
+## Turn the turret on mount `i` by `step` degrees (clockwise on screen).
+func _turn(i: int, step: int) -> void:
+	if i < 0 or i >= turns.size():
+		return
+	turns[i] = wrapi(turns[i] + step, -180, 180)
+	Sfx.play_ui("click", 0.3)
+	_say("Mount %d faces %s. Turning a mount is free." % [i + 1, _facing_text(i)])
+
+
+## Which way mount `i` points, for people: "ahead", "40° right", "astern".
+func _facing_text(i: int) -> String:
+	var a := wrapi(int(_hp_turned(i)[2]), -180, 180)
+	if a == 0:
+		return "ahead"
+	if absi(a) == 180:
+		return "astern"
+	return "%d° %s" % [absi(a), "right" if a > 0 else "left"]
+
+
+## Can the weapon on mount `a` go to mount `b`, and the one on `b` (if any)
+## come back to `a`?
+func _can_swap(a: int, b: int) -> bool:
+	if a == b or mounts[a] == null:
+		return false
+	if GameData.weapon_class(mounts[a]["id"]) > hardpoints[b][5]:
+		return false
+	return mounts[b] == null or GameData.weapon_class(mounts[b]["id"]) <= hardpoints[a][5]
+
+
+## Every place a hold part could go: the mounts it fits (an empty one, or
+## swapping a weapon out), the bays of its own kind it could take over,
+## and a new bay when it stacks with them.
+func _equip_targets(id: String) -> Array:
+	var out := []
+	if GameData.is_bay_part(id):
+		var f: String = GameData.MODULES[id]["func"]
+		var same := []
+		var clash := -1
+		for i in modules.size():
+			var other: String = modules[i]["id"]
+			if GameData.MODULES[other]["func"] != f:
+				continue
+			same.append(i)
+			if clash < 0 and (not GameData.stacks(id) or (f == "shield" and GameData.shield_family(other) != GameData.shield_family(id))):
+				clash = i
+		if clash >= 0:
+			# fitting it pushes the others out: one place to put it
+			return ["bay:%d" % clash] if _bays_fit(id, clash) else []
+		for i in same:
+			if _bays_fit(id, i):
+				out.append("bay:%d" % i)
+		if _bays_fit(id, -1):
+			out.append("bay:%d" % modules.size())
+		return out
+	if not GameData.fits_hull(id, hull):
+		return []
+	var cls := GameData.weapon_class(id)
+	for i in hardpoints.size():
+		if hardpoints[i][5] >= cls:
+			out.append("hp:%d" % i)
+	return out
+
+
+## Start picking a place.  `targets` are focus keys ("hp:i", "bay:i",
+## "sock:k"); the arrows walk them, Enter or a click puts the part there.
+func _start_place(kind: String, from: int, id: String, targets: Array, text: String) -> void:
+	if targets.is_empty():
+		return
+	var home: String = {"move": "hp:%d", "socket": "bay:%d", "equip": "hold:%d"}[kind] % from
+	placing = {"kind": kind, "from": from, "id": id, "targets": targets, "home": home}
+	focus_key = targets[0]
+	Sfx.play_ui("click", 0.4)
+	_say(text)
+
+
+func _cancel_place() -> void:
+	if placing.is_empty():
+		return
+	focus_key = placing["home"]            # back where the move started
+	placing = {}
+	Sfx.play_ui("ui_back", 0.4)
+	_say("Nothing moved.")
+
+
+## Move: a weapon to another mount (swapping), or a PDC, shield or
+## booster to another socket on the hull.
+func _start_move(slot: Array) -> void:
+	if slot.is_empty():
+		_say("Pick a weapon, or a PDC, shield or booster in the bays, to move it.")
+		return
+	var i: int = slot[1]
+	if slot[0] == "hp":
+		if i >= mounts.size() or mounts[i] == null:
+			_say("Mount %d is empty: nothing to move." % (i + 1))
+			return
+		var targets := []
+		for j in hardpoints.size():
+			if _can_swap(i, j):
+				targets.append("hp:%d" % j)
+		if targets.is_empty():
+			_say("No other mount takes %s." % GameData.MODULES[mounts[i]["id"]]["name"])
+			return
+		_start_place("move", i, mounts[i]["id"], targets, "Move %s to which mount? A weapon already there swaps over." % GameData.MODULES[mounts[i]["id"]]["name"])
+	elif i < modules.size() and _socket_kind(modules[i]["id"]) != "":
+		var id: String = modules[i]["id"]
+		var now: int = _socket_of_bays().get(i, -1)
+		var targets := []
+		for k in _sockets(_socket_kind(id)).size():
+			if k != now:
+				targets.append("sock:%d" % k)
+		_start_place("socket", i, id, targets, "Move %s to which spot on the hull?" % GameData.MODULES[id]["name"])
+	else:
+		_say("Only weapons, PDCs, shields and boosters have a place on the hull to move.")
+
+
+## Put the part being placed at `key`.
+func _place_at(key: String) -> void:
+	if placing.is_empty() or not placing["targets"].has(key):
+		return
+	var p := placing
+	placing = {}
+	var at := int(key.get_slice(":", 1))
+	match p["kind"]:
+		"move":
+			var a: int = p["from"]
+			var other = mounts[at]
+			mounts[at] = mounts[a]
+			mounts[a] = other
+			Sfx.play_ui("click", 0.5)
+			_say("%s moved to mount %d%s. Moving weapons is free." % [GameData.MODULES[mounts[at]["id"]]["name"], at + 1,
+				(", %s to mount %d" % [GameData.MODULES[other["id"]]["name"], a + 1]) if other != null else ""])
+			sel_kind = "hp"
+			sel_index = at
+			focus_key = key
+		"socket":
+			_set_socket(p["from"], at)
+			focus_key = "bay:%d" % p["from"]
+		"equip":
+			var h: int = p["from"]
+			if h < 0 or h >= hold.size() or hold[h] != p["id"]:
+				return
+			sel_kind = key.get_slice(":", 0)
+			sel_index = at
+			cat_mode = "upgrade"
+			cat_type = ""
+			_mount(p["id"])
+			if confirm.is_empty():
+				focus_key = "%s:%d" % [sel_kind, sel_index]
+
+
 const GROUP_COLORS := [Color(0.35, 0.65, 1.0), Color(1.0, 0.6, 0.3), Color(0.5, 0.95, 0.5), Color(0.9, 0.5, 0.95)]
 
 
@@ -623,6 +864,15 @@ func _equip_hold_now(i: int) -> void:
 	var slot := _equip_slot(id)
 	if slot.is_empty():
 		_say("Nowhere to fit %s on this hull." % GameData.MODULES[id]["name"])
+		return
+	var targets := _equip_targets(id)
+	if targets.size() > 1:
+		# more than one place it could go: the pilot picks
+		var where := "mount" if not GameData.is_bay_part(id) else "bay"
+		_start_place("equip", i, id, targets, "Fit %s in which %s? Pick one on the ship." % [GameData.MODULES[id]["name"], where])
+		var best := "%s:%d" % slot
+		if targets.has(best):
+			focus_key = best           # the likeliest place first
 		return
 	sel_kind = slot[0]
 	sel_index = slot[1]
@@ -715,9 +965,19 @@ func _gui_input(event: InputEvent) -> void:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			for i in range(buttons.size() - 1, -1, -1):
 				if buttons[i][0].has_point(event.position) and buttons[i][2]:
+					if not placing.is_empty() and _sock_btn.has(i):
+						if placing["targets"].has("sock:%d" % _sock_btn[i]):
+							_place_at("sock:%d" % _sock_btn[i])
+						accept_event()
+						return
+					if not placing.is_empty() and not _hp_hover.has(i) and not placing["targets"].has(buttons[i][3]):
+						_cancel_place()      # clicked something else: stop placing first
 					buttons[i][1].call()
 					accept_event()
 					return
+			_cancel_place()
+		elif event.button_index == MOUSE_BUTTON_RIGHT:
+			_cancel_place()
 		elif event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 			var d := -1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1
 			if cat_rect.has_point(event.position):
@@ -755,6 +1015,8 @@ func _input(event: InputEvent) -> void:
 			KEY_DELETE: cmd = "remove"
 			KEY_G: cmd = "group"
 			KEY_L: cmd = "launch"
+			KEY_M: cmd = "place"
+			KEY_R: cmd = "turn_l" if event.shift_pressed else "turn_r"
 		if event.echo and not cmd in ["up", "down", "left", "right"]:
 			cmd = ""
 		if cmd == "" and event.is_action_pressed("pause_menu"):
@@ -777,6 +1039,17 @@ func _input(event: InputEvent) -> void:
 		if cmd in ["up", "down", "left", "right"]:
 			_repeat_dir = _dir_of(cmd)
 			_repeat_t = 0.4
+	elif event is InputEventJoypadMotion and event.axis in [JOY_AXIS_TRIGGER_LEFT, JOY_AXIS_RIGHT_X]:
+		# LT moves a part, the right stick turns a turret: once per push
+		pad_mode = true
+		var v: float = event.axis_value
+		var d := 0 if absf(v) < 0.5 else int(signf(v))
+		if d != _pad_axes.get(event.axis, 0):
+			_pad_axes[event.axis] = d
+			if d != 0:
+				_command("place" if event.axis == JOY_AXIS_TRIGGER_LEFT else ("turn_r" if d > 0 else "turn_l"))
+		get_viewport().set_input_as_handled()
+		return
 	elif event is InputEventJoypadMotion and absf(event.axis_value) > 0.6 and event.axis in [JOY_AXIS_LEFT_X, JOY_AXIS_LEFT_Y]:
 		pad_mode = true
 		var d := _stick_dir()
@@ -822,6 +1095,22 @@ func _command(cmd: String) -> void:
 			"back":
 				_answer(confirm["back"])
 		return
+	if not placing.is_empty():
+		# picking a place: the arrows walk the places, Enter puts it there
+		var targets: Array = placing["targets"]
+		match cmd:
+			"up", "down", "left", "right", "next", "prev":
+				var step := -1 if cmd in ["up", "left", "prev"] else 1
+				focus_key = targets[posmod(targets.find(focus_key) + step, targets.size())]
+				Sfx.play_ui("click", 0.2)
+			"accept":
+				_place_at(focus_key if targets.has(focus_key) else targets[0])
+			"back", "place":
+				_cancel_place()
+			"turn_l", "turn_r":
+				pass
+		_refocus()
+		return
 	match cmd:
 		"up", "down", "left", "right":
 			if was_hidden and _focus_index() >= 0:
@@ -860,6 +1149,19 @@ func _command(cmd: String) -> void:
 				_cycle_group(slot[1])
 		"launch":
 			_accept()
+		"place":
+			var slot := _focus_slot()
+			if slot.is_empty() and (sel_kind == "hp" or sel_kind == "bay"):
+				slot = [sel_kind, sel_index]
+			_start_move(slot)
+		"turn_l", "turn_r":
+			var slot := _focus_slot()
+			if (slot.is_empty() or slot[0] != "hp") and sel_kind == "hp":
+				slot = ["hp", sel_index]
+			if not slot.is_empty() and slot[0] == "hp":
+				_turn(slot[1], TURN_STEP if cmd == "turn_r" else -TURN_STEP)
+			else:
+				_say("Pick a weapon mount to turn its turret.")
 	_refocus()
 
 
@@ -874,7 +1176,7 @@ func _focus_slot() -> Array:
 func _section_of(key: String) -> String:
 	match key.get_slice(":", 0):
 		"hull": return "hulls"
-		"hp", "bay": return "fit"
+		"hp", "bay", "sock": return "fit"
 		"part", "type", "grp": return "parts"
 		"hold": return "hold"
 	return ""
@@ -883,6 +1185,9 @@ func _section_of(key: String) -> String:
 ## Back out one step: from the parts list to its slot, from a slot to no
 ## slot, then out of the yard.
 func _back() -> void:
+	if not placing.is_empty():
+		_cancel_place()
+		return
 	Sfx.play_ui("ui_back", 0.5)
 	var sec := _section_of(focus_key)
 	if sec == "parts" and cat_type != "" and _use_types():
@@ -1061,6 +1366,10 @@ func _refocus() -> void:
 		if not focus_key.begins_with("modal:"):
 			focus_key = "modal:0"
 		return
+	if not placing.is_empty():
+		if not placing["targets"].has(focus_key):
+			focus_key = placing["targets"][0]
+		return
 	var sec := _section_of(focus_key)
 	var keys := _list_keys(sec)
 	if keys.has(focus_key):
@@ -1186,8 +1495,8 @@ func _glyph_w(g: String, size: int) -> float:
 ## The key or pad button for a shipyard command, as the hints show it.
 func _key(cmd: String) -> String:
 	if pad_mode:
-		return {"accept": "A", "back": "B", "switch": "X", "remove": "Y", "group": "Back", "launch": "Start", "section": "LB / RB", "move": "D-pad"}[cmd]
-	return {"accept": "Enter", "back": "Esc", "switch": "X", "remove": "Del", "group": "G", "launch": "L", "section": "Tab", "move": "Arrows"}[cmd]
+		return {"accept": "A", "back": "B", "switch": "X", "remove": "Y", "group": "Back", "launch": "Start", "section": "LB / RB", "move": "D-pad", "place": "LT", "turn": "R stick"}[cmd]
+	return {"accept": "Enter", "back": "Esc", "switch": "X", "remove": "Del", "group": "G", "launch": "L", "section": "Tab", "move": "Arrows", "place": "M", "turn": "R"}[cmd]
 
 
 func _section_label(pos: Vector2, text: String, extra: String = "") -> void:
@@ -1316,6 +1625,8 @@ func _draw_footer(r: Rect2) -> void:
 func _hints() -> Array:
 	if not confirm.is_empty():
 		return [[_key("accept"), "Choose"], [_key("back"), confirm["options"][confirm["back"]][0]]]
+	if not placing.is_empty():
+		return [[_key("move"), "Next place"], [_key("accept"), "Put it here"], [_key("back"), "Cancel"]]
 	var out := [[_key("move"), "Move"]]
 	var sec := _section_of(focus_key)
 	var slot := _focus_slot()
@@ -1338,6 +1649,10 @@ func _hints() -> Array:
 		out.append([_key("remove"), "To hold"])
 		if slot[0] == "hp":
 			out.append([_key("group"), "Fire group"])
+			out.append([_key("place"), "Move"])
+			out.append([_key("turn"), "Turn"])
+		elif _socket_kind(modules[slot[1]]["id"]) != "":
+			out.append([_key("place"), "Move"])
 	if not _selected_part().is_empty():
 		out.append([_key("switch"), "Upgrades" if cat_mode == "switch" else "Switch out"])
 	out.append([_key("section"), "Section"])
@@ -1484,6 +1799,12 @@ func _draw_left(r: Rect2, rc: Color) -> void:
 
 
 func _select(kind: String, index: int) -> void:
+	if not placing.is_empty():
+		var key := "%s:%d" % [kind, index]
+		if placing["targets"].has(key):
+			_place_at(key)
+			return
+		_cancel_place()
 	if sel_kind == "hold" and kind != "hold" and sel_index >= 0 and sel_index < hold.size():
 		# a hold part was picked first: drop it into the clicked slot
 		var id: String = hold[sel_index]
@@ -1550,19 +1871,26 @@ func _draw_centre(r: Rect2, rc: Color) -> void:
 		buttons.append([Rect2(pos - Vector2(14, 14), Vector2(28, 28)), _select.bind("hp", i), true, "", Callable()])
 		_hp_hover[buttons.size() - 1] = i
 	var focus := sel_index if sel_kind == "hp" else -1
+	var pulse := 0.55 + 0.45 * sin(time * 6.0)
 	for i in hardpoints.size():
 		if i == focus or i == hot:
-			var hp: Array = hardpoints[i]
+			var hp := _hp_turned(i)
 			var c := Color(1, 1, 1, 0.45) if i == focus else Color(0.7, 0.85, 1.0, 0.35)
 			draw_arc(badge[i], 34.0, deg_to_rad(float(hp[3])), deg_to_rad(float(hp[4])), 32, c, 7.0, true)
+			# and which way it points at rest
+			var dir := Vector2.RIGHT.rotated(deg_to_rad(float(hp[2])))
+			draw_line(badge[i] + dir * 12.0, badge[i] + dir * 40.0, Color(c, 0.8), 2.0, true)
 	for i in hardpoints.size():
 		var pos: Vector2 = badge[i]
 		var filled: bool = mounts[i] != null
+		if placing.get("targets", []).has("hp:%d" % i):
+			draw_arc(pos, 15.0, 0, TAU, 24, Color(GOLD, pulse), 2.5, true)
 		var lit := i == focus or i == hot
 		draw_circle(pos, 10.0, Color(0.02, 0.04, 0.1, 0.85))
 		var edge := Color(1, 1, 1, 0.95) if i == focus else (Color(0.75, 0.88, 1.0, 0.9) if lit else Color(rc.r, rc.g, rc.b, 0.75 if filled else 0.4))
 		draw_arc(pos, 10.0, 0, TAU, 20, edge, 2.0 if lit else 1.2, true)
 		draw_string(font, pos + Vector2(-10, 4.5), str(i + 1), HORIZONTAL_ALIGNMENT_CENTER, 20, 12, TEXT if filled else DIM)
+	_draw_sockets(centre, scale)
 	# weapon mounts
 	var y := pic.end.y + 10
 	if hardpoints.is_empty():
@@ -1592,6 +1920,8 @@ func _draw_centre(r: Rect2, rc: Color) -> void:
 		draw_string(font, chip.position + Vector2(48, 20), _fit(name, tw, 14), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, TEXT if mt != null else DIM)
 		var arc := int(round(float(hp[4]) - float(hp[3])))
 		var sub := "%d  ·  %s  ·  %s" % [i + 1, GameData.class_name_of(hp[5]), "turret" if arc >= 150 else "arc %d°" % arc]
+		if turns[i] != 0:
+			sub += "  ·  faces " + _facing_text(i)
 		draw_string(font, chip.position + Vector2(48, 37), _fit(sub, mw - 56, 11), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, DIM)
 		if mt != null:
 			# weapon group badge: click to move the weapon to the next group
@@ -1601,6 +1931,7 @@ func _draw_centre(r: Rect2, rc: Color) -> void:
 			var glit := hover == buttons.size() - 1
 			_card(gbox, GROUP_COLORS[g - 1].darkened(0.1 if glit else 0.5), GROUP_COLORS[g - 1], 5.0)
 			draw_string(font, gbox.position + Vector2(0, 14), "G%d" % g, HORIZONTAL_ALIGNMENT_CENTER, gbox.size.x, 12, Color.WHITE)
+		_target_ring(chip, key)
 		_focus_ring(chip, key)
 	# bays: a bar split by part, then a card per part
 	var by := y + mount_rows * 52 + 8
@@ -1641,8 +1972,56 @@ func _draw_centre(r: Rect2, rc: Color) -> void:
 			draw_string(font, chip.position + Vector2(48, 37), "vol %d   ·   %s%d power" % [mod["vol"], "+" if pw > 0 else "", pw], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, DIM)
 		else:
 			_card(chip, CARD_SEL if selected else (CARD_HI if lit else Color(0.03, 0.045, 0.08, 0.6)), Color(0.5, 0.65, 0.95, 0.3), 8.0)
-			draw_string(font, chip.position + Vector2(0, 28), "+  Add a part", HORIZONTAL_ALIGNMENT_CENTER, chip.size.x, 14, DIM)
+			draw_string(font, chip.position + Vector2(0, 28), "+  Add a part" if placing.is_empty() else "+  New bay", HORIZONTAL_ALIGNMENT_CENTER, chip.size.x, 14, DIM)
+		_target_ring(chip, key)
 		_focus_ring(chip, key)
+
+
+## A pulsing gold edge on a place the part being placed can go.
+func _target_ring(rect: Rect2, key: String) -> void:
+	if placing.is_empty() or not placing["targets"].has(key):
+		return
+	_sb.bg_color = Color(0, 0, 0, 0)
+	_sb.border_color = Color(GOLD, 0.45 + 0.4 * sin(time * 6.0))
+	_sb.set_border_width_all(2)
+	_sb.set_corner_radius_all(9)
+	draw_style_box(_sb, rect.grow(2.0))
+
+
+## The hull sockets for PDCs, shields or boosters: shown while one of
+## those is picked in the bays (click a socket to move it there) or while
+## one is being placed.
+func _draw_sockets(centre: Vector2, scale: float) -> void:
+	_sock_btn.clear()
+	var bay := -1
+	if placing.get("kind", "") == "socket":
+		bay = placing["from"]
+	elif sel_kind == "bay" and sel_index < modules.size() and placing.is_empty():
+		bay = sel_index
+	if bay < 0 or bay >= modules.size() or _socket_kind(modules[bay]["id"]) == "":
+		return
+	var kind := _socket_kind(modules[bay]["id"])
+	var now := _socket_of_bays()
+	var holder := {}
+	for i in now:
+		if _socket_kind(modules[i]["id"]) == kind and now[i] >= 0:
+			holder[now[i]] = i
+	var sockets := _sockets(kind)
+	var pulse := 0.55 + 0.45 * sin(time * 6.0)
+	for k in sockets.size():
+		var pos: Vector2 = centre + sockets[k] * scale
+		var mine: bool = holder.get(k, -1) == bay
+		var target: bool = placing.get("targets", []).has("sock:%d" % k)
+		var focused: bool = kb_nav and focus_key == "sock:%d" % k
+		buttons.append([Rect2(pos - Vector2(12, 12), Vector2(24, 24)), _set_socket.bind(bay, k), true, "", Callable()])
+		_sock_btn[buttons.size() - 1] = k
+		var lit := hover == buttons.size() - 1 or focused
+		var c := Color.WHITE if mine else (Color(GOLD, pulse) if target else Color(0.75, 0.88, 1.0, 0.7 if holder.has(k) else 0.45))
+		draw_arc(pos, 11.0 if lit else 9.0, 0, TAU, 24, c, 2.5 if mine or lit else 1.5, true)
+		if not holder.has(k):
+			draw_circle(pos, 2.0, Color(c, 0.6))
+		if focused:
+			draw_arc(pos, 15.0, 0, TAU, 24, FOCUS, 2.0, true)
 
 
 ## The slip the ship sits on: a blueprint grid, corner brackets and a
@@ -1839,6 +2218,19 @@ func _draw_catalogue(r: Rect2) -> void:
 			cat_type = ""
 			cat_scroll = 0.0, true, 13, false, "", _key("switch"))
 		y += 14
+		if sel_kind == "hp" or _socket_kind(current) != "":
+			# where it sits: move it (free), and turn a turret
+			y += 22
+			_button(Rect2(r.end.x - 118, y - 4, 118, 26), "Move", func(): _start_move([sel_kind, sel_index]), true, 13, false, "", _key("place"))
+			if sel_kind == "hp":
+				_button(Rect2(x, y - 4, 30, 26), "‹", _turn.bind(sel_index, -TURN_STEP), true, 16)
+				draw_string(font, Vector2(x + 38, y + 14), "Faces " + _facing_text(sel_index), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, TEXT)
+				var fw := font.get_string_size("Faces " + _facing_text(sel_index), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+				_button(Rect2(x + 46 + fw, y - 4, 30, 26), "›", _turn.bind(sel_index, TURN_STEP), true, 16)
+				draw_string(font, Vector2(x + 84 + fw, y + 14), "turn" if not pad_mode else "R stick", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, FAINT)
+			else:
+				draw_string(font, Vector2(x, y + 14), "Click a ring on the ship to move it there.", HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 130, 12, DIM)
+			y += 10
 	y += 12
 	cat_rect = Rect2(x, y, r.size.x, r.end.y - y)
 	if sel_kind != "hp" and sel_kind != "bay":
