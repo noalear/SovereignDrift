@@ -18,6 +18,9 @@ signal lifted_off(ship: Ship, planet: Planet)
 const BOOST_SPEED_MULT := 1.5
 const BOOST_ACCEL_MULT := 2.2
 const WARP_CHARGE_TIME := 1.1
+## After any warp ends, autopilot and computer pilots wait this long before
+## starting another, so a ship never flickers in and out of warp.
+const WARP_COOLDOWN := 4.0
 ## Engine thrust per point of engine power, in mass units * px/s^2.
 const THRUST_PER_ENGINE := 4260.0
 ## Fuel units carried per point of engine power (300 s of full burn).
@@ -117,8 +120,9 @@ var has_boost := false
 var has_dock := false
 var qdrv := 0.0
 var warping := false
-var warp_block := 0.0              # seconds before autopilot may warp again after a drop-out
+var warp_block := 0.0              # seconds before autopilot or the AI may warp again after a drop-out
 var warp_charge := 0.0
+var warp_pace := 0.0               # a wingman jumping with its leader flies at the leader's warp speed (0: its own)
 var brake_power := 0.6
 var module_levels := {}            # func -> level (for pickups)
 var regen_rate := 0.0              # hull repaired per second (Arcean regenerators)
@@ -722,6 +726,7 @@ func _fly(delta: float) -> void:
 	vmax = sqrt(vmax * vmax + v_esc * v_esc)
 	var f0 := thrust_force * (BOOST_ACCEL_MULT if boosting else 1.0)
 	accel = thrust_force / wet_mass()
+	warp_block = maxf(warp_block - delta, 0.0)
 
 	if warping:
 		_warp(delta)
@@ -1104,7 +1109,7 @@ func _warp(delta: float) -> void:
 		end_warp()
 		return
 	energy -= drain
-	var wspeed := qdrv * GameData.LIGHT_SPEED * 1.25
+	var wspeed := warp_speed() if warp_pace <= 0.0 else warp_pace
 	velocity = fwd * wspeed
 	thrust_level = 1.0
 	# planets stop a warp a little before impact
@@ -1140,7 +1145,7 @@ func _warp(delta: float) -> void:
 		var leg: Vector2 = _route(to)["to"]
 		var desired := leg.angle()
 		rotation = rotate_toward(rotation, desired, deg_to_rad(turn_speed) * 0.5 * delta)
-		if dist < wspeed * 0.6 + 600.0:
+		if dist < warp_drop_distance():
 			end_warp()
 
 
@@ -1171,10 +1176,34 @@ func end_warp() -> void:
 	var jumped := warp_charge >= WARP_CHARGE_TIME
 	warping = false
 	warp_charge = 0.0
+	warp_block = maxf(warp_block, WARP_COOLDOWN)
+	warp_pace = 0.0
 	velocity = forward() * max_speed * 0.8
 	Sfx.play("warpexit", global_position, 0.8)
 	if jumped:
 		_time_ripple()
+
+
+## Speed in warp, once the drive has charged.
+func warp_speed() -> float:
+	return qdrv * GameData.LIGHT_SPEED * 1.25
+
+
+## How far short of where it is going a warp should end, so the ship
+## drops out and brakes in rather than overshooting.
+func warp_drop_distance() -> float:
+	return warp_speed() * 0.6 + 600.0
+
+
+## Whether autopilot or a computer pilot may start a warp toward `to`
+## (relative), `far` away: a drive, the energy, no recent drop-out, a
+## clear line, and room for a real jump before the drop-out point.
+func warp_worth(to: Vector2, far: float, min_far := 3500.0, min_energy := 400.0) -> bool:
+	if warping or qdrv <= 0.0 or energy <= min_energy or warp_block > 0.0:
+		return false
+	if far <= maxf(min_far, warp_drop_distance() + warp_speed()):
+		return false
+	return not _body_in_path(to)
 
 
 ## A quantum jump tears time: a ripple spreads from where it starts and
@@ -1275,7 +1304,7 @@ func _route(to: Vector2) -> Dictionary:
 	return {"to": leg, "detour": true, "around": around}
 
 
-func _autopilot(delta: float) -> void:
+func _autopilot(_delta: float) -> void:
 	var to := nav_target.global_position - global_position
 	var dist: float = to.length() - nav_target.radius
 	var route := _route(to)
@@ -1288,9 +1317,7 @@ func _autopilot(delta: float) -> void:
 		inputs["turn"] = clampf(wdiff * 3.0, -1.0, 1.0)
 		inputs["thrust"] = 1.0 if absf(wdiff) < 0.7 else 0.25
 		inputs["brake"] = false
-		warp_block = maxf(warp_block - delta, 0.0)
-		if wv.length() > 3500.0 and absf(wrapf(wv.angle() - rotation, -PI, PI)) < 0.15 and qdrv > 0.0 and energy > 400.0 \
-				and warp_block <= 0.0 and not _body_in_path(wv):
+		if absf(wrapf(wv.angle() - rotation, -PI, PI)) < 0.15 and warp_worth(wv, wv.length()):
 			start_warp()
 		var around: Node2D = route["around"]
 		if (not has_meta("detour_around") or get_meta("detour_around") != around) and world != null:
@@ -1305,8 +1332,7 @@ func _autopilot(delta: float) -> void:
 	var rel: Vector2 = velocity - nav_target.velocity
 	var closing: float = rel.dot(to.normalized())
 	var stop_dist: float = closing * closing / maxf(2.0 * accel * 0.8, 1.0)
-	warp_block = maxf(warp_block - delta, 0.0)
-	if dist > 3500.0 and absf(diff) < 0.15 and qdrv > 0.0 and energy > 400.0 and warp_block <= 0.0 and not _body_in_path(to):
+	if absf(diff) < 0.15 and warp_worth(to, dist):
 		start_warp()
 		return
 	if dist > nav_target.radius * 0.6 + 260.0 and stop_dist < dist - 200.0:
