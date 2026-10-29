@@ -268,9 +268,23 @@ static func module_dtype(id: String) -> String:
 
 
 ## Each laser's damage per second at point blank, before DAMAGE_SCALE; it
-## falls to BEAM_FALLOFF of that at the beam's full reach.
-const BEAM_DPS := {"4501": 300.0, "4502": 380.0, "4503": 650.0}
-const BEAM_FALLOFF := 0.7
+## falls to BEAM_FALLOFF of that at the beam's full reach.  Kyle
+## (2026-10-29) had them buffed: a laser never misses but only bites at
+## close range, so it hits harder than a gun of its class while it is on.
+const BEAM_DPS := {"4501": 420.0, "4502": 520.0, "4503": 860.0}
+const BEAM_FALLOFF := 0.8
+## Each laser's reach in px (the module data's own figure x 2.2 otherwise).
+const BEAM_RANGE := {"4501": 600.0, "4502": 760.0, "4503": 1320.0}
+
+
+## How far a laser module reaches.
+static func beam_range(id: String) -> float:
+	return float(BEAM_RANGE.get(id, float(MODULES[id]["p"][2]) * 2.2))
+
+
+## A laser module's damage per second at point blank, after DAMAGE_SCALE.
+static func beam_dps(id: String) -> float:
+	return float(BEAM_DPS.get(id, 45.0 + float(MODULES[id]["p"][1]) * 0.15)) * DAMAGE_SCALE
 
 
 ## A coat's short name for tables ("none" without one).

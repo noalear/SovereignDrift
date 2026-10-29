@@ -154,5 +154,12 @@ func _process(_delta: float) -> bool:
 				break
 	if frames == 305:
 		_shot("yard_qdrv_marks")
+		# a disruptor on the rear rack: it fires all round, and turns
+		b.mounts[b.hardpoints.size() - 1] = {"id": "4020"}
+		b._select("hp", b.hardpoints.size() - 1)
+		for n in 6:
+			b._command("turn_r")
+	if frames == 320:
+		_shot("yard_disruptor")
 		return true
 	return false

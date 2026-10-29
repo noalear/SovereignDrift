@@ -48,8 +48,8 @@ const TRACTOR_RATE := 2.5
 const MAX_PRIZES_PER_PILOT := 2
 ## Prizes in the whole system; past this a capture is salvaged instead.
 const MAX_PRIZES := 10
-## A station is breached, open to boarders, with its shields at or under
-## this share and its hull at or under this one.
+## A station is breached, open to boarders, with either shield half at or
+## under this share of its own size and its hull at or under this one.
 const STATION_BREACH_SHIELD := 0.1
 const STATION_BREACH_HULL := 0.5
 ## Station crews fight from behind their own bulkheads: their kills count

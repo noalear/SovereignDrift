@@ -141,6 +141,9 @@ func _draw() -> void:
 
 ## Names in the world: every planet and moon under its body, and every
 ## ship you can see above it, green for your side and red for anyone else.
+## Worlds, moons and stations are coloured by who holds them
+## (World.owner_color): green yours, yellow friendly, red enemy, grey
+## nobody's.
 ## Planets are placed first; a label that would land on one already
 ## placed is skipped, so crowded moons and fleets don't pile up.
 func _draw_labels(p: Ship, vp: Vector2) -> void:
@@ -157,7 +160,8 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 			continue
 		var moon: bool = pl.parent_body != null
 		var size := 12 if moon else 14
-		var col := Color(0.85, 0.9, 0.97, 0.85 if moon else 1.0)
+		var col := world.planet_label_color(p, pl)
+		col.a = 0.85 if moon else 1.0
 		var pos := at + Vector2(0, r + 4.0 + size)
 		var w := font.get_string_size(pl.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 		var box := Rect2(pos + Vector2(-w * 0.5, -size), Vector2(w, size + 4))
@@ -177,7 +181,9 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 			reach = maxf(reach, maxf(sh.shield_bubble.half.x, sh.shield_bubble.half.y) + sh.shield_bubble.position.length())
 		var friend: bool = sh.team() == p.team()
 		var col := Color(0.45, 1.0, 0.5) if friend else (Color(1.0, 0.38, 0.32) if world.shown_hostile(p, sh) else World.PEACE_COLOR)
-		if sh.race_id == GameData.NEUTRAL:
+		if sh.is_station:
+			col = world.owner_color(p, sh.team())
+		elif sh.race_id == GameData.NEUTRAL:
 			col = sh.race_color()
 		var text: String = station_label(sh) if sh.is_station else sh.pilot_name
 		if friend and my_wing.has(sh):
@@ -337,6 +343,10 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 		flags.append("AUTOPILOT")
 	if p.is_disabled():
 		flags.append("DISABLED")
+	if p.engines_out():
+		flags.append("ADRIFT")
+	elif p.systems.efficiency("engines") < 1.0:
+		flags.append("ENGINES %d%%" % int(round(p.systems.efficiency("engines") * 100.0)))
 	if p.boarding != null and is_instance_valid(p.boarding):
 		flags.append("BOARDING %d%%" % int(p.board_progress * 100.0))
 	if p.boarded_by != null and is_instance_valid(p.boarded_by):
@@ -388,6 +398,8 @@ func _draw_disabled(p: Ship, vp: Vector2) -> void:
 		_text(Vector2(0, y), "DEAD IN SPACE: %s" % what.to_upper(), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 26, Color(1.0, 0.45, 0.25))
 		if not eta.is_empty():
 			_text(Vector2(0, y + 28), "Damage control: back online in about %d s" % int(ceil(eta["eta"])), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 16, Color(1, 0.9, 0.8))
+		if p.engines_out():
+			_text(Vector2(0, y + 48), "No thrust, no brakes, no turning: we drift and spin as we were going.", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 16, Color(1, 0.9, 0.8))
 
 
 func _draw_weapons(p: Ship, vp: Vector2) -> void:
@@ -657,11 +669,11 @@ func _draw_radar(p: Ship, vp: Vector2) -> void:
 		if s.is_station:
 			draw_rect(Rect2(c + d - Vector2(4, 4), Vector2(8, 8)), col)
 		else:
-			draw_circle(c + d, 3.0, col)
+			_heading_mark(c + d, s.travel_dir(), 3.5, col)
 		if hostile and not s.is_station:
-			draw_arc(c + d, 5.0, 0, TAU, 12, Color(1.0, 0.25, 0.2, 0.9), 1.2)
+			draw_arc(c + d, 7.0, 0, TAU, 14, Color(1.0, 0.25, 0.2, 0.9), 1.2)
 		if s == p.target:
-			draw_arc(c + d, 7.0, 0, TAU, 16, Color.WHITE, 1.5)
+			draw_arc(c + d, 9.0, 0, TAU, 18, Color.WHITE, 1.5)
 	# ghosts: where lost contacts were last seen, drifting on as they went
 	var now := p.sensors.now()
 	for id in p.sensors.last_seen.keys():
@@ -681,11 +693,21 @@ func _draw_radar(p: Ship, vp: Vector2) -> void:
 			var a0 := k * TAU / 4.0 + time
 			draw_arc(c + d, 5.0, a0, a0 + TAU / 8.0, 4, Color(0.8, 0.8, 0.85, 0.6 * fade), 1.2)
 	_draw_signature(p, c, r)
-	# own ship
-	var fwd := Vector2.RIGHT.rotated(p.rotation)
-	draw_line(c, c + fwd * 10.0, Color.WHITE, 2.0)
-	draw_circle(c, 3.0, Color.WHITE)
+	# own ship: the mark points where you are going, the tick where you face
+	draw_line(c + p.forward() * 10.0, c + p.forward() * 16.0, Color(1, 1, 1, 0.6), 1.5)
+	_heading_mark(c, p.travel_dir(), 4.0, Color.WHITE)
 	draw_string(font, c + Vector2(-r, r + 22), "Radar %d   +/- zoom" % int(radar_range), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.6, 0.9, 0.7, 0.8))
+
+
+## A ship on the radar: a narrow dart pointing along dir, about s across.
+func _heading_mark(at: Vector2, dir: Vector2, s: float, col: Color) -> void:
+	var side := dir.orthogonal()
+	for k in 2:
+		# a dark rim first so the dart reads over planets
+		var e := s + (1.2 if k == 0 else 0.0)
+		var tip := at + dir * e * 2.2
+		var tail := at - dir * e * 1.3
+		draw_colored_polygon(PackedVector2Array([tip, tail + side * e, tail - side * e]), Color(0, 0, 0, 0.55) if k == 0 else col)
 
 
 

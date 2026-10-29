@@ -365,7 +365,8 @@ func refit(p_design: Variant) -> void:
 
 
 ## Set the ship's working numbers from its systems' health: damaged
-## engines push less, a hurt reactor recharges slower, broken shield
+## engines push, brake and turn less (none at all when they are out), a
+## hurt reactor recharges slower, broken shield
 ## generators hold less, blind sensors see less.  Called whenever a
 ## system's efficiency moves.
 func apply_systems() -> void:
@@ -375,6 +376,7 @@ func apply_systems() -> void:
 	systems.changed = false
 	var eng := systems.efficiency("engines")
 	thrust_force = b["thrust_force"] * eng
+	turn_speed = b.get("turn_speed", turn_speed) * eng
 	max_speed = b["max_speed"] * (0.6 + 0.4 * eng if eng > 0.0 else 1.0)
 	has_boost = b["has_boost"] and eng >= 1.0
 	energy_regen = b["energy_regen"] * systems.efficiency("reactor") * _lowered_shield_bonus()
@@ -405,10 +407,13 @@ func is_disabled() -> bool:
 
 ## A station whose shields are down and whose hull is broken open: a
 ## boarding party can get in (see Capture).  Ships are boarded when
-## disabled instead.
+## disabled instead.  One shield half down is enough: the attacker's guns
+## only ever bring down the half facing them (Kyle, 2026-10-29).
 func is_breached() -> bool:
-	return is_station and not is_starbase() and shield <= shield_max * Capture.STATION_BREACH_SHIELD \
-		and hull <= hull_max * Capture.STATION_BREACH_HULL
+	if not is_station or is_starbase() or hull > hull_max * Capture.STATION_BREACH_HULL:
+		return false
+	return shield_front <= shield_cap(true) * Capture.STATION_BREACH_SHIELD \
+		or shield_rear <= shield_cap(false) * Capture.STATION_BREACH_SHIELD
 
 
 ## Open to a boarding party: a ship dead in space, or a breached station.
@@ -549,9 +554,13 @@ func _build_weapons() -> void:
 		elif m["func"] == "beam":
 			entry["slot"] = "beam"
 			entry["cost"] = 90.0 * (1.0 + (overload - 1.0) * 0.5)          # per second
-			entry["range"] = float(m["p"][2]) * 2.2
-			entry["dps"] = float(GameData.BEAM_DPS.get(w[0], 45.0 + float(m["p"][1]) * 0.15)) * GameData.DAMAGE_SCALE
+			entry["range"] = GameData.beam_range(w[0])
+			entry["dps"] = GameData.beam_dps(w[0])
 			entry["rate"] = 0.0
+		if is_free_aim(entry):
+			var wide := free_aim_arc(float(w[3]), float(w[4]), float(w[5]))
+			entry["arc0"] = deg_to_rad(wide.x)
+			entry["arc1"] = deg_to_rad(wide.y)
 		weapons.append(entry)
 		if is_turret(entry) or is_free_aim(entry):
 			has_turret = true
@@ -567,6 +576,13 @@ func forward() -> Vector2:
 
 func speed() -> float:
 	return velocity.length()
+
+
+## Which way the ship is going, for map and radar marks: along its velocity
+## against the local frame, or its facing when it is all but parked.
+func travel_dir() -> Vector2:
+	var v := local_velocity()
+	return v / v.length() if v.length() > 12.0 else forward()
 
 
 ## Velocity of the local rest frame: the planet whose gravity we sit in,
@@ -754,10 +770,14 @@ func _fly(delta: float) -> void:
 	var spin_up := SPIN_UP_TIME + size / 200.0
 	var torque_max := body.inertia * w_max / spin_up
 	var rcs_level := 0.0
-	var dead_drive := fuel <= 0.0 or engines_out()
+	# engines shot out: no thrust, no brakes, no thrusters to turn or to
+	# stop a spin.  The ship drifts and tumbles as it was going when they
+	# failed, and gravity and hits still move it.
+	var adrift := engines_out()
+	var dead_drive := fuel <= 0.0 or adrift
 	if dead_drive:
 		torque_max *= 0.3          # reaction wheels on reactor power only
-	if flight_assist or turn != 0.0:
+	if (flight_assist or turn != 0.0) and not adrift:
 		var w_target := turn * w_max
 		var torque := clampf(body.inertia * (w_target - body.ang_vel) / SPIN_UP_TIME, -torque_max, torque_max)
 		body.apply_torque(torque)
@@ -780,7 +800,7 @@ func _fly(delta: float) -> void:
 	var sp := lv.length()
 	if inputs["brake"] and sp > 1.0:
 		# retro burn, never past a stop
-		var brake_a := minf(maxf(accel * brake_power * 1.5, 170.0 * brake_power), sp / delta)
+		var brake_a := minf(maxf(accel * brake_power * 1.5, 170.0 * brake_power * systems.efficiency("engines")), sp / delta)
 		f -= lv.normalized() * brake_a * body.mass
 	engine_level = f.length() / maxf(thrust_force, 1.0)
 	# the orbit guard: with assist on, a course that would end on a planet's
@@ -934,6 +954,8 @@ func landing_refusal(p: Planet) -> String:
 		return ("You cannot land in the Sun." if p.look == "Sun" else "%s is a gas giant: there is no surface to land on." % p.body_name)
 	if warping:
 		return "Drop out of warp to land."
+	if engines_out():
+		return "Engines out: we can't fly down until damage control brings them back."
 	var alt := global_position.distance_to(p.global_position) - p.radius
 	if alt > LAND_ALTITUDE + size:
 		return "Too high to land on %s: fly closer." % p.body_name
@@ -1470,9 +1492,21 @@ func is_turret(w: Dictionary) -> bool:
 ## Shots that aim themselves from any mount, whatever its arc (Kyle: the
 ## disruptor is a lock/mouse weapon, it never fires down a rear rack).
 const FREE_AIM_SHOTS := ["020"]
+## ...all the way round, whatever arc its mount has; the shipyard shows it
+## so and turning one only sets where it rests (Kyle: turnable, and a
+## larger arc than a plain mount's).
+const FREE_AIM_ARC := 360.0
 
 func is_free_aim(w: Dictionary) -> bool:
 	return w["kind"] == "tube" and w["missile"] in FREE_AIM_SHOTS
+
+
+## A free-aim weapon's arc (degrees) on a mount facing `fire` with the arc
+## `arc0`..`arc1`: at least FREE_AIM_ARC wide, centred on the facing.
+static func free_aim_arc(fire: float, arc0: float, arc1: float) -> Vector2:
+	if arc1 - arc0 >= FREE_AIM_ARC:
+		return Vector2(arc0, arc1)
+	return Vector2(fire - FREE_AIM_ARC * 0.5, fire + FREE_AIM_ARC * 0.5)
 
 
 ## How far `rel` (ship-relative, -PI..PI) lies from the middle of a mount's
@@ -1561,14 +1595,17 @@ func _lead_angle(w: Dictionary, t: Node2D) -> float:
 ## else straight off the nose: never down the mount's own arc, which on a
 ## rear rack is behind the ship.
 func _free_aim(w: Dictionary) -> float:
+	var rel := 0.0
 	var foe := _locked_foe()
 	if foe != null:
-		return _lead_angle(w, foe)
-	if aim_point != Vector2.INF:
-		return wrapf((aim_point - global_position).angle() - rotation, -PI, PI)
-	if target != null and is_instance_valid(target) and not (target is Ship and target.dead):
-		return _lead_angle(w, target)
-	return 0.0
+		rel = _lead_angle(w, foe)
+	elif aim_point != Vector2.INF:
+		rel = wrapf((aim_point - global_position).angle() - rotation, -PI, PI)
+	elif target != null and is_instance_valid(target) and not (target is Ship and target.dead):
+		rel = _lead_angle(w, target)
+	if in_arc(w, rel):
+		return rel
+	return clamp_to_arc(w, rel)
 
 
 func _fire_tube(w: Dictionary) -> void:

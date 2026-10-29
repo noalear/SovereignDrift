@@ -1,9 +1,12 @@
 ## EngineSound -- a ship's drive.  Each engine level is its own instrument
 ## (I chemical rocket, II ion drive, III fusion torch, IV antimatter), each
 ## booster level its own burner, and stations hum on a capital reactor.
+## All of them are deep, smooth roars (tools/sfx/generate.py); the pitch
+## only leans up a little with the throttle, as a big rise turns a roar
+## into a revving whine.
 ## Throttling up lights the drive with an ignition sound; engaging the
 ## booster punches.  Pitch and level follow the throttle, smaller hulls sing
-## higher, and loops pause when the ship is far off screen.
+## a touch higher, and loops pause when the ship is far off screen.
 ## Watches the ship's module levels, so refits and salvaged upgrades swap
 ## the voice by themselves.
 class_name EngineSound
@@ -34,7 +37,7 @@ func _configure() -> void:
 	eng_level = clampi(int(levels.get("eng", 1)), 1, 4)
 	boost_mod = clampi(int(levels.get("boost", 1)), 1, 3)
 	idle = 0.35 if ship.is_station else 0.0
-	base_pitch = clampf(1.25 - ship.size / 140.0, 0.8, 1.2) * randf_range(0.96, 1.04)
+	base_pitch = clampf(1.15 - ship.size / 200.0, 0.88, 1.08) * randf_range(0.97, 1.03)
 	var main_name := "engine_large" if ship.is_station else Sfx.leveled("engine", eng_level)
 	main = _swap(main, main_name, 2000.0)
 	boost = _swap(boost, Sfx.leveled("boost", boost_mod), 1600.0)
@@ -76,9 +79,9 @@ func update(thrust: float, boosting: bool, warping: bool, delta: float) -> void:
 	level = lerpf(level, want, 1.0 - exp(-delta * 6.0))
 	boost_level = lerpf(boost_level, 1.0 if boosting else 0.0, 1.0 - exp(-delta * (8.0 if boosting else 3.0)))
 	main.volume_db = linear_to_db(maxf(level * 0.8 * gain, 0.0001)) if level > 0.02 else -80.0
-	main.pitch_scale = base_pitch * (0.72 + 0.4 * level + 0.15 * boost_level + (0.3 if warping else 0.0))
+	main.pitch_scale = base_pitch * (0.86 + 0.2 * level + 0.06 * boost_level + (0.15 if warping else 0.0))
 	boost.volume_db = linear_to_db(maxf(boost_level * 0.75 * gain, 0.0001))
-	boost.pitch_scale = base_pitch * (0.9 + 0.2 * level)
+	boost.pitch_scale = base_pitch * (0.94 + 0.1 * level)
 
 
 func silence() -> void:

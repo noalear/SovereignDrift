@@ -532,7 +532,17 @@ func _hp_turned(i: int) -> Array:
 		hp[2] = int(hp[2]) + t
 		hp[3] = int(hp[3]) + t
 		hp[4] = int(hp[4]) + t
+	# a disruptor fires all round, whatever the mount's arc
+	if i < mounts.size() and mounts[i] != null and _is_free_aim(mounts[i]["id"]):
+		var wide := Ship.free_aim_arc(float(hp[2]), float(hp[3]), float(hp[4]))
+		hp[3] = int(wide.x)
+		hp[4] = int(wide.y)
 	return hp
+
+
+static func _is_free_aim(id: String) -> bool:
+	var m: Dictionary = GameData.MODULES[id]
+	return m["func"] == "tube" and str(m["p"][3]) in Ship.FREE_AIM_SHOTS
 
 
 ## The design as it would be with `id` fitted in the selected slot, for the
@@ -845,7 +855,7 @@ func _aim_mount(i: int, pos: Vector2) -> void:
 
 ## Why turning mount `i` would change nothing, or "" when it can turn:
 ## an empty mount, a turret that already sees all round, a mine layer
-## (mines always drop astern) or a shot that aims itself (the disruptor).
+## (mines always drop astern).
 func _turn_block(i: int) -> String:
 	if i < 0 or i >= mounts.size() or mounts[i] == null:
 		return "Fit a weapon on mount %d to turn it." % (i + 1)
@@ -855,8 +865,6 @@ func _turn_block(i: int) -> String:
 	var m: Dictionary = GameData.MODULES[mounts[i]["id"]]
 	if m["func"] == "tube" and str(m["p"][3]) == "002":
 		return "Mines always drop astern, so a mine layer does not turn."
-	if m["func"] == "tube" and str(m["p"][3]) in Ship.FREE_AIM_SHOTS:
-		return "The %s aims itself from any mount, so it does not turn." % m["name"]
 	return ""
 
 
@@ -1797,7 +1805,7 @@ func _section_label(pos: Vector2, text: String, extra: String = "") -> void:
 
 ## A part's picture from the parts sheet, fitted inside `box`.
 func _icon(id: String, box: Rect2, alpha: float = 1.0) -> void:
-	var tex := ShipArt.part_texture(ShipArt.module_icon(id))
+	var tex := ShipArt.part_texture(ShipArt.race_part_icon(ShipArt.module_icon(id), art_race))
 	if tex == null:
 		return
 	var ts := Vector2(tex.get_size())
@@ -2262,8 +2270,9 @@ func _draw_centre(r: Rect2, rc: Color) -> void:
 		var name: String = GameData.MODULES[mt["id"]]["name"] if mt != null else "Empty mount %d" % (i + 1)
 		var tw := mw - 56 - (34 if mt != null else 0)
 		draw_string(font, chip.position + Vector2(48, 20), _fit(name, tw, 14), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, TEXT if mt != null else DIM)
-		var arc := int(round(float(hp[4]) - float(hp[3])))
-		var sub := "%d  ·  %s  ·  %s" % [i + 1, GameData.class_name_of(hp[5]), "turret" if arc >= 150 else "arc %d°" % arc]
+		var fire_arc := _hp_turned(i)
+		var arc := int(round(float(fire_arc[4]) - float(fire_arc[3])))
+		var sub := "%d  ·  %s  ·  %s" % [i + 1, GameData.class_name_of(hp[5]), "all round" if arc >= 348 else ("turret" if arc >= 150 else "arc %d°" % arc)]
 		if turns[i] != 0:
 			sub += "  ·  faces " + _facing_text(i)
 		draw_string(font, chip.position + Vector2(48, 37), _fit(sub, mw - 56, 11), HORIZONTAL_ALIGNMENT_LEFT, -1, 11, DIM)
@@ -2282,15 +2291,31 @@ func _draw_centre(r: Rect2, rc: Color) -> void:
 	var cap: int = st["bay_cap"]
 	var used: int = st["bay_used"]
 	_section_label(Vector2(r.position.x + 18, by + 16), "INTERNAL BAYS", "%d / %d volume" % [used, cap])
+	# the part under focus: how the volume would change with it fitted
+	var after := used
+	if preview_id != "":
+		after = GameData.stats_for(_design_with(preview_id))["bay_used"]
+		if after != used:
+			var lw := font.get_string_size("INTERNAL BAYS", HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x + 10
+			lw += font.get_string_size("%d / %d volume" % [used, cap], HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 12
+			var col := BAD if after > cap else (GOOD if after < used else GOLD)
+			draw_string(font, Vector2(r.position.x + 18 + lw, by + 16), "→  %d / %d  (%+d)" % [after, cap, after - used], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
 	var bar := Rect2(r.position.x + 18, by + 26, r.size.x - 36, 10)
 	_card(bar, Color(0, 0, 0, 0.5), Color(1, 1, 1, 0.08), 5.0)
 	var bx := bar.position.x
 	for mm in modules:
 		var vol := float(GameData.MODULES[mm["id"]]["vol"])
-		var w := bar.size.x * vol / maxf(float(maxi(cap, used)), 1.0)
+		var w := bar.size.x * vol / maxf(float(maxi(cap, maxi(used, after))), 1.0)
 		if w >= 1.0:
 			draw_rect(Rect2(bx, bar.position.y + 1, maxf(w - 1.0, 1.0), bar.size.y - 2), Color(_func_color(mm["id"]), 0.85))
 		bx += w
+	# and on the bar: the volume the previewed part adds (gold) or frees
+	if after != used:
+		var per := bar.size.x / maxf(float(maxi(cap, maxi(used, after))), 1.0)
+		var a := bar.position.x + mini(used, after) * per
+		var ghost := Rect2(a, bar.position.y - 2, absi(after - used) * per, bar.size.y + 4)
+		draw_rect(ghost, Color(GOLD, 0.55) if after > used else Color(0, 0, 0, 0.6))
+		draw_rect(ghost, GOLD if after > used else GOOD, false, 1.0)
 	if used > cap:
 		draw_string(font, Vector2(bar.end.x - 200, by + 16), "over by %d" % (used - cap), HORIZONTAL_ALIGNMENT_RIGHT, 200, 13, BAD)
 	by += 46
@@ -2950,5 +2975,5 @@ func _part_info(id: String) -> String:
 			return "%s  dmg %d  %s%s" % [GameData.missile_display_name(base.race_id, p[3]).to_lower(), md["warhead"], GameData.class_name_of(GameData.weapon_class(id)),
 				("  ammo %d" % ammo) if ammo < 400 else ""]
 		"beam":
-			return "laser  range %d  %s" % [p[2] * 2.2, GameData.class_name_of(GameData.weapon_class(id))]
+			return "laser  range %d  %s" % [GameData.beam_range(id), GameData.class_name_of(GameData.weapon_class(id))]
 	return ""

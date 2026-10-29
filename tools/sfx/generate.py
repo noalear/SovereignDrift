@@ -389,46 +389,17 @@ def bigexplode(rng, v):
 
 # ==================================================================== engines
 
-def engine_small(rng, v):
-    """Fighter drive: a fast turbine whine over a hissing exhaust."""
-    d = 4.75
-    n = n_of(d)
-    t = time(d)
-    exhaust = bp(pink(n, rng), 1100, 0.7)
-    rumble = bp(brown(n, rng), 120, 0.6) * 1.6
-    wob = 1 + 0.004 * np.sin(2 * math.pi * 0.47 * t)
-    whine = (sine(440 * wob, n) * 0.5 + sine(880.5 * wob, n) * 0.22 + sine(1321 * wob, n) * 0.1) * 0.18
-    pulse = 1 + 0.12 * np.sin(2 * math.pi * 40 * t)
-    x = hp(drive((exhaust * 0.8 + rumble) * pulse + whine, 1.3), 30)
-    return make_loop(widen(x, 0.5), 0.25)
-
-
 @sound("engine_large", 1, -19.0, loop=True)
 def engine_large(rng, v):
-    """Capital drive: deep throbbing reactor and a heavy roar."""
+    """Capital drive: a deep reactor hum that slowly breathes, under a heavy roar."""
     d = 5.75
     n = n_of(d)
     t = time(d)
-    roar = bp(mix(brown(n, rng), pink(n, rng) * 0.4), 220, 0.5) * 1.6
-    hum = (sine(55, n) + 0.5 * sine(110.3, n) + 0.3 * square(55.2, n) * 0.4)
-    hum = lp(hum, 400) * (0.75 + 0.25 * np.sin(2 * math.pi * 0.95 * t)) * 0.6
-    throb = 1 + 0.2 * np.sin(2 * math.pi * 12 * t)
-    whine = sine(330 * (1 + 0.003 * np.sin(2 * math.pi * 0.3 * t)), n) * 0.05
-    x = hp(drive(roar * throb + hum + whine, 1.4), 30)
-    return make_loop(widen(x, 0.5), 0.25)
-
-
-def boost_loop(rng, v):
-    """Afterburner: hot ragged roar layered on top of the engine."""
-    d = 3.75
-    n = n_of(d)
-    t = time(d)
-    src = mix(pink(n, rng), white(n, rng) * 0.3)
-    roar = bp(src, 1600 * (1 + 0.2 * lp(white(n, rng), 5) * 8), 0.6) * 1.6
-    pops = bp(crackle(n, rng, 160, 0.002), 900, 0.7) * 14
-    whine = sine(1250 * (1 + 0.005 * np.sin(2 * math.pi * 0.6 * t)), n) * 0.06
-    x = hp(drive(roar + pops * 0.5 + whine, 2.0), 30)
-    return make_loop(widen(x, 0.6), 0.25)
+    roar = lp(mix(_noise2(brown, n, rng), _noise2(pink, n, rng) * 1.2), 600) * 1.6
+    hum = sine(55, n) + 0.5 * sine(110.3, n) + 0.15 * sine(165.4, n)
+    hum = hum * (0.75 + 0.25 * np.sin(2 * math.pi * 0.35 * t)) * 0.6
+    x = drive(roar * _drift(n, rng, 0.9, 0.2)[:, None], 1.2) + _centre(hum)
+    return make_loop(hp(x, 30), 0.25)
 
 
 @sound("rocket_loop", 1, -19.0, loop=True)
@@ -759,53 +730,89 @@ def _family(prefix, levels, variants, loud, loop=False, maxlen=0.0):
 
 
 # ---- engines: four drive technologies, each a different instrument
+#
+# Kyle (2026-10-29): the old drives "sound like a weed-eater".  That came from
+# fast amplitude flutter (17-73 Hz) on driven mid-range noise, saw/square
+# buzz, and a comb-filter widen that put a pitch on the noise.  So every drive
+# is now a deep, smooth roar: weight below 500 Hz, the 2-6 kHz rasp kept to a
+# trace, only slow (< 3 Hz) random swells, gentle saturation, and stereo made
+# from independent noise per side instead of a delay comb.
+
+def _drift(n, rng, rate, depth):
+    """Slow random swell around 1.0: turbulence, never a regular flutter."""
+    k = int(n / RATE * rate) + 3
+    pts = rng.uniform(-1, 1, k)
+    pos = np.arange(n) / RATE * rate
+    i = pos.astype(int)
+    u = pos - i
+    u = u * u * (3 - 2 * u)              # smoothstep between random points
+    return 1.0 + depth * (pts[i] * (1 - u) + pts[i + 1] * u)
+
+
+def _noise2(kind, n, rng, spread=0.35):
+    """Stereo noise: shared middle plus an independent side, no comb."""
+    mid = kind(n, rng)
+    side = kind(n, rng) * spread
+    return np.stack([mid + side, mid - side], axis=1)
+
+
+def _centre(x):
+    return np.stack([x, x], axis=1)
+
 
 def _engine_chemical(rng, n, t):
-    """Engine I: a chemical rocket.  Ragged roar, popping combustion, a
-    rattling low throb you can feel in the hull."""
-    roar = bp(mix(pink(n, rng), brown(n, rng) * 0.8), 700 * (1 + 0.15 * np.sin(2 * math.pi * 0.37 * t)), 0.5) * 1.5
-    rumble = bp(brown(n, rng), 75, 0.8) * 1.4
-    flutter = 1 + 0.22 * np.sin(2 * math.pi * 17.0 * t) * (0.6 + 0.4 * np.sin(2 * math.pi * 0.61 * t))
-    pops = bp(crackle(n, rng, 140, 0.0025), 1300, 0.7) * 16
-    return drive((roar + rumble) * flutter + pops * 0.5, 2.2)
+    """Engine I: a chemical rocket.  A deep, steady thundering roar, a
+    resonant throat you feel in the hull, and turbulence that swells and
+    settles."""
+    swell = _drift(n, rng, 1.2, 0.18)[:, None]
+    core = lp(_noise2(brown, n, rng), 420) * 1.2
+    throat = bp(_noise2(brown, n, rng, 0.25), 95, 1.1) * 1.8
+    roar = lp(lp(_noise2(pink, n, rng), 900), 1400) * 1.5
+    x = (core + throat + roar * _drift(n, rng, 0.7, 0.3)[:, None]) * swell
+    return drive(x, 1.15)
 
 
 def _engine_ion(rng, n, t):
-    """Engine II: an ion drive.  A smooth electric hum with a chorus of
-    detuned saws, a pulsing grid buzz and a fine spray of ions."""
-    base = 98.0
-    hum = supersaw(base * (1 + 0.003 * np.sin(2 * math.pi * 0.21 * t)), n, 5, 0.008, rng)
-    hum = bp(hum, 520 * (1 + 0.35 * np.sin(2 * math.pi * 0.13 * t)), 1.6) * 1.2
-    grid = square(base * 0.5, n, pw=0.2) * (0.5 + 0.5 * np.sin(2 * math.pi * 8.0 * t)) * 0.12
-    ions = bp(white(n, rng), 6500, 2.0) * (0.6 + 0.4 * np.sin(2 * math.pi * 3.3 * t)) * 0.5
-    sub = sine(49.0, n) * 0.35
-    return drive(hum + lp(grid, 2500) + ions + sub, 1.4)
+    """Engine II: an ion drive.  A smooth, deep electric hum that slowly
+    phases, over a soft rushing flow of plasma."""
+    base = 55.0
+    hum = np.zeros((n, 2))
+    for k, a in ((1, 1.0), (2, 0.55), (3, 0.28), (4, 0.12), (6, 0.05)):
+        f = base * k * (1 + 0.002 * np.sin(2 * math.pi * 0.11 * k * t))
+        hum[:, 0] += sine(f * 1.0015, n) * a
+        hum[:, 1] += sine(f * 0.9985, n) * a
+    hum *= 0.32 * (0.85 + 0.15 * np.sin(2 * math.pi * 0.23 * t))[:, None]
+    flow = lp(_noise2(pink, n, rng), 800 * _drift(n, rng, 0.4, 0.35)) * 1.3
+    body = lp(_noise2(brown, n, rng), 260) * 0.8
+    shimmer = bp(_noise2(white, n, rng, 0.8), 3200, 1.5) * 0.04
+    return drive(flow + body + shimmer, 1.1) + hum
 
 
 def _engine_fusion(rng, n, t):
-    """Engine III: a fusion torch.  Heavy blowtorch roar inside a magnetic
-    bottle that whines and swirls, over a deep reactor drone."""
-    torch = bp(mix(pink(n, rng), white(n, rng) * 0.3), 1800, 0.45) * 1.3
-    torch *= 1 + 0.3 * np.sin(2 * math.pi * 23.0 * t)
-    body = bp(brown(n, rng), 160, 0.7) * 1.6
-    swirl = fm_op(330 * (1 + 0.02 * np.sin(2 * math.pi * 0.5 * t)), 1.5, 1.5 + np.sin(2 * math.pi * 0.25 * t), n) * 0.1
-    drone = (sine(41.2, n) + 0.5 * sine(82.4, n)) * 0.45
-    return drive(torch + body + swirl + drone, 1.7)
+    """Engine III: a fusion torch.  A heavy blowtorch roar held in a
+    magnetic bottle that slowly swirls, over a deep reactor drone."""
+    torch = svf(_noise2(pink, n, rng), 650 * _drift(n, rng, 0.25, 0.4), 1.4, "lp") * 1.6
+    body = lp(_noise2(brown, n, rng), 330) * 1.2
+    drone = _centre((sine(41.2, n) + 0.5 * sine(82.4, n) + 0.18 * sine(123.6, n)) * 0.42)
+    swirl = sine(165 * (1 + 0.01 * np.sin(2 * math.pi * 0.17 * t)), n) * 0.05 * (0.6 + 0.4 * np.sin(2 * math.pi * 0.29 * t))
+    x = drive((torch + body) * _drift(n, rng, 1.5, 0.15)[:, None], 1.2)
+    return x + drone + _centre(swirl)
 
 
 def _engine_antimatter(rng, n, t):
-    """Engine IV: an antimatter drive.  A shimmering, phasing chord of pure
-    tones with a vortex of filtered noise and a sub you feel more than hear."""
-    chord = np.zeros(n)
-    for f, a in ((110.0, 1.0), (164.8, 0.7), (220.3, 0.6), (329.6, 0.4), (440.8, 0.25)):
-        chord += (sine(f, n) + sine(f * 1.004, n, 0.5)) * a
-    chord *= 0.18 * (0.75 + 0.25 * np.sin(2 * math.pi * 0.7 * t))
-    vortex_src = mix(pink(n, rng), white(n, rng) * 0.2)
-    sweep = 700 + 5200 * (0.5 + 0.5 * np.sin(2 * math.pi * 0.31 * t))
-    vortex = svf(bp(vortex_src, 2200, 0.6), sweep, 4.0, "notch") * 0.9
-    sub = sine(36.7, n) * 0.5
-    sparkle = hp(crackle(n, rng, 60, 0.0006), 7000) * 6
-    return drive(chord + vortex + sub + sparkle * 0.3, 1.3)
+    """Engine IV: an antimatter drive.  A low chord of pure tones that
+    phases slowly, a dark vortex of rushing air sweeping round it, and a
+    sub you feel more than hear."""
+    chord = np.zeros((n, 2))
+    for f, a in ((55.0, 1.0), (82.4, 0.6), (110.0, 0.45), (164.8, 0.2)):
+        chord[:, 0] += sine(f, n) * a + sine(f * 1.003, n, 0.5) * a * 0.6
+        chord[:, 1] += sine(f, n, 0.3) * a + sine(f * 0.997, n, 0.9) * a * 0.6
+    chord *= 0.22 * (0.8 + 0.2 * np.sin(2 * math.pi * 0.19 * t))[:, None]
+    sweep = 260 + 700 * (0.5 + 0.5 * np.sin(2 * math.pi * 0.13 * t))
+    vortex = svf(_noise2(pink, n, rng, 0.5), sweep, 2.2, "lp") * 0.75
+    body = lp(_noise2(brown, n, rng), 220) * 1.1
+    sub = _centre(sine(36.7, n) * 0.4)
+    return drive(vortex + body, 1.1) + chord + sub
 
 
 ENGINES = {1: _engine_chemical, 2: _engine_ion, 3: _engine_fusion, 4: _engine_antimatter}
@@ -816,43 +823,42 @@ def engine(rng, v, lvl):
     d = 5.25
     n = n_of(d)
     x = hp(ENGINES[lvl](rng, n, time(d)), 28)
-    return make_loop(widen(x, 0.55), 0.3)
+    return make_loop(x, 0.3)
 
 
 @_family("ignite", [1, 2, 3, 4], 3, -16.0)
 def ignite(rng, v, lvl):
-    """Throttle up: each drive lights in its own way."""
+    """Throttle up: each drive lights in its own way, low and full."""
     d = 0.9
     n = n_of(d)
     t = time(d)
-    if lvl == 1:      # igniter spark, then the whoomp of propellant catching
-        spark = drive(hp(white(n, rng), 2500) * env_exp(n, 0.006) * 3, 3)
-        whoomp = bp(pink(n, rng), ramp(n, 300, 1600), 0.7) * env_points(n, [(0, 0), (0.03, 0), (0.08, 1.4), (0.4, 0.4), (d, 0)], 1.5)
+    if lvl == 1:      # a soft igniter tick, then the whoomp of propellant catching
+        spark = lp(white(n, rng), 3000) * env_exp(n, 0.004) * 1.5
+        whoomp = bp(pink(n, rng), ramp(n, 140, 700), 0.7) * env_points(n, [(0, 0), (0.03, 0), (0.08, 1.4), (0.4, 0.4), (d, 0)], 1.5)
         thump = sine(ramp(n, 110, 45), n) * env_points(n, [(0, 0), (0.04, 0), (0.05, 1), (0.3, 0)], 1.8)
-        x = spark * 0.5 + whoomp + thump
-    elif lvl == 2:    # capacitor charge chirp into the grid buzz
-        chirp = sine(ramp(n, 200, J(rng, 1600), "log"), n) * env_points(n, [(0, 0), (0.01, 0.6), (0.18, 1), (0.3, 0.2), (d, 0)])
-        zap = bp(white(n, rng), 6000, 3.0) * env_points(n, [(0, 0), (0.15, 0), (0.18, 1), (0.4, 0)], 2) * 1.2
-        hum = _engine_ion(rng, n, t) * env_points(n, [(0, 0), (0.2, 0.9), (d, 0)], 1.4)
-        x = chirp * 0.4 + zap + hum
-    elif lvl == 3:    # containment field snaps on and the torch blasts
-        snap = drive(white(n, rng) * env_exp(n, 0.004) * 3, 3)
+        x = spark * 0.4 + whoomp + thump
+    elif lvl == 2:    # the grid charges with a low rising swoop and the hum fades in
+        swoop = sine(ramp(n, 55, J(rng, 220), "log"), n) * env_points(n, [(0, 0), (0.05, 0.6), (0.22, 1), (0.4, 0.2), (d, 0)])
+        hum = to_mono(_engine_ion(rng, n, t)) * env_points(n, [(0, 0), (0.2, 0.9), (d, 0)], 1.4)
+        x = swoop * 0.5 + hum
+    elif lvl == 3:    # containment field thumps on and the torch blasts
+        snap = lp(white(n, rng), 1800) * env_exp(n, 0.006) * 2
         boom = sine(ramp(n, 140, 38), n) * env_points(n, [(0, 0), (0.003, 1), (0.35, 0.3), (d, 0)], 1.6)
-        blast = _engine_fusion(rng, n, t) * env_points(n, [(0, 0), (0.02, 1.6), (0.3, 0.7), (d, 0)], 1.4)
+        blast = to_mono(_engine_fusion(rng, n, t)) * env_points(n, [(0, 0), (0.02, 1.6), (0.3, 0.7), (d, 0)], 1.4)
         x = snap * 0.4 + boom + blast
-    else:             # reaction chamber rises through a chord
+    else:             # reaction chamber rises through a low chord
         rise = np.zeros(n)
-        for f in (110.0, 164.8, 220.0, 329.6):
+        for f in (55.0, 82.4, 110.0, 164.8):
             rise += sine(ramp(n, f * 0.5, f), n)
         rise *= env_points(n, [(0, 0), (0.25, 0.6), (0.35, 1), (d, 0)], 1.3) * 0.25
-        flash = hp(white(n, rng), 4000) * env_points(n, [(0, 0), (0.3, 0), (0.33, 1), (0.6, 0)], 2)
+        flash = lp(pink(n, rng), 1200) * env_points(n, [(0, 0), (0.3, 0), (0.33, 1), (0.6, 0)], 2)
         sub = sine(ramp(n, 80, 36), n) * env_points(n, [(0, 0), (0.3, 0), (0.33, 1), (d, 0)], 1.5)
-        x = rise + flash * 0.4 + sub
-    x = drive(x, 1.4)
-    return mix(widen(x, 0.5), reverb(x, 0.25, 0.6, seed=v) * 0.5)
+        x = rise + flash + sub
+    x = drive(x, 1.2)
+    return mix(widen(x, 0.3), reverb(x, 0.25, 0.6, seed=v) * 0.5)
 
 
-# ---- boosters
+# ---- boosters: a bigger, hotter roar on top of the drive, still deep
 
 @_family("boost", [1, 2, 3], 1, -17.0, loop=True)
 def boost(rng, v, lvl):
@@ -860,39 +866,38 @@ def boost(rng, v, lvl):
     d = 4.0
     n = n_of(d)
     t = time(d)
-    src = mix(pink(n, rng), white(n, rng) * 0.3)
-    if lvl == 1:
-        roar = bp(src, 1300 * (1 + 0.15 * np.sin(2 * math.pi * 0.4 * t)), 0.55) * 1.6
-        pops = bp(crackle(n, rng, 180, 0.002), 900, 0.7) * 14
-        x = drive(roar + pops * 0.5, 2.2)
-    elif lvl == 2:
-        roar = bp(src, 2600, 0.7) * 1.3 * (1 + 0.25 * np.sin(2 * math.pi * 31 * t))
-        crackl = hp(crackle(n, rng, 900, 0.0006), 3000) * 12
-        whine = sine(1650 * (1 + 0.006 * np.sin(2 * math.pi * 0.8 * t)), n) * 0.08
-        x = drive(roar + crackl * 0.4 + whine + bp(brown(n, rng), 200, 0.7) * 0.8, 1.8)
-    else:
-        roar = bp(src, 1900, 0.5) * 1.3
-        siren = fm_op(880 * (1 + 0.03 * np.sin(2 * math.pi * 1.1 * t)), 2.0, 2.0 + 1.5 * np.sin(2 * math.pi * 0.5 * t), n) * 0.09
-        tear = svf(white(n, rng), 1500 + 3000 * (0.5 + 0.5 * np.sin(2 * math.pi * 2.3 * t)), 5.0, "bp") * 0.6
-        sub = sine(55.0, n) * 0.35 * (1 + 0.3 * np.sin(2 * math.pi * 6 * t))
-        x = drive(roar + siren + tear + sub, 1.8)
-    return make_loop(widen(hp(x, 30), 0.65), 0.3)
+    if lvl == 1:      # a thick, thundering blast
+        blast = lp(lp(_noise2(pink, n, rng), 1200), 1800) * 1.8
+        body = lp(_noise2(brown, n, rng), 380) * 1.2
+        x = drive((blast + body) * _drift(n, rng, 2.0, 0.2)[:, None], 1.3)
+    elif lvl == 2:    # a rushing plasma jet with a slow sweeping whoosh
+        jet = svf(_noise2(pink, n, rng), 950 * _drift(n, rng, 0.35, 0.45), 1.6, "lp") * 1.7
+        body = lp(_noise2(brown, n, rng), 300) * 1.1
+        hiss = lp(bp(_noise2(white, n, rng, 0.8), 2200, 0.8), 3500) * 0.06
+        x = drive(jet + body + hiss, 1.25)
+    else:             # a towering roar over a pulsing sub and a rising tone
+        roar = lp(lp(_noise2(pink, n, rng), 1100), 1600) * 1.7
+        body = lp(_noise2(brown, n, rng), 300) * 1.0
+        sub = sine(55.0, n) * 0.4 * (1 + 0.25 * np.sin(2 * math.pi * 0.8 * t))
+        tone = (sine(110 * (1 + 0.01 * np.sin(2 * math.pi * 0.4 * t)), n) + 0.4 * sine(165.2, n)) * 0.12
+        x = drive(roar * _drift(n, rng, 1.5, 0.2)[:, None] + body, 1.25) + _centre(sub + tone)
+    return make_loop(hp(x, 30), 0.3)
 
 
 @_family("boost_kick", [1, 2, 3], 2, -14.5)
 def boost_kick(rng, v, lvl):
-    """The punch when the booster engages."""
+    """The punch when the booster engages: a deep thump and a blast."""
     d = 1.0
     n = n_of(d)
-    kick = sine(ramp(n, 160 - 25 * lvl, 40), n) * env_points(n, [(0, 0), (0.004, 1), (0.25, 0.3), (0.6, 0)], 1.6)
-    blast = bp(pink(n, rng), ramp(n, 900 + 700 * lvl, 500), 0.6) * env_points(n, [(0, 0), (0.01, 1.4), (0.3, 0.4), (d, 0)], 1.5)
+    kick = sine(ramp(n, 150 - 25 * lvl, 38), n) * env_points(n, [(0, 0), (0.004, 1), (0.25, 0.3), (0.6, 0)], 1.6)
+    blast = bp(pink(n, rng), ramp(n, 500 + 150 * lvl, 220), 0.6) * env_points(n, [(0, 0), (0.01, 1.4), (0.3, 0.4), (d, 0)], 1.5)
     x = kick + blast
     if lvl >= 2:
-        x = x + saw(ramp(n, 300, 1800 + 600 * lvl, "log"), n) * env_points(n, [(0, 0), (0.02, 0.25), (0.4, 0)], 1.5) * 0.5
+        x = x + sine(ramp(n, 60, 180 + 60 * lvl, "log"), n) * env_points(n, [(0, 0), (0.03, 0.35), (0.45, 0)], 1.5)
     if lvl == 3:
-        x = x + hp(white(n, rng), 5000) * env_exp(n, 0.03) * 0.6
-    x = drive(x, 1.8)
-    return mix(widen(x, 0.6), reverb(x, 0.3, 0.7, seed=v) * 0.5)
+        x = x + lp(brown(n, rng), 250) * env_points(n, [(0, 0), (0.02, 1.2), (0.5, 0)], 1.5)
+    x = drive(x, 1.4)
+    return mix(widen(x, 0.3), reverb(x, 0.3, 0.7, seed=v) * 0.5)
 
 
 # ---- lasers: thin laser, warbling phaser, crackling particle lance

@@ -21,7 +21,7 @@ const LINES := [
 	["intro", "hale", "Welcome to the Terran Naval Academy, cadet. I'm Commander Hale, and I'll be with you on comms for this flight. Nobody out here is shooting at us today, so take your time."],
 	["intro2", "hale", "By the end of this flight you'll know how to fly, fight, capture ships, command a wing, move colonists and cargo, and run a war for the Sol system. Let's start with your cockpit."],
 	["hud_status", "hale", "Bottom left are your shields, hull, energy and fuel. Shields soak up hits and recharge on their own. The hull does not, so protect it. The row of lights above shows your ship's systems."],
-	["hud_weapons", "hale", "Beside them is your weapons panel, with your four weapon groups. Bottom right is the radar. Ships show in their empire's colour, Terran blue is us, and enemies get a red ring."],
+	["hud_weapons", "hale", "Beside them is your weapons panel, with your four weapon groups. Bottom right is the radar. Ships show as little darts pointing the way they're flying, in their empire's colour. Terran blue is us, and enemies get a red ring."],
 	["hud_top", "hale", "Along the top are your rank, score and credits, and how many planets each empire holds. Planets are what this war is about."],
 	# --- flight school
 	["thrust", "hale", "Let's fly. Hold thrust to push forward, and turn to steer. There's no friction in space, so when you let go, you keep drifting. Take her out a little way from the starbase."],
@@ -35,7 +35,7 @@ const LINES := [
 	["nav", "hale", "Space is big, so let the computer help. Cycle your navigation target until Luna, Earth's moon, is selected."],
 	["autopilot", "hale", "Now engage the autopilot. It steers around planets and the Sun, and brakes for you when you arrive. Touch any flight control to take back manual control."],
 	["warp", "hale", "For long trips, you have a quantum drive. It throws you across the system at many times light speed, but turning or reversing drops you out. Point at open space, jump, then drop out again."],
-	["map", "hale", "Open the system map. It shows every world and who owns it, and every ship your sensors can see. Tap the key to leave it open, or hold it for a quick look."],
+	["map", "hale", "Open the system map. It shows every world and who owns it, and every ship your sensors can see. Names of worlds and stations are coloured by who holds them: green is ours, yellow a friendly empire, red the enemy, and grey belongs to nobody. Tap the key to leave it open, or hold it for a quick look."],
 	["info", "hale", "Hold shift and click any planet or moon to open its info card: who lives there, its defences, its resources, and what it earns. Try it on Luna or Earth."],
 	["zoom", "hale", "The mouse wheel zooms the camera, and the radar has its own zoom. Zoom out when you want to see trouble coming."],
 	# --- combat
@@ -43,7 +43,7 @@ const LINES := [
 	["fire", "hale", "Your mass driver turret follows the mouse, and its bolts fly a long way, so lead your target. Open fire on the drone. Shields absorb the first hits. Once they're down, you're hitting hull and systems."],
 	["groups", "hale", "Your weapons are sorted into four groups by type. Guns are group one, lasers and disruptors two, launchers three, and mines four. Lasers and disruptors aim themselves at the ship you've locked, or at the mouse when nothing is locked. On your scout, the mass driver is group one, the seeker rack is group three, and the mine layer is group four. The number keys pick what your trigger fires, and alternate fire shoots a second group without switching. Pick group four, then back to group one."],
 	["seeker", "hale", "Group three is your seeker rack. A seeker homes on engine heat and steers itself all the way in, so a ship can't outrun it or turn inside it. What stops one is point defence, or a lucky hit from a gun. A single seeker won't get past a point defence turret, so against bigger ships, fire them in pairs. Pick group three, put a seeker into the drone, then go back to your guns."],
-	["disable", "hale", "Now the mark of a good captain: don't just blow ships apart. Every hit damages the systems nearest to it. Hit the drone in the stern to knock out its engines, and it's dead in space."],
+	["disable", "hale", "Now the mark of a good captain: don't just blow ships apart. Every hit damages the systems nearest to it. Damaged engines push and turn slowly. Knock them out and the ship can't steer, brake or stop a spin. It just drifts the way it was going. Hit the drone in the stern to knock out its engines, and it's dead in space."],
 	["drone_lost", "hale", "That one's scrap. Easy on the trigger, cadet. Here's another. Aim for the engines at the back."],
 	["board", "hale", "Its engines are out. Come alongside, slow down, and board it. Your crew fights theirs, and if you win, the ship is yours. A captured prize follows you as a wingman."],
 	["wing", "hale", "That ship flies on your wing now, and wingmen take your orders. Hold the orders key for the wheel, point at an order and let go, or tap the key and pick one. Form up keeps them tight on you, firing only when fired on. Cover me has them fight anything that comes close, and that's what they do until told otherwise. The bar by each wingman's name is its hull. A battered one can go home, land and get patched up. Order your wing to form up."],
