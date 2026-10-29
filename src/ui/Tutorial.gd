@@ -39,6 +39,7 @@ const STEPS := [
 	{"id": "target", "chapter": 3, "goal": "Target the drone: {target_next}, {target_nearest}, or Shift+click it", "mark": "drone"},
 	{"id": "fire", "chapter": 3, "goal": "Aim with the mouse and fire with {fire_primary}. Take its shields down", "mark": "drone"},
 	{"id": "groups", "chapter": 3, "goal": "Press {weapon_group_4} for the mine layer, then {weapon_group_1} for the guns again", "mark": "drone"},
+	{"id": "seeker", "chapter": 3, "goal": "Press {weapon_group_3} for the seeker rack, put a seeker into the drone ({fire_primary}), then {weapon_group_1} for the guns", "mark": "drone"},
 	{"id": "disable", "chapter": 3, "goal": "Shoot the drone's stern until its engines go offline", "mark": "drone"},
 	{"id": "board", "chapter": 3, "goal": "Close in, slow down and press {board} to board the drone", "mark": "drone"},
 	{"id": "wing", "chapter": 3, "goal": "Hold {wing_menu} for the orders wheel, point at Form up and let go", "mark": "wingman", "focus": "wing"},
@@ -113,6 +114,7 @@ var launcher: Ship = null          # the PDC lesson's missile launcher
 var pdc_fired := 0
 var pdc_next := 0.0
 var pdc_kills_at := 0
+var seeker_hits := 0              # seekers that had hit when the seeker lesson began
 var drone_taken := false
 var pirate_down := false
 var seen := {}                    # flags seen during the lesson
@@ -440,11 +442,11 @@ func _on_drone_died(s: Ship, _killer: Node) -> void:
 	if s.captured:
 		drone_taken = true
 		return
-	if step.get("id", "") in ["target", "fire", "groups", "disable", "board"]:
+	if step.get("id", "") in ["target", "fire", "groups", "seeker", "disable", "board"]:
 		_interject("drone_lost")
 		# a fresh one once the wreck has cleared
 		get_tree().create_timer(1.5, true).timeout.connect(func():
-			if not finished and step.get("id", "") in ["target", "fire", "groups", "disable", "board"]:
+			if not finished and step.get("id", "") in ["target", "fire", "groups", "seeker", "disable", "board"]:
 				_ensure_drone())
 
 
@@ -469,6 +471,21 @@ func _done_groups() -> bool:
 	if g == 4:
 		seen["group4"] = true
 	return seen.has("group4") and g == 1
+
+
+func _enter_seeker() -> void:
+	_ensure_drone()
+	seeker_hits = _seeker_hits()
+
+
+func _seeker_hits() -> int:
+	return int(Missile.fates.get("009", {}).get("hit", 0))
+
+
+func _done_seeker() -> bool:
+	if _seeker_hits() > seeker_hits:
+		seen["seeker_hit"] = true
+	return seen.has("seeker_hit") and _player().weapon_group == 1
 
 
 func _enter_disable() -> void:
@@ -575,6 +592,11 @@ func _enter_pdc() -> void:
 	pdc_fired = 0
 	pdc_next = 4.0                  # let Hale get going first
 	_remove_launcher()
+	_spawn_launcher()
+
+
+func _spawn_launcher() -> void:
+	var p := _player()
 	var a := p.rotation + randf_range(-0.5, 0.5)
 	launcher = world.spawn_ship("Training launcher", 3, "Scout", "Target Launcher", p.global_position + Vector2(cos(a), sin(a)) * 1100.0, p.velocity, -1)
 	launcher.rotation = a + PI
@@ -584,6 +606,8 @@ func _enter_pdc() -> void:
 func _done_pdc() -> bool:
 	var p := _player()
 	var downed := p.pdc.shot_down - pdc_kills_at
+	if downed < PDC_KILLS and (launcher == null or not is_instance_valid(launcher) or launcher.dead):
+		_spawn_launcher()           # a wingman (or the cadet) shot it up before it was done
 	if launcher != null and is_instance_valid(launcher) and not launcher.dead and downed < PDC_KILLS and step_time >= pdc_next:
 		# one missile at a time, until enough are down
 		pdc_next = step_time + PDC_SALVO_GAP

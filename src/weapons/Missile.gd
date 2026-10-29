@@ -24,6 +24,15 @@ var color := Color.WHITE
 var exploded := false
 var toughness := 1               # gun rounds it takes to shoot it down
 
+## How guided shots ended, for the tutorial and the test tools: missile id -> {"hit",
+## "blast" (went off near nothing), "spent" (out of fuel), "down"}.
+static var fates := {}
+
+static func _tally(id: String, how: String) -> void:
+	if not fates.has(id):
+		fates[id] = {"hit": 0, "blast": 0, "spent": 0, "down": 0}
+	fates[id][how] += 1
+
 static var _slug_mat: CanvasItemMaterial = null
 
 
@@ -125,6 +134,8 @@ func momentum() -> Vector2:
 
 func _free() -> void:
 	exploded = true
+	if data["guided"]:
+		_tally(missile_id, "spent")
 	if world != null:
 		world.release_body(body)
 	queue_free()
@@ -132,10 +143,21 @@ func _free() -> void:
 
 ## A guided shot keeps after a ship while its launcher holds a lock on
 ## the shot's channel (heat for seekers, radar return for the rest) or
-## its own seeker head still sees it: seek range x signature / 100.
+## its own seeker head still sees it: seek range x signature / 100.  The
+## head looks ahead, within "cone" radians of the flight path (HEAD_CONE
+## unless the shot says), so a shot that overshoots loses its ship and
+## flies on instead of circling back round for it.  A head that has
+## the ship keeps it through a short fade (HEAD_HOLD: a burn ending, a
+## turn across the nose), so the lock doesn't drop for one bad frame.
+const HEAD_CONE := 0.9
+const HEAD_HOLD := 0.6
+var _unseen := 0.0                # seconds the head has not seen its target
+
 func _lock_ok(t: Node2D) -> bool:
 	if not t is Ship:
 		return true
+	if not _in_cone(t):
+		return false
 	var ch := "heat" if data.get("heat", false) else "radar"
 	if is_instance_valid(owner_ship) and owner_ship is Ship and not owner_ship.dead and owner_ship.has_track(t, ch):
 		return true
@@ -143,21 +165,67 @@ func _lock_ok(t: Node2D) -> bool:
 	return global_position.distance_to(t.global_position) <= head
 
 
+func _in_cone(t: Node2D) -> bool:
+	if velocity.length() < 1.0:
+		return true
+	var to: Vector2 = t.global_position - global_position
+	return absf(angle_difference(velocity.angle(), to.angle())) <= float(data.get("cone", HEAD_CONE))
+
+
+func _keeps(t: Node2D, delta: float) -> bool:
+	if t == null or not is_instance_valid(t) or (t is Ship and t.dead):
+		return false
+	if _lock_ok(t):
+		_unseen = 0.0
+		return true
+	_unseen += delta
+	return _unseen < HEAD_HOLD
+
+
+## Guidance steers the flight path itself, not just the nose: each frame
+## the velocity swings toward the intercept point by up to "turn" radians
+## a second while the motor builds speed by "accel" up to max_v.  (It used
+## to turn only the nose and push along it, and the nose was set back to
+## the flight path every frame, so shots barely curved: Kyle, 2026-10-29,
+## "they don't seem to actively seek anything".)
 func _seek(delta: float) -> void:
-	if target == null or not is_instance_valid(target) or (target is Ship and target.dead) or not _lock_ok(target):
+	if not _keeps(target, delta):
+		_unseen = 0.0
 		target = world.nearest_enemy_ship(global_position, owner_team, data["seek_range"] * 2.0)
 		if target != null and not _lock_ok(target):
 			target = null
-	var accel: float = data.get("accel", 200.0)
-	var dir := Vector2.RIGHT.rotated(rotation)
+	var cap: float = data["max_v"] * GameData.LIGHT_SPEED
+	var speed := velocity.length()
+	var dir := velocity / speed if speed > 1.0 else Vector2.RIGHT.rotated(rotation)
+	speed = minf(speed + data.get("accel", 200.0) * delta, maxf(cap, speed))
 	if target != null:
-		var to: Vector2 = target.global_position - global_position
-		var tt := to.length() / maxf(velocity.length(), 50.0)
-		var aim: Vector2 = to + target.velocity * tt * 0.5
-		var desired := aim.angle()
-		rotation = rotate_toward(rotation, desired, data.get("turn", 3.0) * delta)
-		dir = Vector2.RIGHT.rotated(rotation)
-	velocity += dir * accel * delta
+		var aim := intercept(target, maxf(speed, 50.0))
+		var ang := rotate_toward(dir.angle(), aim.angle(), data.get("turn", 3.0) * delta)
+		dir = Vector2.RIGHT.rotated(ang)
+	velocity = dir * speed
+
+
+## Where to point to meet `t` flying at `speed`: the lead point of a
+## straight-line intercept, or straight at it when it can't be caught.
+func intercept(t: Node2D, speed: float) -> Vector2:
+	var r: Vector2 = t.global_position - global_position
+	var tv: Vector2 = t.velocity if "velocity" in t else Vector2.ZERO
+	var a := tv.dot(tv) - speed * speed
+	var b := 2.0 * r.dot(tv)
+	var c := r.dot(r)
+	var tt := -1.0
+	if absf(a) < 0.001:
+		tt = -c / b if b < 0.0 else -1.0
+	else:
+		var disc := b * b - 4.0 * a * c
+		if disc >= 0.0:
+			var sq := sqrt(disc)
+			var t1 := (-b - sq) / (2.0 * a)
+			var t2 := (-b + sq) / (2.0 * a)
+			tt = minf(t1, t2) if minf(t1, t2) > 0.0 else maxf(t1, t2)
+	if tt <= 0.0:
+		return r
+	return r + tv * minf(tt, maxf(life - age, 0.5))
 
 
 ## Proximity check against a ship's hull (for grenades and mines).
@@ -172,6 +240,8 @@ func explode(hit: Node2D) -> void:
 	if exploded:
 		return
 	exploded = true
+	if data["guided"]:
+		_tally(missile_id, "hit" if hit != null else "blast")
 	world.missile_detonated(self, hit, float(data.get("blast", data.get("prox", 0.0))))
 	world.release_body(body)
 	queue_free()
@@ -193,6 +263,8 @@ func shoot_down() -> void:
 	if exploded:
 		return
 	exploded = true
+	if data["guided"]:
+		_tally(missile_id, "down")
 	world.missile_detonated(self, null, 0.0)
 	world.release_body(body)
 	queue_free()

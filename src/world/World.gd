@@ -30,6 +30,9 @@ const DUELIST_NEAREST := 500.0
 const IMPULSE_PER_DAMAGE := 180.0
 ## Closing speed below which a bump does no damage.
 const IMPACT_THRESHOLD := 60.0
+## A gun round other than a PDC's downs a munition only inside this share
+## of their two radii (a square hit); PDC rounds get the radii plus 2 px.
+const GUN_SHOOT_DOWN_REACH := 0.5
 
 var space: PhysicsSpace
 var planets: Array[Planet] = []
@@ -1233,7 +1236,13 @@ func _shoot_down_munitions() -> void:
 		for t: Missile in targets:
 			if t.exploded or t.owner_team == g.owner_team:
 				continue
+			# a PDC's stream is made to swat munitions; any other gun's round
+			# has to hit one square, so bolts fired at a ship seldom down the
+			# missiles coming the other way (Kyle, 2026-10-29: seekers were
+			# "super easy to shoot down")
 			var reach: float = g.radius + t.radius + 2.0
+			if g.missile_id != PointDefence.ROUND:
+				reach = (g.radius + t.radius) * GUN_SHOOT_DOWN_REACH
 			if Geometry2D.get_closest_point_to_segment(t.global_position, a, b).distance_to(t.global_position) <= reach:
 				g.shoot_down()
 				# a tough munition (a torpedo) takes more than one round
