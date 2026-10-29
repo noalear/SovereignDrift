@@ -35,7 +35,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if ship == null or ship.dead or world.paused or world.menu_open or ship.docked:
 		return
 	if event is InputEventMouseButton and event.pressed and not ship.is_landing() \
-			and not (event.button_index == MOUSE_BUTTON_LEFT and event.shift_pressed):   # Shift+click picks a target
+			and not event.is_action_pressed("select_target"):   # Shift+click (by default) picks a target, it doesn't fire
 		for action in mouse_fire:
 			if event.is_action(action):
 				mouse_fire[action] = true
@@ -51,6 +51,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if ship.is_landing():
 		return                          # on the way down or on the ground: B lifts off
+	if event.is_action_pressed("select_target"):
+		select_under_mouse()
+		return
 	if event.is_action_pressed("cloak"):
 		# the jammer works on the target, so the target travels with the command
 		if Net.is_client():
@@ -129,23 +132,26 @@ func _unhandled_input(event: InputEvent) -> void:
 		Settings.flight_assist = ship.flight_assist
 		Settings.save_settings()
 		world.notify(ship, "Flight assist on: the thrusters hold your turn." if ship.flight_assist else "Flight assist off: you spin until you stop yourself.")
-	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and event.shift_pressed:
-		# a ship under the cursor becomes the target; a world opens its info
-		# card (again closes it); empty space closes the card
-		var pos: Vector2 = world.get_global_mouse_position()
-		var s: Ship = world.ship_at(pos, 40.0 / world.camera.zoom.x)
-		if s != null and s != ship:
-			ship.target = s
-		else:
-			var pl: Planet = world.planet_at(pos, 30.0 / world.camera.zoom.x)
-			world.inspected_planet = null if pl == world.inspected_planet else pl
-			if pl != null:
-				Sfx.play_ui("click", 0.4)
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_MIDDLE:
 		var pos: Vector2 = world.get_global_mouse_position()
 		var s: Ship = world.ship_at(pos, 40.0 / world.camera.zoom.x)
 		if s != null and s != ship:
 			ship.target = s
+
+
+## The select key (Shift+click unless rebound): a ship under the cursor
+## becomes the target; a world opens its info card (again closes it);
+## empty space closes the card.
+func select_under_mouse() -> void:
+	var pos: Vector2 = world.get_global_mouse_position()
+	var s: Ship = world.ship_at(pos, 40.0 / world.camera.zoom.x)
+	if s != null and s != ship:
+		ship.target = s
+	else:
+		var pl: Planet = world.planet_at(pos, 30.0 / world.camera.zoom.x)
+		world.inspected_planet = null if pl == world.inspected_planet else pl
+		if pl != null:
+			Sfx.play_ui("click", 0.4)
 
 
 func _physics_process(_delta: float) -> void:
