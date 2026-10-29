@@ -178,6 +178,36 @@ def cannon(rng, v):
     return mix(widen(x, 0.3), reverb(x, 0.32, 1.0, seed=v) * 0.7)
 
 
+@sound("railgun", 5, -14.5, maxlen=1.1)
+def railgun(rng, v):
+    """Mass driver (railgun): the capacitors dump in a crack, the slug leaves
+    with a falling electric zip, the rails ring and a magnetic buzz dies away."""
+    d = 0.9
+    n = n_of(d)
+    t = time(d)
+    # discharge snap: a very short, very bright noise burst, driven hard
+    snap = drive(hp(white(n, rng), 1800) * env_exp(n, 0.0035) * 5, 3.5)
+    # the zip: an FM sweep from high to low as the slug leaves the rails
+    zp = ramp(n, J(rng, 5200), J(rng, 260))
+    zidx = env_points(n, [(0, 6.0), (0.05, 2.0), (0.3, 0.4)], 2.0)
+    zip_ = fm_op(zp, J(rng, 0.51, 0.02), zidx, n) * env_points(n, [(0, 0), (0.0015, 1), (0.06, 0.45), (0.3, 0)], 2.0)
+    zip_ = lp(zip_, ramp(n, 14000, 1200), 1.3)
+    # magnetic buzz: a gritty mains-like hum that fades under the tail
+    hz = J(rng, 96, 0.05)
+    buzz = square(np.full(n, hz), n, pw=0.3) * 0.5 + saw(np.full(n, hz * 2.01), n) * 0.3
+    buzz = bp(buzz, 900, 0.9) * env_points(n, [(0, 0), (0.004, 1), (0.12, 0.35), (0.55, 0)], 1.8)
+    # the rails ring: short metal partials, high and hard
+    ring = modal(white(n, rng) * env_exp(n, 0.0015), metal_modes(J(rng, 1450), 7, rng, (0.05, 0.35), 3.2)) * 2.0
+    # a firm low kick so it hits, but lighter than the cannon's boom
+    kick = sine(ramp(n, J(rng, 150), 45), n) * env_points(n, [(0, 0), (0.002, 1), (0.08, 0.3), (0.25, 0)], 1.8)
+    # stray arcing: sparse crackle under the first part
+    arc = crackle(n, rng, 260, 0.0004) * env_points(n, [(0, 0), (0.01, 1), (0.18, 0.2), (0.4, 0)], 1.5)
+    arc = hp(arc, 2500) * 0.35
+    x = drive(snap * 0.55 + zip_ * 0.8 + buzz * 0.35 + ring * 0.35 + kick * 0.9 + arc, 1.7)
+    x = eq(x, "peak", 3200, 2.0, 1.0)
+    return mix(widen(x, 0.35), delay(reverb(x, 0.22, 0.55, seed=v), 0.09, 0.25, 0.25, 4000, 0.02) * 0.6)
+
+
 def _beam_core(rng, n, base):
     t = np.arange(n) / RATE
     hum = (saw(base, n) + saw(base * 1.006, n, 0.3) + 0.6 * saw(base * 2.003, n, 0.7)) / 2.2
