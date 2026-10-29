@@ -2950,5 +2950,5 @@ func _part_info(id: String) -> String:
 			return "%s  dmg %d  %s%s" % [GameData.missile_display_name(base.race_id, p[3]).to_lower(), md["warhead"], GameData.class_name_of(GameData.weapon_class(id)),
 				("  ammo %d" % ammo) if ammo < 400 else ""]
 		"beam":
-			return "laser  range %d  %s" % [p[2] * 2.2, GameData.class_name_of(GameData.weapon_class(id))]
+			return "laser  range %d  %s" % [GameData.beam_range(id), GameData.class_name_of(GameData.weapon_class(id))]
 	return ""

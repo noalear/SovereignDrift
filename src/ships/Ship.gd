@@ -552,8 +552,8 @@ func _build_weapons() -> void:
 		elif m["func"] == "beam":
 			entry["slot"] = "beam"
 			entry["cost"] = 90.0 * (1.0 + (overload - 1.0) * 0.5)          # per second
-			entry["range"] = float(m["p"][2]) * 2.2
-			entry["dps"] = float(GameData.BEAM_DPS.get(w[0], 45.0 + float(m["p"][1]) * 0.15)) * GameData.DAMAGE_SCALE
+			entry["range"] = GameData.beam_range(w[0])
+			entry["dps"] = GameData.beam_dps(w[0])
 			entry["rate"] = 0.0
 		weapons.append(entry)
 		if is_turret(entry) or is_free_aim(entry):
