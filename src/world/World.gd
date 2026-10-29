@@ -754,6 +754,11 @@ func _physics_process(delta: float) -> void:
 	_update_sensor_links()
 	if Net.is_client():
 		Net.client_tick(delta)   # the host collides, scores and respawns
+		# shots fly on as the host fired them (steered by Missile itself);
+		# the host says where they go off, or where a Deflector turned them
+		for m in missiles:
+			if not m.exploded:
+				m.global_position += m.velocity * delta
 		# what the HUD shows from local state: the Sun's heat and the
 		# planet tally (the host burns and counts for real)
 		sun_heat = heat_at(player.global_position) if player != null and not player.dead else 0.0
