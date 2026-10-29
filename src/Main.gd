@@ -45,7 +45,8 @@ func _ready() -> void:
 
 
 ## `--host` hosts a game on port 7777, `--host-duel` a free-for-all duel,
-## `--host-survival` and `--host-skirmish` those modes;
+## `--host-survival` and `--host-skirmish` those modes, `--host-story` the
+## story campaign (the single-player save) in co-op;
 ## `--join=1.2.3.4` joins any of them (after `--` when run from the editor
 ## binary).  The Play online screen replaces this.
 func _start_from_command_line() -> void:
@@ -60,6 +61,9 @@ func _start_from_command_line() -> void:
 			return
 		if a == "--host-survival" or a == "--host-skirmish":
 			_host_mode(a.substr(7))
+			return
+		if a == "--host-story":
+			_host_story()
 			return
 		if a.begins_with("--join="):
 			Settings.use_profile("online")
@@ -110,6 +114,18 @@ func _host_mode(which: String) -> void:
 	Net.mode = which
 	if Net.host() == OK:
 		_start_game(false, true, "", false, false, which)
+	elif menu != null:
+		menu.online_status = "Could not open port %d. Is another game hosting?" % Net.PORT
+
+
+## The story campaign in co-op: the host's own story (the single-player
+## pilot and save); friends drop in as Lantern Squadron pilots.
+func _host_story() -> void:
+	Settings.use_profile("single")
+	Net.callsign = Settings.pilot_name
+	Net.mode = "story"
+	if Net.host() == OK:
+		_start_game(false, true, "story_continue")
 	elif menu != null:
 		menu.online_status = "Could not open port %d. Is another game hosting?" % Net.PORT
 
@@ -183,6 +199,7 @@ func _show_menu() -> void:
 	menu.story_load_pressed.connect(_open_saves.bind("load", null))
 	menu.host_pressed.connect(_host_game)
 	menu.duel_pressed.connect(_host_game.bind(true))
+	menu.story_host_pressed.connect(_host_story)
 	menu.mode_pressed.connect(func(which: String, online: bool):
 		if online:
 			_host_mode(which)
@@ -195,6 +212,9 @@ func _show_menu() -> void:
 func _process(delta: float) -> void:
 	if menu_camera != null and is_instance_valid(menu_camera):
 		menu_camera.global_position += Vector2(30.0, 6.0) * delta
+	# a friend's choice closes when the host decides
+	if story_choice != null and (world == null or world.story == null or world.story.choice.is_empty()):
+		_close_choice()
 	# a story choice comes up once the lines that lead to it are spoken
 	if world != null and world.story != null and not world.story.choice.is_empty() and story_choice == null:
 		choice_wait += delta
@@ -221,11 +241,14 @@ func _start_tutorial() -> void:
 ## "continue" for the saved one ("story_new" and "story_continue" for the
 ## story campaign); `duel` hosts a free-for-all; `tutorial` starts the
 ## voiced tutorial (a practice world); `arena` is "survival" or
-## "skirmish" for those modes, alone or hosted.
+## "skirmish" for those modes, alone or hosted.  A friend joining a hosted
+## story ("story_join") gets a world with a mirror of the host's story.
 func _start_game(practice := false, opponent := true, campaign := "", duel := false, tutorial_mode := false, arena := "") -> void:
 	if not Net.is_active():
 		Settings.use_profile("single")
 	Settings.save_settings()
+	if Net.is_client() and Net.mode == "story":
+		campaign = "story_join"
 	var story_mode := campaign.begins_with("story")
 	var save_path := SaveGame.STORY_PATH if story_mode else SaveGame.PATH
 	var saved := {}
@@ -253,7 +276,7 @@ func _start_game(practice := false, opponent := true, campaign := "", duel := fa
 	world.duel = duel
 	world.mode = arena
 	world.tutorial = tutorial_mode
-	world.campaign = campaign != ""
+	world.campaign = campaign != "" and not Net.is_client()      # a friend's game never saves the host's war
 	world.story_mode = story_mode
 	if story_mode:
 		world.map_scale = Story.MAP_SCALE
@@ -276,7 +299,9 @@ func _start_game(practice := false, opponent := true, campaign := "", duel := fa
 		return
 	if story_mode:
 		_open_story()
-		if campaign == "story_new":
+		if campaign == "story_join":
+			world.notify_all("The Frontier War: you fly for Lantern Squadron with the host. The host launches each operation; anyone can complete its objectives.", Color(0.8, 0.9, 1.0))
+		elif campaign == "story_new":
 			world.notify_all("The Frontier War. You fly for Lantern Squadron out of Earth. The Ceres Accord keeps the peace, for now. Commander Hale will call you in.", Color(0.8, 0.9, 1.0))
 			world.save_campaign(false)
 		else:
@@ -417,7 +442,7 @@ func _open_pause() -> void:
 	b3.add_theme_font_size_override("font_size", 20)
 	b3.pressed.connect(_open_settings.bind(b3))
 	box.add_child(b3)
-	if world.story != null and world.story.op != null:
+	if world.story != null and world.story.op != null:    # the host's or a lone pilot's
 		var br := Button.new()
 		br.text = "Restart the operation"
 		br.add_theme_font_size_override("font_size", 20)
@@ -427,7 +452,17 @@ func _open_pause() -> void:
 		box.add_child(br)
 		box.offset_top -= 30
 		box.offset_bottom += 30
-	if world.story_mode:
+	if world.story_mode and Net.is_client():
+		pass                     # a friend's game: the host keeps the story
+	elif world.story_mode and Net.is_active():
+		var bsv := Button.new()
+		bsv.text = "Save the story"
+		bsv.add_theme_font_size_override("font_size", 20)
+		bsv.pressed.connect(_open_saves.bind("save", bsv))
+		box.add_child(bsv)
+		box.offset_top -= 30
+		box.offset_bottom += 30
+	elif world.story_mode:
 		var bsv := Button.new()
 		bsv.text = "Save the story"
 		bsv.add_theme_font_size_override("font_size", 20)
@@ -690,12 +725,14 @@ func _close_story() -> void:
 ## failed operation, else where the story stands.
 func _story_key() -> void:
 	var st: Story = world.story
-	if st.failed != "":
+	if st.failed != "" and st.mirror:
+		world.notify(world.player, "The host tries the operation again from its briefing.")
+	elif st.failed != "":
 		retry_operation()
 	elif st.briefing_ready():
 		open_briefing()
-	elif st.op != null:
-		world.notify(world.player, "Operation %s under way: %s" % [st.op.spec["title"], st.op.objective_line()])
+	elif st.op_title() != "":
+		world.notify(world.player, "Operation %s under way: %s" % [st.op_title(), st.objective_line()])
 	elif st.index >= Story.OPS.size():
 		world.notify(world.player, "No more operations yet. Fly patrols, help the supply runs, and keep your eyes open.")
 	else:
@@ -736,6 +773,11 @@ func open_choice() -> void:
 	ui_layer.add_child(story_choice)
 	story_choice.chosen.connect(func(key: String):
 		var st: Story = world.story
+		if st.mirror:
+			# a friend's answer is a vote: the host decides
+			story_choice.voted = key
+			Net.client_command("vote:" + key)
+			return
 		_close_choice()
 		st.choose(key))
 
@@ -765,10 +807,18 @@ func _close_briefing() -> void:
 ## Try the operation again: the war as it was saved when it began, and its
 ## briefing.
 func retry_operation() -> void:
-	if world == null or not world.story_mode:
+	if world == null or not world.story_mode or Net.is_client():
 		return
-	_show_menu()
-	_start_game(false, true, "story_continue")
+	if Net.is_host():
+		# the friends stay: everyone goes back to the save, like a next round
+		_close_pause()
+		Net.host_clear_round()
+		_close_game()
+		_start_game(false, true, "story_continue")
+		Net.host_round_restarted()
+	else:
+		_show_menu()
+		_start_game(false, true, "story_continue")
 	await get_tree().process_frame
 	if world != null and world.story != null:
 		world.story.unlock_at = world.elapsed

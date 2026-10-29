@@ -212,7 +212,7 @@ func _draw_wing(p: Ship, vp: Vector2) -> void:
 	var y := vp.y - 340.0 - h        # clear of the radar's lock warnings
 	draw_rect(Rect2(x - 10, y, w + 20, h), Color(0.02, 0.04, 0.08, 0.6))
 	var head := "WING  ·  %s" % Wing.LABELS.get(order, order)
-	var t: Node2D = o.get("target", null)
+	var t: Variant = o.get("target", null)     # may be freed: a target removed from the world
 	if order == "attack" and t != null and is_instance_valid(t):
 		head = "WING  ·  Attacking " + (t.pilot_name if t is Ship else t.body_name)
 	draw_string(font, Vector2(x, y + 18), head, HORIZONTAL_ALIGNMENT_LEFT, w - 70, 15, WING_COLOR)

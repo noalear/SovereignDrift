@@ -42,13 +42,14 @@ func setup() -> void:
 
 
 func step(delta: float) -> void:
-	var p := player()
 	match stage:
 		"broadcast":
 			if stage_time > 4.0:
 				# the war goes hot, for good
 				world.accord = false
+				story.keep_peace()
 				world.notify_all("The Ceres Accord is over. The Drengin Empire is at war with Terra.", Color(1.0, 0.5, 0.4))
+				world.notify_all("The Arcean Union stays out of it: Arcean ships and worlds are still off limits to Terrans.", Color(0.8, 0.9, 1.0))
 				go("hold")
 		"hold":
 			var left := HOLD_TIME - stage_time
@@ -76,11 +77,10 @@ func step(delta: float) -> void:
 				_held()
 		"home":
 			var base: Ship = world.starbase_of(1)
-			if base != null and not p.dead and p.global_position.distance_to(base.global_position) < HOME_REACH:
+			if base != null and pilot_near(base.global_position, HOME_REACH) != null:
 				complete("home")
 				say("ab_done")
-				p.earn(600)
-				world.notify(p, "Operation pay: 600 credits.")
+				pay(600)
 				win()
 
 
@@ -88,7 +88,9 @@ func _send_wave(i: int) -> void:
 	var mars := planet("Mars")
 	var dir := (mars.global_position - luna.global_position).angle() if mars != null else 0.0
 	var from := luna.global_position + Vector2(WAVE_FROM, 0).rotated(dir)
-	var designs: Array = WAVES[i][1]
+	var designs: Array = WAVES[i][1].duplicate()
+	for k in range(designs.size(), scaled(designs.size())):
+		designs.append(WAVES[i][1][k % WAVES[i][1].size()])
 	for k in designs.size():
 		var at := from + Vector2((k % 3) * -160.0, (k - designs.size() * 0.5) * 180.0).rotated(dir)
 		var s := spawn("Drengin %s" % designs[k], 2, designs[k], "Claw of Varr %d-%d" % [i + 1, k + 1], at, luna.velocity, 5 + i)
@@ -138,6 +140,7 @@ func _relief() -> void:
 		var s: Ship = world.spawn_ship("Terran Captain %d" % (k + 1), 1, "Destroyer" if k > 0 else "Cruiser", "TSS %s" % ["Resolute", "Vigilant", "Steadfast"][k], at, luna.velocity, 7)
 		s.remove_meta("tutorial")
 		s.set_meta("ordered", true)
+		Net.host_ship_added(s)
 		var ai: AIPilot = s.get_node("AI")
 		ai.home = earth
 

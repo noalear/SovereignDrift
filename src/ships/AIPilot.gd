@@ -358,7 +358,7 @@ func _think() -> void:
 	if tgt == null and bombard and state == State.PATROL and escort == null:
 		tgt = _colony_to_bombard()
 	# the Accord: no first shot at another empire
-	if tgt != null and world.accord and not world.fair_game(ship.team(), tgt):
+	if tgt != null and world.keeps_peace() and not world.fair_game(ship.team(), tgt):
 		tgt = null
 	ship.target = tgt
 	var weak := shield_frac < 0.15 and hull_frac < 0.55
@@ -607,7 +607,7 @@ func _act(delta: float) -> void:
 			if ship.warping and far < 2500.0:
 				ship.end_warp()
 			if order() == "hold" and far < 1500.0:
-				var hb: Node2D = world.wing.order_of(escort).get("body", null)
+				var hb: Variant = world.wing.order_of(escort).get("body", null)
 				_close_on(spot, hb.velocity if hb != null and is_instance_valid(hb) else Vector2.ZERO)
 			else:
 				_steer_to(spot, delta, far < 900.0)

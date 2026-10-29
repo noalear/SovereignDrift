@@ -2,6 +2,7 @@
 ## on a big call from the ops room talks it through, beside the operation's
 ## name, place and orders.  Launch starts it; Not yet goes back to the war
 ## (the briefing waits).  Offline the war holds still while it is open.
+## Online only the host launches; a friend can read the briefing.
 class_name Briefing
 extends Control
 
@@ -27,6 +28,9 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	launch_button = _make_button("Launch the operation", func(): launch.emit())
 	_make_button("Not yet", func(): closed.emit())
+	if story.mirror:
+		launch_button.text = "The host launches it"
+		launch_button.disabled = true      # a friend reads along; the host's Launch starts it for everyone
 	launch_button.grab_focus()
 	resized.connect(_place_buttons)
 	_place_buttons()

@@ -94,6 +94,10 @@ var story: Story = null          # its director; the host runs it
 ## story's first act).  Pirates are fair game, and so is anyone who fires
 ## on another empire (accord_breach).
 var accord := false
+## Empires that keep the peace with each other after the Accord is gone:
+## [[a, b], ...] (the story: the Arceans stay out of Terra's war with Mars).
+## Like the Accord, a ship that fires across it is fair game for a while.
+var peace: Array = []
 const BREACH_MEMORY := 25.0      # seconds a ship that broke the Accord stays fair game
 var autosave_timer := AUTOSAVE_EVERY
 const AUTOSAVE_EVERY := 120.0
@@ -154,6 +158,8 @@ func _ready() -> void:
 		# never ticks, Net fills its fields for the HUD and the map
 		round_rules = Round.new()
 		round_rules.world = self
+		if story_mode:
+			story = Story.new(self, {}, true)     # the host's story, as Net tells it
 		Net.client_attach(self)
 	elif tutorial:
 		_spawn_tutorial()
@@ -389,6 +395,7 @@ func spawn_free_port() -> Ship:
 	st.reset_physics_interpolation()
 	st.body.pos = st.global_position
 	st.body.vel = st.velocity
+	Net.host_ship_added(st)
 	return st
 
 
@@ -442,8 +449,8 @@ func _spawn_tutorial() -> void:
 
 ## A ship for a tutorial lesson, flown by a computer pilot of `ai_rank`
 ## (-1: nobody at the helm).  It never relaunches once lost.
-func spawn_ship(pilot: String, race_id: int, design: String, ship_name: String, pos: Vector2, vel: Vector2, ai_rank: int = -1) -> Ship:
-	var s := _make_ship(pilot, race_id, design, ship_name, false)
+func spawn_ship(pilot: String, race_id: int, design: String, ship_name: String, pos: Vector2, vel: Vector2, ai_rank: int = -1, hull_race: int = -1) -> Ship:
+	var s := _make_ship(pilot, race_id, design, ship_name, false, hull_race)
 	s.set_meta("tutorial", true)
 	s.global_position = pos
 	s.velocity = vel
@@ -869,7 +876,7 @@ func nearest_enemy_ship(pos: Vector2, side: int, range_px: float, viewer: Ship =
 	for s in ships:
 		if s.dead or s.team() == side or s.is_landing() or s.race_id == GameData.NEUTRAL:
 			continue
-		if accord and not (viewer != null and viewer.is_player) and not fair_game(side, s):
+		if keeps_peace() and not (viewer != null and viewer.is_player) and not fair_game(side, s):
 			continue      # the Accord holds (the player still picks their own targets)
 		if s.spoken_for(side):
 			continue      # a friend is taking that one alive
@@ -955,7 +962,18 @@ func enemy_planets(race_id: int) -> Array:
 func at_war(a: int, b: int) -> bool:
 	if a == b:
 		return false
-	return not (accord and a >= 0 and a <= 2 and b >= 0 and b <= 2)
+	if accord and a >= 0 and a <= 2 and b >= 0 and b <= 2:
+		return false
+	for pair in peace:
+		if (pair[0] == a and pair[1] == b) or (pair[0] == b and pair[1] == a):
+			return false
+	return true
+
+
+## The Accord, or a peace between two empires after it: someone may be
+## off limits.
+func keeps_peace() -> bool:
+	return accord or not peace.is_empty()
 
 
 ## May side `side` attack `t` (a Ship or a Planet)?  At war with it, or
@@ -971,7 +989,7 @@ func fair_game(side: int, t: Node) -> bool:
 ## A shot across the Accord: `attacker` hit a ship or colony of an empire
 ## at peace with its own.  It is fair game for a while, and the story hears.
 func accord_breach(attacker: Node, victim: Node) -> void:
-	if not accord or not (attacker is Ship):
+	if not keeps_peace() or not (attacker is Ship):
 		return
 	var vside: int = victim.team() if victim is Ship else victim.owner_race
 	if attacker.team() == vside or at_war(attacker.team(), vside):
@@ -1440,7 +1458,7 @@ func _collect_powerups() -> void:
 # ----------------------------------------------------------- game events
 
 func _on_ship_damaged(s: Ship, amount: float) -> void:
-	if accord and s.last_attacker is Ship and s.last_attacker != s and Time.get_ticks_msec() / 1000.0 - s.last_attacked_at < 0.1:
+	if keeps_peace() and s.last_attacker is Ship and s.last_attacker != s and Time.get_ticks_msec() / 1000.0 - s.last_attacked_at < 0.1:
 		accord_breach(s.last_attacker, s)
 	if s.is_player:
 		last_player_damage = elapsed

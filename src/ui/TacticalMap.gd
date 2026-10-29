@@ -231,7 +231,7 @@ func _draw_wing(player: Ship) -> void:
 		draw_arc(at, 7.0, 0, TAU, 14, Color(col.r, col.g, col.b, 0.9), 1.2, true)
 	match o.get("order", ""):
 		"attack":
-			var t: Node2D = o.get("target", null)
+			var t: Variant = o.get("target", null)
 			if t != null and is_instance_valid(t):
 				var tp := to_map(t.global_position)
 				_dashed(me, tp, Color(1.0, 0.45, 0.35, 0.85))

@@ -438,7 +438,7 @@ func take_damage(amount: float, attacker: Node, _at: Vector2 = Vector2.ZERO, dty
 	under_attack = 8.0
 	if attacker is Ship:
 		last_attacker = attacker
-		if world != null and world.get("accord"):
+		if world != null and world.has_method("keeps_peace") and world.keeps_peace():
 			world.accord_breach(attacker, self)
 	var remaining := amount
 	var ms := maxf(GameData.damage_mult(dtype, "shield"), 0.001)

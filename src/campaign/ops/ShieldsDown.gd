@@ -1,0 +1,221 @@
+## Operation 6, Shields Down: Deimos is a Drengin forward base now.  The
+## pilots shoot its planetary shield down, the drop ships Anvil and
+## Bastion put Major Rhee's troops on the ground while it is down, and the
+## squad covers the ground battle from orbit until Deimos is Terran.
+extends StoryOp
+
+const SHIELD := 3000.0            # Deimos's planetary shield as the operation begins
+const GARRISON := {"infantry": 3.0, "armour": 1.0}
+const TROOPS := {"infantry": 4.0, "armour": 2.0}   # aboard each drop ship
+const DROP_HULL := 2.5            # the drop ships' hulls, times their design's
+const HOLD_OFF := 2400.0          # the drop ships wait this far from Deimos, outside its guns
+const CONTACT := 5000.0           # a pilot this close to Deimos: the defenders come up
+const DESCEND_REACH := 700.0      # from Deimos's surface: the drop ships go down
+const DEFENDERS := ["Destroyer", "Scout", "Scout"]
+const REINFORCE := ["Destroyer", "Scout"]
+const REINFORCE_AFTER := 25.0     # seconds into the ground battle
+
+var deimos: Planet
+var mars: Planet
+var brandt: Ship
+var droppers: Array = []
+var hold: Waypoint                # where the drop ships wait, riding with Deimos
+var fleet: Array = []
+var landed := {}                  # drop ship -> true once its troops are ashore
+var reinforced := false
+
+
+func setup() -> void:
+	deimos = planet("Deimos")
+	mars = planet("Mars")
+	_fortify()
+	var p := lead_pilot()
+	brandt = spawn("Lt. Brandt", 1, "Scout", "Lantern Two", p.global_position + Vector2(-140, 120).rotated(p.rotation), p.velocity, 6)
+	var ai: AIPilot = brandt.get_node("AI")
+	ai.escort = p
+	ai.state = AIPilot.State.ESCORT
+	brandt.died.connect(func(s, _k):
+		if not s.captured:
+			say("brandt_down"))
+	# the drop ships wait on the far side of Deimos from Mars
+	var away := (deimos.global_position - mars.global_position).normalized() if mars != null else Vector2.RIGHT
+	hold = waypoint("Drop ships' holding point", deimos, 80.0, away.rotated(0.6) * (deimos.radius + HOLD_OFF))
+	for i in 2:
+		var d := spawn("Drop pilot", 1, "DropShip", ["TSS Anvil", "TSS Bastion"][i], p.global_position + Vector2(-260 - 160 * i, -200 + 400 * i).rotated(p.rotation), p.velocity)
+		d.hull_max *= DROP_HULL
+		d.hull = d.hull_max
+		d.troops = TROOPS.duplicate()
+		d.nav_target = hold
+		d.autopilot = true
+		d.died.connect(_on_dropper_died)
+		droppers.append(d)
+	say("sd_start")
+	say("sd_rhee")
+	objective("approach", "Fly to Deimos with the drop ships Anvil and Bastion", deimos, "Deimos")
+	go("approach")
+
+
+## Deimos as the Drengin hold it: a colony with a planetary shield and a
+## garrison, whatever the open war has done to it.
+func _fortify() -> void:
+	if not deimos.is_colonised() or deimos.owner_race != 2:
+		deimos.surrender_to(2, maxf(deimos.population, GameData.MINOR_COLONY))
+	deimos.battle = {}
+	if not deimos.buildings.has("shield"):
+		deimos.buildings.append("shield")
+	deimos.pshield = SHIELD
+	deimos.pshield_down = 0.0
+	deimos.stock["fuel"] = maxf(deimos.stock.get("fuel", 0.0), 60.0)
+	deimos.garrison = GARRISON.duplicate()
+	deimos.fit_batteries()
+	Net.host_colony_changed(deimos)
+
+
+func step(delta: float) -> void:
+	match stage:
+		"approach":
+			_keep_drop_ships()
+			if pilot_near(deimos.global_position, CONTACT) != null:
+				complete("approach")
+				_defend()
+				say("sd_contact")
+				say("sd_shield")
+				objective("shield", "Shoot down Deimos's planetary shield", deimos, "Deimos shield")
+				objective("droppers", "Keep the drop ships alive", null, "", true)
+				go("shield")
+		"shield":
+			_keep_drop_ships()
+			_shield_text()
+			if not deimos.pshield_up():
+				complete("shield")
+				say("sd_down")
+				say("sd_drop")
+				objective("land", "Cover the drop ships down to Deimos before the shield comes back", _first_dropper, "Drop ships")
+				for d in droppers:
+					if alive(d) and not d.is_landing():
+						d.nav_target = deimos
+						d.autopilot = true
+				go("drop")
+		"drop":
+			if deimos.pshield_up():
+				# too slow: back to the holding point and knock it down again
+				say("sd_again")
+				set_text("shield", "Shoot Deimos's shield down again")
+				for o in objectives:
+					if o["id"] == "shield":
+						o["done"] = false
+				story.changed.emit()
+				go("shield")
+				return
+			for d in droppers:
+				if not alive(d) or landed.has(d):
+					continue
+				if not d.is_landing():
+					d.nav_target = deimos
+					d.autopilot = true
+					if d.global_position.distance_to(deimos.global_position) - deimos.radius < DESCEND_REACH:
+						d.start_landing(deimos)
+						Net.host_landing(d)
+				elif d.is_landed():
+					landed[d] = true
+					world.troop_command(d, "land")
+					if landed.size() == 1:
+						say("sd_landed")
+			if not landed.is_empty() and not deimos.battle.is_empty():
+				complete("land")
+				objective("ground", "Cover the ground battle on Deimos from orbit", deimos, "Deimos")
+				go("ground")
+		"ground":
+			# the second drop ship still comes down if it can
+			for d in droppers:
+				if alive(d) and not landed.has(d):
+					if not deimos.pshield_up() and not d.is_landing() and d.global_position.distance_to(deimos.global_position) - deimos.radius < DESCEND_REACH:
+						d.start_landing(deimos)
+						Net.host_landing(d)
+					elif d.is_landed():
+						landed[d] = true
+						world.troop_command(d, "land")
+					elif not d.is_landing():
+						d.nav_target = deimos if not deimos.pshield_up() else hold
+						d.autopilot = true
+			if deimos.owner_race == 1:
+				complete("ground")
+				complete("droppers")
+				say("sd_taken")
+				say("sd_done")
+				flag("deimos", "taken")
+				pay(700)
+				win()
+				return
+			if deimos.battle.is_empty() and _troops_left() == 0:
+				fail("The landing on Deimos was beaten back.", "sd_fail_beaten")
+				return
+			if not reinforced and stage_time > REINFORCE_AFTER:
+				reinforced = true
+				_reinforce()
+			if stage_time > 12.0:
+				say_once("sd_battle")
+
+
+## Before the shield is down the drop ships sit at the holding point.
+func _keep_drop_ships() -> void:
+	for d in droppers:
+		if alive(d) and not d.is_landing():
+			if d.nav_target != hold or (not d.autopilot and d.global_position.distance_to(hold.global_position) > 300.0):
+				d.nav_target = hold
+				d.autopilot = true
+
+
+func _shield_text() -> void:
+	set_text("shield", "Shoot down Deimos's planetary shield (%d%%)" % int(clampf(deimos.pshield / Ground.PSHIELD_HP, 0.0, 1.0) * 100.0))
+
+
+func _first_dropper() -> Variant:
+	for d in droppers:
+		if alive(d) and not landed.has(d):
+			return d
+	return null
+
+
+## Troops still aboard a drop ship that has not landed, or fighting.
+func _troops_left() -> int:
+	var n := 0
+	for d in droppers:
+		if alive(d) and not landed.has(d):
+			n += d.troop_count()
+	return n
+
+
+func _defend() -> void:
+	var a := randf() * TAU
+	var list: Array = DEFENDERS.duplicate()
+	for k in range(list.size(), scaled(list.size())):
+		list.append(DEFENDERS[k % DEFENDERS.size()])
+	for k in list.size():
+		var at := clear_spot(deimos.global_position, a + k * 0.5, deimos.radius + 900.0)
+		var s := spawn("Drengin %s" % list[k], 2, list[k], "Deimos Guard %d" % (k + 1), at, deimos.velocity, 5)
+		var ai: AIPilot = s.get_node("AI")
+		ai.patrol_point = deimos.global_position
+		fleet.append(s)
+
+
+func _reinforce() -> void:
+	var dir := (deimos.global_position - mars.global_position).angle() + PI if mars != null else 0.0
+	for k in scaled(REINFORCE.size()):
+		var design: String = REINFORCE[k % REINFORCE.size()]
+		var at := clear_spot(deimos.global_position, dir + k * 0.3, deimos.radius + 3500.0)
+		var s := spawn("Drengin %s" % design, 2, design, "Claw of Varr %d" % (k + 1), at, deimos.velocity, 6)
+		var ai: AIPilot = s.get_node("AI")
+		ai.patrol_point = deimos.global_position
+		fleet.append(s)
+	say("sd_reinforce")
+
+
+func _on_dropper_died(_s: Ship, _k: Node) -> void:
+	fail_objective("droppers")
+	for d in droppers:
+		if alive(d) and not landed.has(d):
+			say("sd_lost_one")
+			return
+	if landed.is_empty():
+		fail("Both drop ships were lost.", "sd_fail_droppers")

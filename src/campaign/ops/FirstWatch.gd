@@ -42,10 +42,10 @@ func setup() -> void:
 
 
 func step(_delta: float) -> void:
-	var p := player()
 	match stage:
 		"meet":
-			if not p.dead and p.global_position.distance_to(cormorant.global_position) < MEET_REACH:
+			var met := pilot_near(cormorant.global_position, MEET_REACH)
+			if met != null:
 				complete("meet")
 				say("fw_formed")
 				say("fw_cormorant")
@@ -56,7 +56,7 @@ func step(_delta: float) -> void:
 				start_dist = maxf(cormorant.global_position.distance_to(port.global_position), 1.0)
 				var ai: AIPilot = brandt.get_node_or_null("AI") if alive(brandt) else null
 				if ai != null:
-					ai.escort = p
+					ai.escort = met
 				go("escort")
 		"escort", "shadowed":
 			_hold_slow()
@@ -87,9 +87,12 @@ func step(_delta: float) -> void:
 				var ai: AIPilot = scout.get_node_or_null("AI")
 				if ai != null:
 					ai.patrol_point = mars.global_position
-				if stage_time < 6.0 and alive(p):
-					_jam(p)
-				if stage_time > 12.0 or (alive(p) and scout.global_position.distance_to(p.global_position) > 5000.0):
+				if stage_time < 6.0:
+					for s in pilots():
+						if alive(s):
+							_jam(s)
+				var lead := lead_pilot()
+				if stage_time > 12.0 or (alive(lead) and scout.global_position.distance_to(lead.global_position) > 5000.0):
 					world.remove_ship(scout)
 					scout = null
 			if stage_time > 4.0:
@@ -100,13 +103,12 @@ func step(_delta: float) -> void:
 				world.remove_ship(scout)
 				scout = null
 			var base: Ship = world.starbase_of(1)
-			if base != null and not p.dead and p.global_position.distance_to(base.global_position) < HOME_REACH:
+			if base != null and pilot_near(base.global_position, HOME_REACH) != null:
 				complete("home")
 				complete("hold_fire")
 				say("fw_done")
 				say("fw_done2")
-				p.earn(300)
-				world.notify(p, "Operation pay: 300 credits.")
+				pay(300)
 				win()
 
 
@@ -167,6 +169,6 @@ func _on_cormorant_died(_s: Ship, _killer: Node) -> void:
 
 
 func on_breach(attacker: Node, victim: Node) -> void:
-	if attacker == player() and (victim == scout or (victim is Ship and victim.race_id == 2) or (victim is Planet and victim.owner_race != 1)):
+	if is_pilot(attacker) and (victim == scout or (victim is Ship and victim.race_id == 2) or (victim is Planet and victim.owner_race != 1)):
 		fail_objective("hold_fire")
 		fail("You fired first on an Accord ship.", "fw_fail_breach")

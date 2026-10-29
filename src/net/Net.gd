@@ -12,7 +12,7 @@ signal session_ended(reason: String)
 signal round_restarted()       # the host started the next Conquest round (client)
 
 const PORT := 7777
-const PROTOCOL := 23   # 23: wings (orders, called pilots, the radio)
+const PROTOCOL := 24   # 24: the story campaign in co-op (session mode, story state, the voice)
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -20,6 +20,8 @@ const STATS_EVERY := 2.0        # scores, ranks and the round clock
 const SYSTEMS_EVERY := 0.25     # damaged systems, crews and boardings (changes only)
 const SYSTEMS_FULL_EVERY := 8   # ...and everything every this many sends
 const WINGS_EVERY := 1.0        # wingmen, their orders and what they are doing (and at once after an order)
+const STORY_MARKS_EVERY := 0.25  # where the story's objective marks are
+const SESSION_WAIT := 4.0        # a client waits this long for the host's session before building anyway
 
 enum Role { OFFLINE, HOST, CLIENT }
 
@@ -45,7 +47,10 @@ var snapshots_received := 0
 var inputs_received := 0
 var host_elapsed := 0.0
 var callsign := "Pilot"
-var mode := ""                   # "duel" for a free-for-all, "survival", "skirmish", "" for co-op Conquest (set before host())
+var mode := ""                   # "duel" for a free-for-all, "survival", "skirmish", "story" for the story campaign, "" for co-op Conquest (set before host(); a client hears it in _rpc_session)
+var story_timer := 0.0
+var _story_dirty := false
+var _session_begun := false      # the client has the host's session and builds its world
 var client: NetClient = null
 var lan: LanDiscovery = null
 var powerups_by_id := {}         # net_id -> Powerup
@@ -130,6 +135,8 @@ func leave() -> void:
 		lan.stop()
 	role = Role.OFFLINE
 	mode = ""
+	_session_begun = false
+	_story_dirty = false
 	world = null
 	client = null
 	ships_by_id.clear()
@@ -145,8 +152,25 @@ func leave() -> void:
 	ping_ms = 0.0
 
 
+## Connected: the host says what it is playing (_rpc_session) before this
+## client builds its world, since the story's Sol is bigger.  A host that
+## never says (an older version) still gets a world, and its refusal.
 func _on_connected() -> void:
 	status.emit("Connected. Waiting for the host...")
+	get_tree().create_timer(SESSION_WAIT).timeout.connect(func():
+		if is_client() and not _session_begun:
+			_begin_session(""))
+
+
+@rpc("authority", "reliable")
+func _rpc_session(which: String) -> void:
+	if is_client() and not _session_begun:
+		_begin_session(which)
+
+
+func _begin_session(which: String) -> void:
+	_session_begun = true
+	mode = which
 	session_started.emit()
 
 
@@ -167,6 +191,14 @@ func host_attach(p_world: Node) -> void:
 	world = p_world
 	for s in world.ships:
 		_register(s)
+	if world.story != null:
+		world.story.changed.connect(func(): _story_dirty = true)
+		world.story.line_started.connect(func(id: String):
+			if not seats.is_empty():
+				_rpc_story_line.rpc(id))
+		world.story.hushed.connect(func():
+			if not seats.is_empty():
+				_rpc_story_hush.rpc())
 
 
 func _register(s: Node) -> void:
@@ -178,6 +210,7 @@ func _register(s: Node) -> void:
 
 func _on_peer_connected(peer_id: int) -> void:
 	status.emit("Player %d connected." % peer_id)
+	_rpc_session.rpc_id(peer_id, mode)
 
 
 func _on_peer_disconnected(peer_id: int) -> void:
@@ -229,6 +262,8 @@ func _seat_player(peer_id: int, name: String, career_score: int = 0, career_kill
 	for s in world.ships:
 		if s.is_player or s.is_station or s.is_prize or s.support or s.net_id in seats.values():
 			continue
+		if s.has_meta("story") or s.has_meta("ordered"):
+			continue                   # the story's own pilots, and ships built to order, fly their parts
 		if s.race_id != world.player.race_id:
 			continue
 		if best == null or (best.dead and not s.dead):
@@ -251,6 +286,16 @@ func _seat_player(peer_id: int, name: String, career_score: int = 0, career_kill
 	for k in best.inputs.keys():
 		best.inputs[k] = false if typeof(best.inputs[k]) == TYPE_BOOL else 0.0
 	return best
+
+
+## The ships friends fly (host).
+func seated_ships() -> Array:
+	var out := []
+	for peer_id in seats:
+		var s: Node = ships_by_id.get(seats[peer_id], null)
+		if s != null and is_instance_valid(s):
+			out.append(s)
+	return out
 
 
 func _roster() -> Array:
@@ -336,6 +381,9 @@ func _rpc_hello(name: String, protocol: int, career_score: int = 0, career_kills
 	if world.round_rules != null and world.round_rules.over:
 		# the round is decided: the joiner sees the scoreboard and waits for the next
 		_rpc_round_over.rpc_id(peer_id, world.round_rules.result, false)
+	if world.story != null:
+		_rpc_story.rpc_id(peer_id, world.story.pack_live())
+		_rpc_story_marks.rpc_id(peer_id, world.story.pack_marks())
 	_rpc_seat_changed.rpc(s.net_id, name, true)
 	world.notify_all("%s joined the game as %s." % [name, s.design_name], Color(0.7, 1.0, 0.7))
 	lan.announce(_announcement(PORT))
@@ -466,6 +514,11 @@ func _rpc_command(cmd: String) -> void:
 			world.troop_command(s, cmd.get_slice(":", 1), cmd.get_slice(":", 2))
 		_ when cmd.begins_with("job:"):
 			world.job_command(s, int(cmd.get_slice(":", 1)))
+		_ when cmd.begins_with("vote:"):
+			if world.story != null:
+				var who: String = pilot_names.get(multiplayer.get_remote_sender_id(), s.pilot_name)
+				world.story.vote(who, cmd.get_slice(":", 1))
+				world.notify_all("%s would choose: %s." % [who, _option_label(cmd.get_slice(":", 1))], Color(0.85, 0.9, 1.0))
 		_ when cmd.begins_with("wing:"):
 			# the client's target travels with the order: a ship's id, or -1 - a planet's index
 			var tid := int(cmd.get_slice(":", 2))
@@ -1255,6 +1308,44 @@ func _rpc_radio(text: String, voice_path: String) -> void:
 		world.radio_heard.emit(voice_path)
 
 
+func _option_label(key: String) -> String:
+	if world == null or world.story == null:
+		return key
+	for row in world.story.choice.get("options", []):
+		if row[0] == key:
+			return str(row[1])
+	return key
+
+
+# --------------------------------------------------------- the story
+# The host runs the story (Story); each friend's world has a mirror that
+# shows the same objectives and marks, plays the same lines, and puts the
+# same choices (a friend's answer is a vote: the host decides).
+
+@rpc("authority", "reliable")
+func _rpc_story(state: Array) -> void:
+	if world != null and world.story != null:
+		world.story.apply_live(state)
+
+
+@rpc("authority", "unreliable_ordered", "call_remote", 4)
+func _rpc_story_marks(rows: Array) -> void:
+	if world != null and world.story != null:
+		world.story.apply_marks(rows)
+
+
+@rpc("authority", "reliable")
+func _rpc_story_line(id: String) -> void:
+	if world != null and world.story != null:
+		world.story.say(id)
+
+
+@rpc("authority", "reliable")
+func _rpc_story_hush() -> void:
+	if world != null and world.story != null:
+		world.story.hush()
+
+
 ## Every wing, its order and what each wingman is doing (Wing.pack rows).
 @rpc("authority", "reliable")
 func _rpc_wings(rows: Array) -> void:
@@ -1702,6 +1793,14 @@ func _physics_process(delta: float) -> void:
 	if snapshot_timer <= 0.0:
 		snapshot_timer += SNAPSHOT_INTERVAL
 		_send_snapshots()
+	if world.story != null:
+		if _story_dirty:
+			_story_dirty = false
+			_rpc_story.rpc(world.story.pack_live())
+		story_timer -= delta
+		if story_timer <= 0.0:
+			story_timer = STORY_MARKS_EVERY
+			_rpc_story_marks.rpc(world.story.pack_marks())
 	wings_timer -= delta
 	if wings_timer <= 0.0 or world.wing.dirty:
 		wings_timer = WINGS_EVERY

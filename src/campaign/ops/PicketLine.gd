@@ -44,10 +44,12 @@ func setup() -> void:
 
 
 func step(_delta: float) -> void:
-	var p := player()
 	match stage:
 		"load":
-			if p.cargo.get("alloys", 0.0) >= ALLOYS - 0.01 or frame.cargo.get("alloys", 0.0) >= ALLOYS - 0.01:
+			var loaded: bool = frame.cargo.get("alloys", 0.0) >= ALLOYS - 0.01
+			for s in pilots():
+				loaded = loaded or s.cargo.get("alloys", 0.0) >= ALLOYS - 0.01
+			if loaded:
 				complete("load")
 				say("pk_loaded")
 				objective("deliver", "Deliver the Alloys to the station frame over Luna: come alongside and unload (%s)" % Keybinds.short_text("cargo"), frame, "Station frame")
@@ -78,12 +80,11 @@ func step(_delta: float) -> void:
 				go("home")
 		"home":
 			var base: Ship = world.starbase_of(1)
-			if base != null and not p.dead and p.global_position.distance_to(base.global_position) < HOME_REACH:
+			if base != null and pilot_near(base.global_position, HOME_REACH) != null:
 				complete("home")
 				say("pk_done")
 				say("pk_done2")
-				p.earn(400)
-				world.notify(p, "Operation pay: 400 credits.")
+				pay(400)
 				flag("luna_station", true)
 				# the station stays: it is Luna's now
 				spawned.erase(frame)
@@ -91,14 +92,14 @@ func step(_delta: float) -> void:
 				win()
 
 
-## Three "pirates" come round Luna for the frame.
+## Three "pirates" come round Luna for the frame (more with friends along).
 func _raid() -> void:
 	var dir := (frame.global_position - luna.global_position).angle() + 2.2
 	var from := frame.global_position + Vector2(RAID_FROM, 0).rotated(dir)
-	var names := ["Rust Hound", "Rust Kite", "Rust Moth"]
-	for i in 3:
+	var names := ["Rust Hound", "Rust Kite", "Rust Moth", "Rust Gnat", "Rust Shrike", "Rust Wasp"]
+	for i in scaled(3):
 		var at := from + Vector2(0, (i - 1) * 140.0).rotated(dir) - Vector2(i % 2 * 120.0, 0).rotated(dir)
-		var r := spawn("Raider %d" % (i + 1), 3, "Raider" if i == 0 else "Scout", names[i], at, luna.velocity, 5)
+		var r := spawn("Raider %d" % (i + 1), 3, "Raider" if i == 0 else "Scout", names[i % names.size()], at, luna.velocity, 5)
 		r.hull_max *= RAID_HULL
 		r.hull = r.hull_max
 		r.rotation = (frame.global_position - at).angle()
@@ -125,5 +126,5 @@ func _on_frame_died(_s: Ship, _killer: Node) -> void:
 
 
 func on_breach(attacker: Node, victim: Node) -> void:
-	if attacker == player() and (victim is Ship and victim.race_id == 2 or victim is Planet and victim.owner_race != 1):
+	if is_pilot(attacker) and (victim is Ship and victim.race_id == 2 or victim is Planet and victim.owner_race != 1):
 		fail("You fired first on an Accord ship.", "fw_fail_breach")

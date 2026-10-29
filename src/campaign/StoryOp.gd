@@ -1,7 +1,9 @@
 ## StoryOp -- one operation of the story campaign.  An operation script
 ## extends this: setup() brings in its ships and first objectives, step()
 ## watches the war and moves the story on, and win() or fail() ends it.
-## Story runs it on the host.
+## Story runs it on the host.  In co-op every friend flying with the host
+## counts: pilots(), pilot_near() and is_pilot() are how an operation asks
+## "did someone get there", and scaled() grows its enemies with the squad.
 class_name StoryOp
 extends RefCounted
 
@@ -45,6 +47,53 @@ func player() -> Ship:
 
 func planet(n: String) -> Planet:
 	return world.planet_by_name.get(n, null)
+
+
+## Everyone flying the operation: the host's pilot and each friend seated
+## with them online (alive or waiting to relaunch).
+func pilots() -> Array:
+	var out := []
+	if world.player != null:
+		out.append(world.player)
+	if Net.is_host():
+		for s in Net.seated_ships():
+			if not out.has(s):
+				out.append(s)
+	return out
+
+
+## The nearest living pilot within `reach` of `at` (null: nobody there).
+func pilot_near(at: Vector2, reach: float) -> Ship:
+	var best: Ship = null
+	for s in pilots():
+		if alive(s) and s.global_position.distance_to(at) < reach:
+			if best == null or s.global_position.distance_to(at) < best.global_position.distance_to(at):
+				best = s
+	return best
+
+
+## A living pilot, the host's first, for where the story happens to them.
+func lead_pilot() -> Ship:
+	for s in pilots():
+		if alive(s):
+			return s
+	return player()
+
+
+func is_pilot(n: Variant) -> bool:
+	return n is Ship and pilots().has(n)
+
+
+## `n` enemies for one pilot: each friend flying along adds about half again.
+func scaled(n: int) -> int:
+	return roundi(n * (1.0 + 0.5 * (pilots().size() - 1)))
+
+
+## The operation's pay, to every pilot.
+func pay(amount: int) -> void:
+	for s in pilots():
+		s.earn(amount)
+		world.notify(s, "Operation pay: %d credits." % amount)
 
 
 # ------------------------------------------------------------ objectives
@@ -95,7 +144,9 @@ func objective_line() -> String:
 	return ""
 
 
-## [world position, label, colour] for each open objective with a mark.
+## [world position, label, colour, what it is on] for each open objective
+## with a mark (the last is the node, or null for a bare spot: Story.pack_marks
+## sends a ship or a world by its id, so a friend's ring rides on it).
 func marks() -> Array:
 	var out := []
 	for o in objectives:
@@ -104,12 +155,14 @@ func marks() -> Array:
 		var at: Variant = o["mark"]
 		if at is Callable:
 			at = at.call()
+		var on: Node2D = null
 		if at is Node2D:
 			if not is_instance_valid(at) or (at is Ship and at.dead):
 				continue
-			at = at.global_position
+			on = at
+			at = on.global_position
 		if at is Vector2:
-			out.append([at, o["label"] if o["label"] != "" else o["text"], Color(0.6, 1.0, 0.65) if o["optional"] else Color(1.0, 0.85, 0.35)])
+			out.append([at, o["label"] if o["label"] != "" else o["text"], Color(0.6, 1.0, 0.65) if o["optional"] else Color(1.0, 0.85, 0.35), on])
 	return out
 
 
@@ -166,10 +219,11 @@ func flag(key: String, value: Variant) -> void:
 ## A ship for this operation, flown by a computer pilot of `rank` (-1:
 ## nobody at the helm).  It never relaunches, and leaves when the
 ## operation ends.
-func spawn(pilot: String, race: int, design: String, ship_name: String, pos: Vector2, vel: Vector2, rank: int = -1) -> Ship:
-	var s: Ship = world.spawn_ship(pilot, race, design, ship_name, pos, vel, rank)
+func spawn(pilot: String, race: int, design: String, ship_name: String, pos: Vector2, vel: Vector2, rank: int = -1, hull_race: int = -1) -> Ship:
+	var s: Ship = world.spawn_ship(pilot, race, design, ship_name, pos, vel, rank, hull_race)
 	s.set_meta("story", true)
 	spawned.append(s)
+	Net.host_ship_added(s)            # friends online see it too
 	var ai: AIPilot = s.get_node_or_null("AI")
 	if ai != null:
 		# the operation gives the orders: no errands of its own
@@ -209,6 +263,32 @@ func keep_down(s: Ship) -> void:
 		e["offline"] = true
 		s.systems.changed = true
 	s.systems.quiet = 0.0
+
+
+## The Hammer's shipyard over Mars, `height` over its surface on the side
+## away from the Drengin starbase (Silent Running and Burn the Yards).
+func hammer_yard(height: float) -> Ship:
+	var m := planet("Mars")
+	var base: Ship = world.starbase_of(2)
+	var away := (m.global_position - base.global_position).normalized() if base != null else Vector2.RIGHT
+	var y: Ship = world.build_station(2, "Shipyard", m, m.global_position + away * (m.radius + height), false)
+	y.set_meta("story", true)
+	y.ship_name = "Varr Yards"
+	spawned.append(y)
+	return y
+
+
+## The Hammer in its cradle beside the yard, untouchable while it is.
+func hold_in_cradle(h: Ship, y: Ship, off: Vector2) -> void:
+	if not alive(h) or y == null or not is_instance_valid(y):
+		return
+	var at := y.global_position + off
+	h.global_position = at
+	h.velocity = y.velocity
+	h.body.pos = at
+	h.body.vel = y.velocity
+	h.rotation = off.angle() + PI * 0.5
+	h.invulnerable = 1.0
 
 
 func cleanup() -> void:

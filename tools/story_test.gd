@@ -1,8 +1,9 @@
 # Story campaign test: "New story" starts a Terran war under the Ceres
 # Accord (the empires hold their fire, a shot across it makes the shooter
 # fair game), Hale calls the player in, the briefing pauses the war and
-# launches the operation, and both operations of Act 1 play to the end the
-# way a pilot would (teleports where flying would take minutes).  Also: a
+# launches the operation, and every operation of Acts 1 and 2 plays to the
+# end the way a pilot would (teleports where flying would take minutes),
+# with both answers to the choices and the fail-forward endings.  Also: a
 # failed operation is tried again from the save made as it began, the
 # story's place survives a save, and every line has its recording.
 # Backs up and restores user://story.save and user://settings.cfg.
@@ -101,6 +102,16 @@ func _start() -> void:
 	_check(w.accord, "the Ceres Accord holds at the start")
 	_check(FileAccess.file_exists(SAVE), "a new story saves at once")
 	_check(main.comms != null and main.story_panel != null, "the call window and the objectives are up")
+	var from := OS.get_environment("STORY_FROM")     # e.g. STORY_FROM=8 runs ops 9 on (quick reruns)
+	if from != "":
+		w.accord = false
+		w.story.index = int(from)
+		w.story.flags["arceans"] = "allied"
+		w.story.keep_peace()
+		for f in [_silent_running, _burn_yards].slice(maxi(int(from) - 8, 0)):
+			await f.call()
+		_end()
+		return
 	await _accord_check(w)
 	await _first_watch()
 	await _slots_check()
@@ -109,6 +120,11 @@ func _start() -> void:
 	await _free_port()
 	await _picket_line()
 	await _accord_breaks()
+	await _shields_down()
+	await _wolf_pack()
+	await _envoy()
+	await _silent_running()
+	await _burn_yards()
 	_end()
 
 
@@ -515,6 +531,201 @@ func _accord_breaks() -> void:
 	_put(p, base.global_position + Vector2(300, 0), base.velocity)
 	await _frames(10)
 	_check(w.story.op == null and w.story.index == 5, "and The Accord Breaks still ends")
+
+
+## Act 2.  Once the Accord is gone the Arceans keep the peace with Terra.
+func _shields_down() -> void:
+	var w: World = main.world
+	_check(not w.accord and not w.at_war(0, 1) and w.at_war(1, 2) and w.at_war(0, 2), "after the Accord the Arceans stay out of Terra's war")
+	var op := await _launch("shields_down")
+	var p := w.player
+	var deimos: Planet = w.planet_by_name["Deimos"]
+	var droppers: Array = op.get("droppers")
+	_check(deimos.owner_race == 2 and deimos.pshield_up() and droppers.size() == 2, "Deimos is Drengin behind its shield, and two drop ships come along")
+	_check(droppers[0].troop_count() == 6 and droppers[0].design_name == "DropShip", "each drop ship carries troops (%d)" % droppers[0].troop_count())
+	_put(p, deimos.global_position + Vector2(deimos.radius + 3000.0, 0), deimos.velocity)
+	await _frames(5)
+	_check(op.stage == "shield" and op.get("fleet").size() == 3, "near Deimos its guard comes up (%d)" % op.get("fleet").size())
+	_check(droppers[0].landing_refusal(deimos) != "", "nothing lands through the shield")
+	deimos.take_damage(1e6, p)
+	await _frames(5)
+	_check(not deimos.pshield_up() and op.stage == "drop", "shooting the shield down sends the drop ships in")
+	for d in droppers:
+		_put(d, deimos.global_position + Vector2(deimos.radius + 300.0, 0).rotated(randf() * TAU), deimos.velocity)
+	for i in 60 * 12:
+		await _frames(1)
+		if op.stage == "ground":
+			break
+	_check(op.stage == "ground" and not deimos.battle.is_empty() and int(deimos.battle.get("race", -1)) == 1, "the drop ships land and the troops go in (stage %s)" % op.stage)
+	# the garrison breaks
+	deimos.garrison = {}
+	if not deimos.battle.is_empty():
+		deimos.battle["militia"] = 0.0
+	await _frames(10)
+	_check(deimos.owner_race == 1 and w.story.op == null and w.story.index == 6 and w.story.flags.get("deimos", "") == "taken", "Deimos is taken and Shields Down is won")
+
+
+func _wolf_pack() -> void:
+	var w: World = main.world
+	var op := await _launch("wolf_pack")
+	var p := w.player
+	var wing: Array = w.wing.members(p)
+	_check(wing.size() >= 2 and op.get("wingmen").size() == 2, "the flight lead has a wing of two (%d)" % wing.size())
+	var freighters: Array = op.get("freighters")
+	_check(freighters.size() == 3 and freighters[0].autopilot and op.get("escorts").size() == 2, "three supply ships and their escort burn for Mars")
+	_put(p, freighters[0].global_position + Vector2(-1500, 0), freighters[0].velocity)
+	await _frames(5)
+	_check(op.stage == "attack", "sighting the convoy")
+	w.wing.command(p, "attack", freighters[0])
+	await _frames(5)
+	_check(w.wing.order_of(p).get("order", "") == "attack", "the wing takes the attack order")
+	for f in freighters.duplicate():
+		f.take_damage(1e7, p)
+		await _frames(2)
+	await _frames(5)
+	_check(w.story.op == null and w.story.index == 7, "the convoy is cut and Wolf Pack is won")
+
+
+func _envoy() -> void:
+	var w: World = main.world
+	var op := await _launch("envoy")
+	var p := w.player
+	var envoy: Ship = op.get("envoy")
+	_check(envoy != null and envoy.race_id == 0 and envoy.hull_race == 0, "Speaker Tenn's Arcean ship waits in the belt")
+	_put(p, envoy.global_position + Vector2(400, 0), envoy.velocity)
+	await _frames(5)
+	_check(op.stage == "escort" and envoy.autopilot, "meeting the envoy, it sets off for Earth")
+	var dest: Node2D = op.get("dest")
+	var half: Vector2 = envoy.global_position.lerp(dest.global_position, 0.6)
+	_put(envoy, half, envoy.velocity)
+	_put(p, half + Vector2(200, 200), envoy.velocity)
+	await _frames(60 * 11)
+	var pirates: Array = op.get("pirates")
+	_check(op.stage == "ambush" and pirates.size() == 3 and pirates[0].race_id == 3, "Mags Corrigan's pirates come for the envoy (stage %s)" % op.stage)
+	var brandt: Ship = op.get("brandt")
+	_check(brandt.target != envoy and w.nearest_enemy_ship(envoy.global_position, 1, 3000.0) != envoy, "no Terran takes the Arcean ship for an enemy")
+	for r in pirates:
+		if is_instance_valid(r) and not r.dead:
+			r.take_damage(1e7, p)
+	await _frames(60 * 5)
+	_check(op.stage == "escort2" and op.done("pirates"), "the pirates driven off, on to Earth")
+	_put(envoy, dest.global_position + Vector2(300, 0), dest.velocity)
+	await _frames(5)
+	_check(op.stage == "choice" or op.stage == "asked", "at the starbase Tenn asks")
+	await _answer("share")
+	await _frames(60 * 7)
+	_check(w.story.op == null and w.story.index == 8 and w.story.flags.get("arceans", "") == "allied" and w.story.flags.get("choice_envoy", "") == "share", "showing Tenn the evidence: the Arceans side with Terra")
+	# the other answer
+	w.story.index = 7
+	op = await _launch("envoy")
+	envoy = op.get("envoy")
+	var credits := p.credits
+	_put(p, envoy.global_position + Vector2(400, 0), envoy.velocity)
+	await _frames(5)
+	dest = op.get("dest")
+	_put(envoy, dest.global_position + Vector2(300, 0), dest.velocity)
+	await _frames(5)
+	await _answer("keep")
+	await _frames(60 * 7)
+	_check(w.story.op == null and w.story.flags.get("arceans", "") == "neutral" and p.credits >= credits + 1000, "keeping it: Intelligence pays and the Arceans stay out")
+	# firing on the envoy ends it
+	w.story.index = 7
+	op = await _launch("envoy")
+	envoy = op.get("envoy")
+	envoy.take_damage(5.0, p)
+	await _frames(5)
+	_check(w.story.op == null and w.story.failed != "", "firing on the envoy fails the operation")
+	main.retry_operation()
+	for i in 4:
+		await process_frame
+	w = main.world
+	if main.briefing != null:
+		main._close_briefing()
+	w.story.index = 8
+	w.story.flags["envoy"] = "won"
+	w.story.flags["arceans"] = "allied"
+
+
+func _silent_running() -> void:
+	var w: World = main.world
+	var op := await _launch("silent_running")
+	var p := w.player
+	var yard: Ship = op.get("yard")
+	var hammer: Ship = op.get("hammer")
+	var pickets: Array = op.get("pickets")
+	_check(yard != null and yard.design_name == "Shipyard" and hammer.design_name == "Dreadnought" and pickets.size() == 4, "the Hammer in its yard over Mars, inside a net of four pickets")
+	# loud, close to a picket: heard
+	var c: Ship = pickets[0]
+	p.set_silent(false)
+	for i in 60 * 5:
+		_put(p, c.global_position + Vector2(900, 0), c.velocity)
+		p.inputs["thrust"] = 1.0
+		await _frames(1)
+		if w.story.op == null:
+			break
+	p.inputs["thrust"] = 0.0
+	_check(w.story.op == null and w.story.failed != "", "a picket that hears a loud ship raises the alarm")
+	main.retry_operation()
+	for i in 4:
+		await process_frame
+	w = main.world
+	if main.briefing != null:
+		main.briefing.launch.emit()
+	await process_frame
+	op = w.story.op
+	p = w.player
+	hammer = op.get("hammer")
+	yard = op.get("yard")
+	p.set_silent(true)
+	for i in 60 * 3:
+		await _frames(1)
+		if w.story.op == null:
+			break
+	_check(w.story.op != null, "running silent from the start, nothing hears (failed: %s, %d from the yard)" % [w.story.failed, p.global_position.distance_to(yard.global_position) if is_instance_valid(yard) else -1])
+	if w.story.op == null:
+		return
+	var off: Vector2 = (hammer.global_position - op.get("yard").global_position).normalized() * (hammer.size + 400.0)
+	for i in 60 * 8:
+		_put(p, hammer.global_position + off, hammer.velocity)
+		await _frames(1)
+		if op.stage == "out" or w.story.op == null:
+			break
+	_check(op.done("scan") and w.story.failed == "", "silent beside the Hammer, the scan goes through unheard (failed: %s)" % w.story.failed)
+	_check(hammer.invulnerable > 0.0, "the Hammer cannot be hurt in its cradle")
+	_put(p, op.get("yard").global_position + Vector2(9000, 0), w.planet_by_name["Mars"].velocity)
+	await _frames(10)
+	_check(w.story.op == null and w.story.index == 9 and w.story.flags.get("hammer_scan", false), "out of the net with the scan: Silent Running is won")
+	p.set_silent(false)
+
+
+func _burn_yards() -> void:
+	var w: World = main.world
+	var op := await _launch("burn_yards")
+	var p := w.player
+	var yard: Ship = op.get("yard")
+	var strike: Array = op.get("strike")
+	_check(strike.size() == 3 and strike[0].target == yard, "the Resolute's strike group goes for the yard")
+	op.stage_time = 25.0
+	await _frames(3)
+	_check(op.get("fleet").size() == 3, "the yard's guard comes up from Mars")
+	yard.take_damage(1e8, p)
+	await _frames(10)
+	_check(op.stage == "burned" and w.story.flags.get("hammer", "") == "crippled", "the yard burns with the Hammer in it")
+	_put(p, w.planet_by_name["Mars"].global_position + Vector2(9000, 0), w.planet_by_name["Mars"].velocity)
+	await _frames(10)
+	_check(w.story.op == null and w.story.index == 10, "Burn the Yards is won")
+	# fail forward: the Hammer launches
+	w.story.index = 9
+	op = await _launch("burn_yards")
+	var yard2: Ship = op.get("yard")
+	_put(p, yard2.global_position + Vector2(5000, 0), yard2.velocity)
+	op.stage_time = 330.0 - 0.5
+	await _frames(60)
+	var hammer: Variant = op.get("hammer")
+	_check(op.stage == "launched" and w.story.flags.get("hammer", "") == "launched" and is_instance_valid(hammer) and hammer.invulnerable <= 0.0, "too slow: the Hammer launches (stage %s, flag %s, valid %s, inv %s)" % [op.stage, w.story.flags.get("hammer", ""), is_instance_valid(hammer), hammer.invulnerable if is_instance_valid(hammer) else -1.0])
+	_put(p, w.planet_by_name["Mars"].global_position + Vector2(9000, 0), w.planet_by_name["Mars"].velocity)
+	await _frames(10)
+	_check(w.story.op == null and w.story.index == 10, "and Burn the Yards still ends, the Hammer loose")
 
 
 func _end() -> void:
