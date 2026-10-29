@@ -51,6 +51,7 @@ func _start() -> void:
 		settings.use_profile("single")
 	else:
 		settings.use_profile("online")
+	Story.interludes = false        # the fades between operations are story_test's to check
 	settings.pilot_name = "HostPilot" if is_host else "Joiner"
 	settings.race_id = 1
 	net = root.get_node("/root/Net")

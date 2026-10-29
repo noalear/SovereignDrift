@@ -19,47 +19,48 @@ signal line_started(id: String)
 signal changed()
 signal choice_asked()
 signal hushed()
+signal interlude(index: int)       # fade to the next operation: its stardate card (Main shows it)
 
 ## The operations in order.  wait: seconds of open war before it is
 ## offered (counted from the end of the one before).
 const OPS := [
-	{"id": "first_watch", "act": 1, "title": "First Watch", "where": "Earth to the Jupiter free port", "wait": 6.0,
+	{"id": "first_watch", "act": 1, "title": "First Watch", "where": "Earth to the Jupiter free port", "wait": 6.0, "day": 312,
 		"call": "call_first_watch", "brief": ["fw_brief_1", "fw_brief_2", "fw_brief_3"],
 		"summary": "Escort the supply ship Cormorant from Earth to the free port at Jupiter's Trojan point with Lt. Brandt. The Ceres Accord holds: never fire first on a Drengin or Arcean ship.",
 		"script": "res://src/campaign/ops/FirstWatch.gd"},
-	{"id": "dark_convoy", "act": 1, "title": "Dark Convoy", "where": "The asteroid belt, near Ceres", "wait": 150.0,
+	{"id": "dark_convoy", "act": 1, "title": "Dark Convoy", "where": "The asteroid belt, near Ceres", "wait": 20.0, "day": 315,
 		"call": "call_dark_convoy", "brief": ["dc_brief_1", "dc_brief_2", "dc_brief_3"],
 		"summary": "Find the missing fuel convoy near Ceres and scan the wrecks. If you meet the raiders, disable one and board it.",
 		"script": "res://src/campaign/ops/DarkConvoy.gd"},
-	{"id": "free_port", "act": 1, "title": "Free Port", "where": "The free port at Jupiter's Trojan point", "wait": 150.0,
+	{"id": "free_port", "act": 1, "title": "Free Port", "where": "The free port at Jupiter's Trojan point", "wait": 20.0, "day": 317,
 		"call": "call_free_port", "brief": ["port_brief_1", "port_brief_2", "port_brief_3"],
 		"summary": "Get the raiders' transponder records from the broker Ilsa Marrow at the free port. Pay her price, or copy them under silent running. No weapons at the port.",
 		"script": "res://src/campaign/ops/FreePort.gd"},
-	{"id": "picket_line", "act": 1, "title": "Picket Line", "where": "Earth to Luna", "wait": 150.0,
+	{"id": "picket_line", "act": 1, "title": "Picket Line", "where": "Earth to Luna", "wait": 20.0, "day": 320,
 		"call": "call_picket_line", "brief": ["pk_brief_1", "pk_brief_2", "pk_brief_3"],
 		"summary": "Land on Earth for 8 Alloys and deliver them to the defense station frame over Luna with Lt. Brandt, then guard it until it is built.",
 		"script": "res://src/campaign/ops/PicketLine.gd"},
-	{"id": "accord_breaks", "act": 1, "title": "The Accord Breaks", "where": "Luna", "wait": 120.0,
+	{"id": "accord_breaks", "act": 1, "title": "The Accord Breaks", "where": "Luna", "wait": 20.0, "day": 322,
 		"call": "call_accord_breaks", "brief": ["ab_brief_1", "ab_brief_2", "ab_brief_3"],
 		"summary": "The Drengin come for Luna. Hold it with Lt. Brandt for six minutes until the fleet arrives. If Luna falls, fall back: the war goes on either way.",
 		"script": "res://src/campaign/ops/AccordBreaks.gd"},
-	{"id": "shields_down", "act": 2, "title": "Shields Down", "where": "Deimos, over Mars", "wait": 150.0,
+	{"id": "shields_down", "act": 2, "title": "Shields Down", "where": "Deimos, over Mars", "wait": 20.0, "day": 341,
 		"call": "call_shields_down", "brief": ["sd_brief_1", "sd_brief_2", "sd_brief_3"],
 		"summary": "Shoot down Deimos's planetary shield, cover the drop ships Anvil and Bastion down to the surface, and hold over the ground battle until Deimos is Terran.",
 		"script": "res://src/campaign/ops/ShieldsDown.gd"},
-	{"id": "wolf_pack", "act": 2, "title": "Wolf Pack", "where": "The Venus to Mars lane", "wait": 150.0,
+	{"id": "wolf_pack", "act": 2, "title": "Wolf Pack", "where": "The Venus to Mars lane", "wait": 20.0, "day": 348,
 		"call": "call_wolf_pack", "brief": ["wp_brief_1", "wp_brief_2", "wp_brief_3"],
 		"summary": "Lead your own wing, Lantern Three and Four, against a Drengin supply convoy running from Venus to Mars. Two freighters through and it's over.",
 		"script": "res://src/campaign/ops/WolfPack.gd"},
-	{"id": "envoy", "act": 2, "title": "The Envoy", "where": "Saturn to Earth", "wait": 150.0,
+	{"id": "envoy", "act": 2, "title": "The Envoy", "where": "Saturn to Earth", "wait": 20.0, "day": 353,
 		"call": "call_envoy", "brief": ["env_brief_1", "env_brief_2", "env_brief_3"],
 		"summary": "Meet the Arcean envoy Speaker Tenn in the belt and bring the ship safely to the Terran starbase. Pirates work that stretch. Never fire on an Arcean ship.",
 		"script": "res://src/campaign/ops/Envoy.gd"},
-	{"id": "silent_running", "act": 2, "title": "Silent Running", "where": "Mars orbit", "wait": 150.0,
+	{"id": "silent_running", "act": 2, "title": "Silent Running", "where": "Mars orbit", "wait": 20.0, "day": 360,
 		"call": "call_silent_running", "brief": ["sr_brief_1", "sr_brief_2", "sr_brief_3"],
 		"summary": "Slip through the picket net round the shipyard over Mars under silent running, scan the Hammer, and get out unheard. Jam a picket that comes too close.",
 		"script": "res://src/campaign/ops/SilentRunning.gd"},
-	{"id": "burn_yards", "act": 2, "title": "Burn the Yards", "where": "The Varr shipyard over Mars", "wait": 120.0,
+	{"id": "burn_yards", "act": 2, "title": "Burn the Yards", "where": "The Varr shipyard over Mars", "wait": 20.0, "day": 362,
 		"call": "call_burn_yards", "brief": ["by_brief_1", "by_brief_2", "by_brief_3"],
 		"summary": "Go in with the Resolute's strike group and burn the Hammer's shipyard before its cradle opens. If the Hammer launches, fall back: the war goes on either way.",
 		"script": "res://src/campaign/ops/BurnTheYards.gd"},
@@ -68,6 +69,10 @@ const OPS := [
 ## map up huge ... it takes time to get places").
 const MAP_SCALE := 3.0
 const ACTS := ["", "Act 1: Cold Orbit", "Act 2: Open War", "Act 3: Hammer of Mars"]
+const YEAR := 2471                # the war's year: an operation's stardate is YEAR.<its "day">
+const INTERLUDE_AFTER := 4.0      # seconds after an operation ends before the fade (and the wrap-up talk is done)
+const INTERLUDE_LATEST := 20.0    # fade by then even if someone is still talking
+const STORY_WORLDS := ["Luna", "Deimos"]   # worlds the operations take or lose: tidy_world leaves them be
 const PORT_MARKUP := 0.25         # on the free port's prices for Terrans once the records were stolen
 const BREACH_WARN_EVERY := 30.0   # Hale's "hold your fire" between operations
 
@@ -76,6 +81,8 @@ var index := 0                    # the operation offered or under way; OPS.size
 var op: StoryOp = null            # the operation under way
 var flags := {}                   # what the story remembers: choices, outcomes
 var unlock_at := 0.0              # world.elapsed when the next operation is offered
+static var interludes := true     # false: tests step through the story without the fades
+var interlude_at := INF           # world.elapsed when the fade to the next operation's stardate begins
 var called := false               # Hale has called the player in for it
 var failed := ""                  # why the operation failed ("" = it did not): waiting for a retry
 var briefing_open := false        # the player is reading the briefing (Main's Briefing)
@@ -105,25 +112,87 @@ func _init(p_world: Node, saved: Dictionary = {}, p_mirror := false) -> void:
 		unlock_at = INF
 		return
 	if saved.is_empty():
-		# a new story begins in peacetime
+		# a new story begins in peacetime, with the first stardate
 		world.accord = true
-		unlock_at = world.elapsed + float(OPS[0]["wait"])
+		if interludes:
+			unlock_at = INF
+			interlude_at = world.elapsed + 0.5
+		else:
+			unlock_at = world.elapsed + float(OPS[0]["wait"])
 	else:
 		index = clampi(int(saved.get("index", 0)), 0, OPS.size())
 		flags = saved.get("flags", {}).duplicate(true)
 		world.accord = bool(saved.get("accord", true))
-		unlock_at = world.elapsed + float(saved.get("wait", 4.0))
+		unlock_at = world.elapsed + minf(float(saved.get("wait", 4.0)), float(OPS[mini(index, OPS.size() - 1)]["wait"]))
 		keep_peace()
+		tidy_world()
 
 
 func pack() -> Dictionary:
-	return {"index": index, "flags": flags.duplicate(true), "accord": world.accord, "wait": maxf(unlock_at - world.elapsed, 4.0)}
+	return {"index": index, "flags": flags.duplicate(true), "accord": world.accord, "wait": clampf(unlock_at - world.elapsed, 4.0, 60.0)}
+
+
+## A story saved before the war was scripted carries the old free-running
+## war along: empire fleets, haulers, pirates, stations they built and the
+## worlds they took.  Clear them away; the worlds the story itself has
+## changed keep what it made of them.
+func tidy_world() -> void:
+	for s in world.ships.duplicate():
+		if world.is_pilot(s) or s.is_starbase() or (s.race_id == GameData.NEUTRAL and s.design_name == "TradeStation"):
+			continue
+		if s.is_prize and world.is_pilot(s.prize_of):
+			continue           # a prize the player took flies on with them
+		world.remove_ship(s)
+	for p in world.planets:
+		if p.body_name in STORY_WORLDS:
+			continue
+		var c: Array = GameData.COLONIES.get(p.body_name, [])
+		if c.is_empty():
+			if p.is_colonised():
+				p.clear_colony()
+				p.clear_ground()
+		elif p.owner_race != c[0] or p.colony_design != c[1]:
+			p.set_colony(c[0], c[1], c[2])
+			p.clear_ground()
+			Ground.seed_planet(p, GameData.STARBASES.get(p.owner_race, "") == p.body_name)
 
 
 ## Once the Accord is gone the Arceans stay out of Terra's war with Mars,
 ## unless the story has turned them.
 func keep_peace() -> void:
 	world.peace = [[0, 1]] if not world.accord and flags.get("arceans", "") != "hostile" else []
+
+
+## Behind the stardate card: days pass, the pilots are back at their
+## starbase, mended and fuelled, and the next operation is offered.
+func interlude_done() -> void:
+	if mirror or op != null:
+		return
+	for s in world.ships:
+		if world.is_pilot(s) and not s.dead:
+			world.send_home(s)
+	unlock_at = world.elapsed
+	called = true                     # the card says it: no call over the top
+	changed.emit()
+
+
+## The stardate of operation `i`, and how long since the one before.
+static func stardate(i: int) -> String:
+	return "%d.%03d" % [YEAR, int(OPS[clampi(i, 0, OPS.size() - 1)]["day"])]
+
+
+static func days_since(i: int) -> String:
+	if i <= 0 or i >= OPS.size():
+		return ""
+	var n: int = int(OPS[i]["day"]) - int(OPS[i - 1]["day"])
+	if n <= 0:
+		return "Later that day"
+	if n == 1:
+		return "The next day"
+	var words := ["", "", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"]
+	if n < words.size():
+		return "%s days later" % words[n]
+	return "%d days later" % n if n < 14 else ("%s weeks later" % ["", "", "Two", "Three", "Four"][mini(n / 7, 4)])
 
 
 func in_op() -> bool:
@@ -229,6 +298,13 @@ func tick(delta: float) -> void:
 			"failed":
 				_fail(op.fail_reason)
 		return
+	if interlude_at < INF and failed == "":
+		if briefing_ready():
+			interlude_at = INF          # offered already (a test, a load): no fade needed
+		elif world.elapsed >= interlude_at and (not speaking() or world.elapsed >= interlude_at + INTERLUDE_LATEST):
+			interlude_at = INF
+			interlude.emit(index)
+			Net.host_story_interlude(index)
 	if briefing_ready() != _was_ready:
 		_was_ready = not _was_ready
 		changed.emit()
@@ -265,7 +341,12 @@ func _finish() -> void:
 	index += 1
 	called = false
 	if index < OPS.size():
-		unlock_at = world.elapsed + float(OPS[index]["wait"])
+		# the wrap-up talk, then the fade to the next stardate
+		if interludes:
+			unlock_at = INF
+			interlude_at = world.elapsed + INTERLUDE_AFTER
+		else:
+			unlock_at = world.elapsed + float(OPS[index]["wait"])
 	else:
 		unlock_at = INF
 		say("call_more")

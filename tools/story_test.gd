@@ -93,6 +93,7 @@ func _start() -> void:
 			contb = b
 	_check(not newb.is_empty(), "the menu has New story")
 	_check(not contb.is_empty() and contb[3] == false, "Continue story is greyed out with no save")
+	Story.interludes = false        # stepped through below; _interlude_check runs one fade
 	main._start_game(false, true, "story_new")
 	await process_frame
 	await process_frame
@@ -102,18 +103,32 @@ func _start() -> void:
 	_check(w.accord, "the Ceres Accord holds at the start")
 	_check(FileAccess.file_exists(SAVE), "a new story saves at once")
 	_check(main.comms != null and main.story_panel != null, "the call window and the objectives are up")
-	var from := OS.get_environment("STORY_FROM")     # e.g. STORY_FROM=8 runs ops 9 on (quick reruns)
+	var extras := []
+	for s in w.ships:
+		if not (s.is_player or s.is_starbase() or s.design_name == "TradeStation"):
+			extras.append(s.ship_name)
+	_check(extras.is_empty(), "the story is scripted: no empire fleets, haulers or pirates of their own (%s)" % [extras])
+	# a save from before the scripted war: a stray battleship and a world the old war took
+	var stray := w.spawn_ship("Stray", 2, "Battleship", "Old War", w.player.global_position + Vector2(3000, 0), Vector2.ZERO, 8)
+	stray.remove_meta("tutorial")
+	var venus: Planet = w.planet_by_name["Venus"]
+	var venus_was: int = venus.owner_race
+	venus.surrender_to(2 if venus_was != 2 else 0, maxf(venus.population, GameData.MINOR_COLONY))
+	w.story.tidy_world()
+	_check(not w.ships.has(stray) and venus.owner_race == venus_was, "loading an old story save clears the old war's ships and conquests")
+	var from := OS.get_environment("STORY_FROM")     # e.g. STORY_FROM=7 runs ops 8 on (quick reruns)
 	if from != "":
 		w.accord = false
 		w.story.index = int(from)
 		w.story.flags["arceans"] = "allied"
 		w.story.keep_peace()
-		for f in [_silent_running, _burn_yards].slice(maxi(int(from) - 8, 0)):
+		for f in [_envoy, _silent_running, _burn_yards].slice(maxi(int(from) - 7, 0)):
 			await f.call()
 		_end()
 		return
 	await _accord_check(w)
 	await _first_watch()
+	await _interlude_check()
 	await _slots_check()
 	await _retry_check()
 	await _dark_convoy()
@@ -156,6 +171,11 @@ func _accord_check(w: World) -> void:
 	for s in [t, d]:
 		s.get_node("AI").bombard = false
 		s.get_node("AI").ferry = false
+	_check(w.ship_color(p, d) == World.PEACE_COLOR and not w.shown_hostile(p, d), "under the Accord a Drengin ship shows in peace gold, not hostile red")
+	_check(w.colony_color(1, 2) == World.PEACE_COLOR, "and so do Drengin worlds")
+	w.accord = false
+	_check(w.ship_color(p, d) == d.race_color() and w.shown_hostile(p, d), "at war it shows hostile")
+	w.accord = true
 	var hull_t := t.hull
 	var hull_d := d.hull
 	await _frames(240)
@@ -174,6 +194,36 @@ func _accord_check(w: World) -> void:
 	w.remove_ship(t)
 	w.remove_ship(d)
 	_check(p != null, "the player is still about")
+
+
+## Between operations: the fade, the stardate, home to the starbase, and
+## the next briefing open.
+func _interlude_check() -> void:
+	var w: World = main.world
+	var st: Story = w.story
+	var p := w.player
+	var earth: Planet = w.planet_by_name["Earth"]
+	_put(p, earth.global_position + Vector2(9000, 0), earth.velocity)
+	p.hull = p.hull_max * 0.5
+	Story.interludes = true
+	st.unlock_at = INF
+	st.interlude_at = w.elapsed
+	for i in 30:
+		await physics_frame
+		if main.interlude != null:
+			break
+	_check(main.interlude != null, "between operations the screen fades to the next stardate")
+	_check(Story.stardate(1) == "2471.315" and Story.days_since(1) == "Three days later", "a stardate that makes sense: %s, %s" % [Story.stardate(1), Story.days_since(1)])
+	for i in 60 * 12:
+		await physics_frame
+		if main.briefing != null:
+			break
+	var base: Ship = w.starbase_of(1)
+	_check(main.briefing != null and main.interlude == null, "it fades back in with the next briefing open")
+	_check(base != null and p.global_position.distance_to(base.global_position) < 3000.0 and p.hull >= p.hull_max - 0.1, "back at the starbase, mended")
+	if main.briefing != null:
+		main._close_briefing()
+	Story.interludes = false
 
 
 func _first_watch() -> void:
@@ -206,8 +256,15 @@ func _first_watch() -> void:
 	# part way: the Drengin scout comes to look
 	var half: Vector2 = cormorant.global_position.lerp(port.global_position, 0.6)
 	_put(cormorant, half, cormorant.velocity)
-	_put(p, half + Vector2(150, 150), cormorant.velocity)
-	await _frames(60 * 8)
+	# fly tight beside the Cormorant, with Brandt coming up into his slot
+	_put(p, half + Vector2(0, cormorant.size + p.size + 40.0), cormorant.velocity)
+	_put(brandt, half + Vector2(-500, cormorant.size + 120.0), cormorant.velocity)
+	var closest := INF
+	for i in 60 * 8:
+		await _frames(1)
+		if is_instance_valid(brandt) and is_instance_valid(cormorant):
+			closest = minf(closest, brandt.global_position.distance_to(cormorant.global_position) - brandt.size - cormorant.size)
+	_check(closest > 0.0, "Lt. Brandt keeps clear of the Cormorant on the leader's wing (closest gap %.0f)" % closest)
 	var scout: Ship = op.get("scout")
 	_check(scout != null and is_instance_valid(scout) and op.stage == "shadowed", "a Drengin scout shadows the flight")
 	_check(scout != null and is_instance_valid(scout) and scout.target != p and p.last_attacker != scout, "the scout never fires under the Accord")
@@ -293,11 +350,8 @@ func _retry_check() -> void:
 	await process_frame
 	_check(st.op != null, "First Watch again")
 	var p := w.player
-	var drengin: Ship = null
-	for s in w.ships:
-		if s.race_id == 2 and not s.dead and not s.is_station and not s.support:
-			drengin = s
-			break
+	# the story keeps no Drengin fleet of its own: bring one to fire on
+	var drengin: Ship = w.spawn_ship("Test Drengin", 2, "Scout", "Test Claw", p.global_position + Vector2(900, 0), p.velocity)
 	_check(drengin != null, "a Drengin ship to fire on")
 	drengin.take_damage(3.0, p)
 	await _frames(5)
@@ -321,6 +375,11 @@ func _retry_check() -> void:
 func _dark_convoy() -> void:
 	var w: World = main.world
 	var st: Story = w.story
+	# the worst case: Ceres passing right by Mars and the Drengin starbase
+	var ceres: Planet = w.planet_by_name["Ceres"]
+	ceres.orbit_angle = w.planet_by_name["Mars"].orbit_angle
+	ceres.update_orbit(0.0)
+	ceres.sync_body()
 	await _frames(5)
 	main.open_briefing()
 	await process_frame
@@ -331,6 +390,7 @@ func _dark_convoy() -> void:
 	_check(op != null and op.spec["id"] == "dark_convoy", "Dark Convoy is under way")
 	var p := w.player
 	var site: Vector2 = op.call("_site")
+	_check(op.guns_near(site) >= 4500.0, "the wrecks lie well clear of Mars and every colony's guns (%.0f)" % op.guns_near(site))
 	_put(p, site, w.planet_by_name["Ceres"].velocity)
 	await _frames(10)
 	_check(op.done("site"), "reaching the convoy's last position")
@@ -378,8 +438,8 @@ func _launch(id: String) -> StoryOp:
 
 ## Wait for the choice card, then answer it.
 func _answer(key: String) -> void:
-	for i in 120:
-		await process_frame
+	for i in 240:
+		await physics_frame         # the war's own clock: process frames can run far ahead of it
 		if main.story_choice != null:
 			break
 		var w: World = main.world
@@ -718,7 +778,7 @@ func _burn_yards() -> void:
 	w.story.index = 9
 	op = await _launch("burn_yards")
 	var yard2: Ship = op.get("yard")
-	_put(p, yard2.global_position + Vector2(5000, 0), yard2.velocity)
+	_put(p, yard2.global_position.lerp(w.planet_by_name["Mars"].global_position, 0.3), yard2.velocity)   # still over Mars: not clear yet
 	op.stage_time = 330.0 - 0.5
 	await _frames(60)
 	var hammer: Variant = op.get("hammer")

@@ -12,7 +12,7 @@ signal session_ended(reason: String)
 signal round_restarted()       # the host started the next Conquest round (client)
 
 const PORT := 7777
-const PROTOCOL := 24   # 24: the story campaign in co-op (session mode, story state, the voice)
+const PROTOCOL := 25   # 25: the story's stardate interludes; 24: story co-op
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -229,6 +229,8 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	elif s != null and is_instance_valid(s) and world != null and world.mode_rules != null:
 		world.mode_rules.pilot_left(s)
 		host_mode_changed()
+	elif s != null and is_instance_valid(s) and world != null and world.story_mode:
+		world.remove_ship(s)                # the story's cast is scripted: their ship goes with them
 	elif s != null and is_instance_valid(s):
 		_seat_ai(s, true)
 		for k in s.inputs.keys():
@@ -268,6 +270,8 @@ func _seat_player(peer_id: int, name: String, career_score: int = 0, career_kill
 			continue
 		if best == null or (best.dead and not s.dead):
 			best = s
+	if best == null and world.story_mode:
+		best = world.spawn_story_seat(world.player.race_id)   # the story keeps no spare fleet: a fresh ship at the starbase
 	if best == null:
 		return null
 	seats[peer_id] = best.net_id
@@ -1338,6 +1342,18 @@ func _rpc_story_marks(rows: Array) -> void:
 func _rpc_story_line(id: String) -> void:
 	if world != null and world.story != null:
 		world.story.say(id)
+
+
+## The fade to the next operation's stardate: every friend sees the card.
+func host_story_interlude(index: int) -> void:
+	if is_host() and not seats.is_empty():
+		_rpc_story_interlude.rpc(index)
+
+
+@rpc("authority", "reliable")
+func _rpc_story_interlude(index: int) -> void:
+	if world != null and world.story != null:
+		world.story.interlude.emit(index)
 
 
 @rpc("authority", "reliable")

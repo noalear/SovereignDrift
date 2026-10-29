@@ -21,6 +21,7 @@ var tutorial: Tutorial = null
 var story_layer: CanvasLayer = null   # the story campaign's call window and objectives
 var comms: Comms = null
 var story_panel: StoryPanel = null
+var interlude: Interlude = null       # the stardate card between operations
 var briefing: Briefing = null
 var story_choice: StoryChoice = null   # a story choice waiting on the player
 var choice_wait := 0.0                 # seconds the choice has waited for its lines to finish
@@ -706,11 +707,35 @@ func _open_story() -> void:
 	comms = Comms.new()
 	comms.setup(world.story, self)
 	story_layer.add_child(comms)
+	world.story.interlude.connect(_on_interlude)
+
+
+## Between operations: fade to the next stardate.  Behind the card the
+## pilots go home to the starbase; the briefing is open when it fades in.
+func _on_interlude(index: int) -> void:
+	if interlude != null or story_layer == null:
+		return
+	_close_tactical()
+	_close_ledger()
+	_close_cargo()
+	interlude = Interlude.new()
+	interlude.setup(index)
+	story_layer.add_child(interlude)
+	interlude.midpoint.connect(func():
+		if world != null and world.story != null:
+			world.story.interlude_done())
+	interlude.finished.connect(func():
+		interlude = null
+		if world != null and world.story != null and not world.story.mirror:
+			open_briefing())
 
 
 func _close_story() -> void:
 	_close_briefing()
 	_close_choice()
+	if interlude != null:
+		interlude.queue_free()
+		interlude = null
 	if story_panel != null:
 		story_panel.queue_free()
 		story_panel = null
@@ -735,8 +760,10 @@ func _story_key() -> void:
 		world.notify(world.player, "Operation %s under way: %s" % [st.op_title(), st.objective_line()])
 	elif st.index >= Story.OPS.size():
 		world.notify(world.player, "No more operations yet. Fly patrols, help the supply runs, and keep your eyes open.")
+	elif st.unlock_at < INF:
+		world.notify(world.player, "Next briefing in %d seconds." % maxi(ceili(st.unlock_at - world.elapsed), 1))
 	else:
-		world.notify(world.player, "Next briefing in about %d minute%s." % [maxi(ceili((st.unlock_at - world.elapsed) / 60.0), 1), "" if st.unlock_at - world.elapsed <= 60.0 else "s"])
+		world.notify(world.player, "Fleet is wrapping up the operation: the next one is on its way.")
 
 
 func open_briefing() -> void:

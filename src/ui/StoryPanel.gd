@@ -65,6 +65,11 @@ func _draw_list(vp: Vector2) -> void:
 	elif story.briefing_ready():
 		title = "BRIEFING READY"
 		rows.append(["Operation %s. Press %s" % [story.current()["title"], key], "open"])
+	elif not story.current().is_empty() and story.unlock_at < INF:
+		# between operations: say what comes next and when
+		var left := int(ceilf(maxf(story.unlock_at - story.world.elapsed, 0.0)))
+		title = "NEXT OPERATION"
+		rows.append(["%s. Fleet calls you in %d:%02d" % [story.current()["title"], left / 60, left % 60], "note"])
 	else:
 		return
 	var lines := []

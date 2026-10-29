@@ -122,7 +122,7 @@ func _draw() -> void:
 			continue
 		var col := Color(0.45, 0.45, 0.5)
 		if p.is_colonised():
-			col = GameData.race(p.owner_race)["color"]
+			col = world.colony_color(player.race_id if player != null else -1, p.owner_race)
 			draw_circle(pos, r + 3.0, Color(col.r, col.g, col.b, 0.25))
 		draw_circle(pos, r, col)
 		if p.under_attack > 0.0:
@@ -156,11 +156,11 @@ func _draw() -> void:
 			if player != null and not player.dead and player.contact_quality(sh) == 2:
 				var cp := to_map(Sensors.estimate(player, sh))
 				if mr.has_point(cp):
-					draw_arc(cp, 6.0, 0, TAU, 12, Color(sh.race_color(), 0.6), 1.2, true)
+					draw_arc(cp, 6.0, 0, TAU, 12, Color(world.ship_color(player, sh), 0.6), 1.2, true)
 					draw_string(font, cp + Vector2(-3, 4), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.75))
 			continue
 		var pos := to_map(sh.global_position)
-		var col := sh.race_color()
+		var col := world.ship_color(player, sh)
 		if sh == player and not mr.grow(-8).has_point(pos):
 			# off the chart after a long warp: pin an arrow to the edge
 			var dir := (pos - c).normalized()

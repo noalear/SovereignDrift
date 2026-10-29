@@ -252,6 +252,20 @@ func clear_spot(from: Vector2, dir: float, dist: float) -> Vector2:
 	return at
 
 
+## How far `at` is from the nearest armed place: a colony (its guns and
+## batteries) or an empire's station (the free port fires on nobody),
+## other than those named in `except`.
+func guns_near(at: Vector2, except: Array = []) -> float:
+	var best := INF
+	for pl in world.planets:
+		if pl.is_colonised() and not except.has(pl):
+			best = minf(best, at.distance_to(pl.global_position) - pl.radius)
+	for s in world.ships:
+		if s.is_station and not s.dead and s.race_id != GameData.NEUTRAL and not except.has(s):
+			best = minf(best, at.distance_to(s.global_position))
+	return best
+
+
 ## Hold a ship dead in space (engines out, no damage control) until it is
 ## boarded.
 func keep_down(s: Ship) -> void:

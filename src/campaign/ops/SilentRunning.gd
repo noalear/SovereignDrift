@@ -40,8 +40,9 @@ func setup() -> void:
 		var c := spawn("Drengin picket", 2, "Scout", "Varr Listener %d" % (i + 1), yard.global_position, mars.velocity)
 		c.set_meta("phase", TAU * i / n)
 		c.sensors.suite = PICKET_SENSORS.duplicate()
-		c.damaged.connect(func(_s, _a):
-			if state == "running":
+		c.damaged.connect(func(hit, _a):
+			# a pilot's shot raises the alarm (not a Terran world's guns on Deimos)
+			if state == "running" and is_pilot(hit.last_attacker):
 				fail_objective("unheard")
 				fail("You opened fire inside the net and raised the alarm.", "sr_fail_seen"))
 		pickets.append(c)
