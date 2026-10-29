@@ -141,6 +141,9 @@ func _draw() -> void:
 
 ## Names in the world: every planet and moon under its body, and every
 ## ship you can see above it, green for your side and red for anyone else.
+## Worlds, moons and stations are coloured by who holds them
+## (World.owner_color): green yours, yellow friendly, red enemy, grey
+## nobody's.
 ## Planets are placed first; a label that would land on one already
 ## placed is skipped, so crowded moons and fleets don't pile up.
 func _draw_labels(p: Ship, vp: Vector2) -> void:
@@ -157,7 +160,8 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 			continue
 		var moon: bool = pl.parent_body != null
 		var size := 12 if moon else 14
-		var col := Color(0.85, 0.9, 0.97, 0.85 if moon else 1.0)
+		var col := world.planet_label_color(p, pl)
+		col.a = 0.85 if moon else 1.0
 		var pos := at + Vector2(0, r + 4.0 + size)
 		var w := font.get_string_size(pl.body_name, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 		var box := Rect2(pos + Vector2(-w * 0.5, -size), Vector2(w, size + 4))
@@ -177,7 +181,9 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 			reach = maxf(reach, maxf(sh.shield_bubble.half.x, sh.shield_bubble.half.y) + sh.shield_bubble.position.length())
 		var friend: bool = sh.team() == p.team()
 		var col := Color(0.45, 1.0, 0.5) if friend else (Color(1.0, 0.38, 0.32) if world.shown_hostile(p, sh) else World.PEACE_COLOR)
-		if sh.race_id == GameData.NEUTRAL:
+		if sh.is_station:
+			col = world.owner_color(p, sh.team())
+		elif sh.race_id == GameData.NEUTRAL:
 			col = sh.race_color()
 		var text: String = station_label(sh) if sh.is_station else sh.pilot_name
 		if friend and my_wing.has(sh):

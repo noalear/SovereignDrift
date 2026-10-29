@@ -1025,6 +1025,37 @@ func colony_color(viewer_race: int, owner: int) -> Color:
 	return PEACE_COLOR
 
 
+## Name labels for things that can be held (worlds, moons, stations), by
+## who holds them as `viewer` sees it.
+const LABEL_OWN := Color(0.45, 1.0, 0.5)       # your own side
+const LABEL_FRIEND := Color(1.0, 0.88, 0.35)   # an empire you are at peace with
+const LABEL_ENEMY := Color(1.0, 0.38, 0.32)    # an empire you are at war with
+const LABEL_NONE := Color(0.64, 0.66, 0.7)     # nobody's, or the free port's
+
+
+## The label colour for something held by side `side` (a race or team(),
+## -1 for nobody): green your side, yellow a friendly one, red an enemy,
+## grey nobody.
+func owner_color(viewer: Node, side: int) -> Color:
+	if side < 0 or side == GameData.NEUTRAL:
+		return LABEL_NONE
+	if not (viewer is Ship):
+		return Color(0.85, 0.9, 0.97)
+	if side == viewer.team():
+		return LABEL_OWN
+	return LABEL_ENEMY if at_war(viewer.team(), side) else LABEL_FRIEND
+
+
+## A world's or moon's label colour.  In a duel every pilot is a side of
+## one and the colonies hold their fire, so none is anyone's or an enemy's.
+func planet_label_color(viewer: Node, pl: Planet) -> Color:
+	if not pl.is_colonised():
+		return LABEL_NONE
+	if duel_rules != null:
+		return LABEL_FRIEND
+	return owner_color(viewer, pl.owner_race)
+
+
 ## Would `viewer` fight `s`?  Its HUD marks only these as hostile.
 func shown_hostile(viewer: Node, s: Node) -> bool:
 	return viewer is Ship and s is Ship and s.team() != viewer.team() and s.race_id != GameData.NEUTRAL and at_war(viewer.team(), s.team())
