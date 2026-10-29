@@ -13,6 +13,9 @@ signal round_over(result: Dictionary)
 signal radio_heard(voice_path: String)
 
 const MISSILE_SCRIPT := preload("res://src/weapons/Missile.gd")
+## Which muzzle flash each shot's look leaves at the gun (Fx.muzzle_flash).
+const MUZZLE_KIND := {"slug": "rail", "bolt": "rail", "shell": "cannon", "tracer": "pdc", "disruptor": "energy",
+	"plasma": "energy", "missile": "launch", "seeker": "launch", "torpedo": "launch", "drone": "launch"}
 const RESPAWN_DELAY := 4.0
 ## A destroyed home starbase is rebuilt this long after it falls (Kyle:
 ## "about 1 minute").  Meanwhile its pilots launch from orbit over the
@@ -1463,10 +1466,18 @@ func spawn_missile(owner: Node, missile_id: String, pos: Vector2, vel: Vector2, 
 	m.setup(self, owner, race, missile_id, pos, vel, angle, target)
 	missiles.append(m)
 	var md: Dictionary = GameData.MISSILES[missile_id]
-	if md["look"] == "slug" and fx != null:
+	var flash: String = MUZZLE_KIND.get(md["look"], "")
+	if flash != "" and fx != null:
 		# the flash rides with the gun: the shot's speed less its muzzle velocity
 		var shooter: Vector2 = vel - Vector2.RIGHT.rotated(angle) * md["fire_v"] * GameData.LIGHT_SPEED
-		fx.muzzle_flash(pos, angle, shooter, m.color, 6.0 + m.radius * 1.5)
+		var size: float = 6.0 + m.radius * 1.5
+		if flash == "pdc":
+			size = 5.0
+		elif flash == "cannon":
+			size = m.radius * 2.6
+		elif md["look"] == "bolt":
+			size *= 0.75
+		fx.muzzle_flash(pos, angle, shooter, m.color, size, flash)
 	Net.host_shot(m, owner, missile_id, pos, vel, angle)
 	space.add_body(m.body)
 
@@ -1491,7 +1502,7 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 	var pos := m.global_position
 	if Net.is_client():
 		# only looks; the host decides damage and tells us
-		fx.explosion(pos, (splash * 0.5) if splash > 0.0 else (6.0 + m.radius * 2.0), m.color, m.missile_id == "002")
+		munition_fx(m, pos, splash, "hit" if hit != null else "down")
 		return
 	Net.host_boom(m, pos, splash)
 	var attacker: Node = m.owner_ship if m.owner_ship != null and is_instance_valid(m.owner_ship) else null
@@ -1511,7 +1522,7 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 			# the shot's momentum and the blast kick the target
 			var dir := m.velocity.normalized() if m.velocity.length_squared() > 1.0 else -m.hit_normal
 			push_node(hit, dir * m.warhead * IMPULSE_PER_DAMAGE + m.momentum(), at)
-		fx.explosion(pos, 6.0 + m.radius * 2.0, m.color, false, "impact")
+		munition_fx(m, pos, 0.0, "hit" if hit != null else "down", "impact")
 		return
 	# area damage falls off with the distance to the hull itself (from the
 	# centre less half the size, a torpedo that went off by a long nose
@@ -1534,7 +1545,15 @@ func missile_detonated(m: Missile, hit: Node2D, splash: float) -> void:
 		if dd < splash:
 			d.take_damage(m.warhead * (1.0 - maxf(dd, 0.0) / splash) * 0.5, attacker, d.global_position)
 	blast(pos, splash, m.warhead * IMPULSE_PER_DAMAGE * 0.6)
-	fx.explosion(pos, splash * 0.5, m.color, m.missile_id == "002", "explode")
+	munition_fx(m, pos, splash, "blast", "explode")
+
+
+## The look of a munition going off (host and clients alike).
+func munition_fx(m: Missile, pos: Vector2, splash: float, how: String, sound: String = "") -> void:
+	if fx == null:
+		return
+	var normal := m.hit_normal if m.hit_point != Vector2.INF else Vector2.ZERO
+	fx.munition_burst(m.data["look"], m.data.get("dtype", "kinetic"), pos, m.velocity, normal, m.color, m.radius, splash, how, sound)
 
 
 ## A pressure wave that throws ships, rocks and loot outward.  Nothing

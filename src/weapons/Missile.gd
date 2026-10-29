@@ -33,15 +33,48 @@ static func _tally(id: String, how: String) -> void:
 		fates[id] = {"hit": 0, "blast": 0, "spent": 0, "down": 0}
 	fates[id][how] += 1
 
-static var _slug_mat: CanvasItemMaterial = null
+static var _glow_mat: CanvasItemMaterial = null
+static var _paintings := {}
+
+const EMPIRES := ["arcean", "terran", "drengin", "pirate"]
+## Painted munitions (assets/munitions/<empire>/<look>.png, nose right) and
+## how long each is drawn, in shot radii.
+const PAINT_LEN := {"slug": 6.5, "bolt": 5.8, "missile": 6.5, "seeker": 6.4, "torpedo": 5.6, "shell": 3.6, "mine": 3.2, "drone": 6.5}
+## Each empire's engine light, for exhaust: Terran blue, Arcean green,
+## Drengin and Pirate orange.
+const EXHAUST := [Color(0.45, 1.0, 0.55), Color(0.5, 0.75, 1.0), Color(1.0, 0.5, 0.18), Color(1.0, 0.62, 0.25)]
+## The glow between each empire's rails (the mass driver's look): Arcean
+## green, Terran blue, Drengin orange, Pirate blue.
+const RAIL := [Color(0.5, 1.0, 0.6), Color(0.55, 0.9, 1.0), Color(1.0, 0.6, 0.25), Color(0.5, 0.95, 1.0)]
+const TRAIL_POINTS := 10
+
+var glow: Node2D                  # additive layer: flames, glows, trails
+var paint: Texture2D = null
+var trail := PackedVector2Array() # recent positions, newest last (world space)
+var _puff_at := Vector2.INF       # where the exhaust last left a puff
+var race_ix := 1                  # owner_race clamped to the four empires
 
 
-## Mass driver slugs glow: they are drawn additively, like the Fx lights.
-static func slug_material() -> CanvasItemMaterial:
-	if _slug_mat == null:
-		_slug_mat = CanvasItemMaterial.new()
-		_slug_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-	return _slug_mat
+## Glowing things are drawn additively, like the Fx lights.
+static func glow_material() -> CanvasItemMaterial:
+	if _glow_mat == null:
+		_glow_mat = CanvasItemMaterial.new()
+		_glow_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	return _glow_mat
+
+
+## An empire's painting of a munition, or the Terran one, or null.
+static func painting(look: String, race_id: int) -> Texture2D:
+	var key := look + str(race_id)
+	if not _paintings.has(key):
+		var tex: Texture2D = null
+		for e in [EMPIRES[clampi(race_id, 0, 3)], "terran"]:
+			var path := "res://assets/munitions/%s/%s.png" % [e, look]
+			if ResourceLoader.exists(path):
+				tex = load(path)
+				break
+		_paintings[key] = tex
+	return _paintings[key]
 
 
 func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vector2, p_vel: Vector2, p_angle: float, p_target: Node2D) -> void:
@@ -76,27 +109,30 @@ func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vecto
 	body.angle = p_angle
 	if data["guided"]:
 		Sfx.attach_loop(self, "rocket_loop", 0.5)
+	glow = Node2D.new()
+	glow.material = glow_material()
+	glow.draw.connect(_draw_glow)
+	add_child(glow)
 	_tint(p_race)
+	trail.append(p_pos)
 
 
-## The shot's colour: its look, in the shooter's empire's colours.
+## The shot's look in the shooter's empire's colours and paint.
 func _tint(p_race: int) -> void:
+	race_ix = clampi(p_race, 0, 3)
 	var rc: Color = GameData.race(p_race)["color"]
-	match data["look"]:
-		"bolt": color = rc.lerp(Color.WHITE, 0.4)
-		"slug":
-			# the glow between the empire's rails: Arcean green, Drengin
-			# orange, Terran and Pirate blue
-			color = [Color(0.5, 1.0, 0.6), Color(0.55, 0.9, 1.0), Color(1.0, 0.6, 0.25), Color(0.5, 0.95, 1.0)][clampi(p_race, 0, 3)]
-			material = slug_material()
+	var look: String = data["look"]
+	match look:
+		"slug", "bolt": color = RAIL[race_ix]
 		"plasma": color = rc.lerp(Color(1, 0.6, 1), 0.5)
-		"grenade": color = Color(1.0, 0.85, 0.4)
-		"mine": color = Color(0.7, 0.7, 0.75)
-		"missile": color = Color(1.0, 1.0, 1.0)
+		"torpedo", "missile", "seeker", "drone": color = EXHAUST[race_ix]
+		"mine": color = Color(1.0, 0.3, 0.2) if race_ix != 0 else Color(0.4, 1.0, 0.5)
 		"shell": color = Color(1.0, 0.6, 0.2)
-		"disruptor": color = Color(0.7, 0.4, 1.0)
-		"drone": color = rc.lerp(Color.WHITE, 0.2)
-		"tracer": color = Color(1.0, 0.92, 0.6)
+		"disruptor": color = Color(0.7, 0.45, 1.0)
+		"tracer": color = Color(1.0, 0.85, 0.5)
+	paint = painting(look, race_ix) if PAINT_LEN.has(look) else null
+	# a painted munition's flame sits behind its body
+	glow.show_behind_parent = paint != null
 
 
 ## Turned by a Deflector shield (World._deflect_shots): the shot leaves
@@ -116,7 +152,12 @@ func deflect(by: Node, pos: Vector2, vel: Vector2) -> void:
 		body.prev_pos = pos
 		body.vel = vel
 	_tint(owner_race)
+	# the trail starts again from the bounce, not across it
+	trail.clear()
+	trail.append(pos)
+	_puff_at = Vector2.INF
 	queue_redraw()
+	glow.queue_redraw()
 
 
 func _physics_process(delta: float) -> void:
@@ -138,7 +179,9 @@ func _physics_process(delta: float) -> void:
 		velocity = velocity.lerp(Vector2.ZERO, 1.5 * delta)
 	if data["look"] != "mine":
 		rotation = velocity.angle()
+	_leave_trail()
 	queue_redraw()
+	glow.queue_redraw()
 
 
 func pre_step(_delta: float) -> void:
@@ -297,63 +340,154 @@ func shoot_down() -> void:
 	queue_free()
 
 
+## Remember where the shot has been, for its trail, and let a burning
+## motor leave puffs of exhaust behind it in the world.
+func _leave_trail() -> void:
+	trail.append(global_position)
+	if trail.size() > TRAIL_POINTS:
+		trail.remove_at(0)
+	if not data["guided"] or world == null or world.fx == null:
+		return
+	var tail: Vector2 = global_position - Vector2.RIGHT.rotated(rotation) * radius * PAINT_LEN.get(data["look"], 4.0) * 0.5
+	var gap := radius * (0.9 if data["look"] == "drone" else 1.4)
+	if _puff_at == Vector2.INF or _puff_at.distance_to(tail) >= gap:
+		_puff_at = tail
+		world.fx.exhaust(tail, velocity * 0.15, color, radius, data["look"])
+
+
 func _draw() -> void:
+	if paint == null:
+		if data["look"] == "mine":
+			_draw_mine_body()
+		return
+	var len: float = radius * PAINT_LEN[data["look"]]
+	var sz := Vector2(len, len * paint.get_height() / paint.get_width())
+	if data["look"] == "mine":
+		# a mine turns slowly where it floats
+		draw_set_transform(Vector2.ZERO, age * 0.4)
+	draw_texture_rect(paint, Rect2(-sz * 0.5, sz), false)
+	draw_set_transform(Vector2.ZERO)
+
+
+## No painting: a plain spiked mine.
+func _draw_mine_body() -> void:
+	for i in 6:
+		var a := TAU * i / 6.0 + age * 0.5
+		draw_line(Vector2.ZERO, Vector2(cos(a), sin(a)) * radius * 1.4, Color(0.7, 0.7, 0.75), 3.0, true)
+	draw_circle(Vector2.ZERO, radius * 1.1, Color(0.55, 0.56, 0.6))
+
+
+## The light of a shot: flames, glowing rounds and their trails, all soft
+## textures drawn additively (no hard geometric shapes: Kyle).
+func _draw_glow() -> void:
+	var soft := Fx.soft_texture()
+	var r := radius
+	var c := color
 	match data["look"]:
-		"slug":
-			# a mass driver slug: a white-hot core in a stretched blue glow,
-			# with an ionised wake that grows over the first instants of flight
-			var soft := Fx.soft_texture()
-			var r := radius
-			var wake := r * lerpf(5.0, 16.0, clampf(age / 0.12, 0.0, 1.0))
-			draw_texture_rect(soft, Rect2(-wake, -r * 1.3, wake + r * 2.0, r * 2.6), false, Color(color.r, color.g, color.b, 0.3))
-			draw_texture_rect(soft, Rect2(-wake * 0.55, -r * 0.6, wake * 0.55 + r * 1.8, r * 1.2), false, Color(color.r, color.g, color.b, 0.8))
-			draw_texture_rect(soft, Rect2(-r * 1.5, -r * 2.0, r * 4.0, r * 4.0), false, Color(color.r, color.g, color.b, 0.55))
-			for k in 2:
-				draw_texture_rect(soft, Rect2(-r * 1.8, -r * 0.65, r * 3.2, r * 1.3), false, Color(1, 1, 1, 0.95))
-		"bolt":
-			draw_line(Vector2(-radius * 3.0, 0), Vector2(radius * 1.5, 0), color, radius * 0.9, true)
-			draw_circle(Vector2(radius, 0), radius * 0.8, Color.WHITE)
+		"slug", "bolt":
+			# a mass driver slug or rapid round is a solid piece of metal,
+			# not a bolt of light (Kyle): only its base still glows from the
+			# rails, with a short smear of heat behind it and a faint flicker
+			# of the empire's rail charge in the first instant of flight
+			var len: float = r * PAINT_LEN[data["look"]]
+			var back := -len * 0.5
+			var smear := minf(velocity.length() * 0.035, r * 7.0)
+			glow.draw_texture_rect(soft, Rect2(back - smear, -r * 0.45, smear + r * 0.8, r * 0.9), false, Color(1.0, 0.5, 0.2, 0.35))
+			glow.draw_texture_rect(soft, Rect2(Vector2(back, 0) - Vector2(r, r) * 0.9, Vector2(r, r) * 1.8), false, Color(1.0, 0.55, 0.22, 0.85))
+			glow.draw_texture_rect(soft, Rect2(Vector2(back, 0) - Vector2(r, r) * 0.4, Vector2(r, r) * 0.8), false, Color(1.0, 0.9, 0.7, 0.9))
+			var charge := clampf(1.0 - age / 0.12, 0.0, 1.0)
+			if charge > 0.0:
+				glow.draw_texture_rect(soft, Rect2(Vector2(-len, -len) * 0.7, Vector2(len, len) * 1.4), false, Color(c, 0.45 * charge))
+			if paint == null:
+				glow.draw_texture_rect(soft, Rect2(-len * 0.5, -r * 0.5, len, r), false, Color(0.75, 0.75, 0.8))
 		"tracer":
-			# a point defence round: a thin streak, read as a stream of fire
-			draw_line(Vector2(-radius * 7.0, 0), Vector2(radius, 0), Color(color.r, color.g, color.b, 0.75), radius * 0.7, true)
-		"plasma":
-			draw_circle(Vector2.ZERO, radius * 1.8, Color(color.r, color.g, color.b, 0.35))
-			draw_circle(Vector2.ZERO, radius, color)
-			draw_circle(Vector2.ZERO, radius * 0.5, Color.WHITE)
-		"grenade":
-			draw_circle(Vector2.ZERO, radius, color)
-			draw_circle(Vector2.ZERO, radius * 0.5, Color(0.4, 0.2, 0.1))
-		"mine":
-			# a mine must read from across the screen: a red trigger ring
-			# that pulses, a soft glow, and a spiked body with a beacon that
-			# blinks faster once it is armed
-			var hot := armed <= 0.0
-			var rate := 3.0 if hot else 1.0
-			var blink := fmod(age * rate, 1.0) < 0.3
-			var pulse := 0.5 + 0.5 * sin(age * TAU * rate * 0.5)
-			var trigger: float = radius + float(data.get("prox", 0.0))
-			draw_circle(Vector2.ZERO, trigger, Color(1, 0.15, 0.1, (0.05 + 0.05 * pulse) if hot else 0.03))
-			draw_arc(Vector2.ZERO, trigger, 0, TAU, 40, Color(1, 0.25, 0.15, (0.45 + 0.35 * pulse) if hot else 0.2), 2.0, true)
-			draw_circle(Vector2.ZERO, radius * 2.2, Color(1, 0.3, 0.2, 0.18 + 0.12 * pulse))
-			for i in 6:
-				var a := TAU * i / 6.0 + age * 0.5
-				draw_line(Vector2.ZERO, Vector2(cos(a), sin(a)) * radius * 1.9, color, 3.0, true)
-			draw_circle(Vector2.ZERO, radius * 1.1, color)
-			draw_circle(Vector2.ZERO, radius * 1.1, Color(0.2, 0.2, 0.22), false, 1.5, true)
-			draw_circle(Vector2.ZERO, radius * 0.5, Color(1, 0.25, 0.2) if blink else Color(0.45, 0.1, 0.1))
-		"missile":
-			draw_line(Vector2(-radius * 3.0, 0), Vector2(radius * 2.0, 0), color, radius * 0.8)
-			draw_line(Vector2(-radius * 3.0, 0), Vector2(-radius * 6.0, 0), Color(1, 0.7, 0.3, 0.7), radius * 0.6)
-			draw_circle(Vector2(radius * 2.0, 0), radius * 0.6, Color(1, 0.3, 0.3))
+			# a point defence round: a short hot streak, read as a stream of fire
+			glow.draw_texture_rect(soft, Rect2(-r * 9.0, -r * 0.9, r * 10.0, r * 1.8), false, Color(c, 0.75))
+			glow.draw_texture_rect(soft, Rect2(-r * 3.0, -r * 0.5, r * 4.0, r * 1.0), false, Color(1, 1, 0.9, 0.9))
 		"shell":
-			draw_circle(Vector2.ZERO, radius, color)
-			draw_line(Vector2(-radius * 4.0, 0), Vector2.ZERO, Color(color.r, color.g, color.b, 0.4), radius)
+			# the cannon shell's base burns like a tracer, and the air it
+			# never had glows behind it anyway
+			_draw_trail(soft, Color(1.0, 0.55, 0.2, 0.3), r * 0.9)
+			var back := -r * PAINT_LEN["shell"] * 0.5
+			glow.draw_texture_rect(soft, Rect2(back - r * 4.0, -r * 0.8, r * 5.0, r * 1.6), false, Color(1.0, 0.55, 0.2, 0.7))
+			glow.draw_texture_rect(soft, Rect2(back - r * 1.2, -r * 1.2, r * 2.4, r * 2.4), false, Color(1.0, 0.85, 0.5, 0.9))
+			if paint == null:
+				glow.draw_texture_rect(soft, Rect2(-r * 1.5, -r, r * 3.0, r * 2.0), false, Color(1.0, 0.7, 0.35))
+		"plasma":
+			_draw_trail(soft, Color(c, 0.4), r * 1.6)
+			var pulse := 1.0 + 0.12 * sin(age * 30.0)
+			glow.draw_texture_rect(soft, Rect2(Vector2(-r, -r) * 3.0 * pulse, Vector2(r, r) * 6.0 * pulse), false, Color(c, 0.35))
+			glow.draw_texture_rect(soft, Rect2(Vector2(-r, -r) * 1.6, Vector2(r, r) * 3.2), false, Color(c, 0.9))
+			glow.draw_texture_rect(soft, Rect2(Vector2(-r, -r) * 0.8, Vector2(r, r) * 1.6), false, Color(1, 1, 1, 0.95))
 		"disruptor":
-			var wob := sin(age * 40.0) * radius * 0.6
-			draw_line(Vector2(-radius * 3.0, wob), Vector2(radius * 1.5, -wob), color, radius * 0.7, true)
-			draw_circle(Vector2.ZERO, radius * 1.4, Color(color.r, color.g, color.b, 0.3))
-			draw_circle(Vector2(radius, 0), radius * 0.6, Color.WHITE)
-		"drone":
-			var tri := PackedVector2Array([Vector2(radius * 2.0, 0), Vector2(-radius * 1.5, -radius * 1.5), Vector2(-radius * 0.5, 0), Vector2(-radius * 1.5, radius * 1.5)])
-			draw_colored_polygon(tri, color)
-			draw_circle(Vector2(-radius * 0.8, 0), radius * 0.5, Color(0.6, 1.0, 0.7))
+			# a ball of ion fire with sparks crackling round it and a
+			# fading wake of charge
+			_draw_trail(soft, Color(c, 0.4), r * 1.3)
+			glow.draw_texture_rect(soft, Rect2(Vector2(-r, -r) * 3.2, Vector2(r, r) * 6.4), false, Color(c, 0.3))
+			glow.draw_texture_rect(soft, Rect2(Vector2(-r, -r) * 1.5, Vector2(r, r) * 3.0), false, Color(c.lerp(Color.WHITE, 0.3), 0.9))
+			glow.draw_texture_rect(soft, Rect2(Vector2(-r, -r) * 0.7, Vector2(r, r) * 1.4), false, Color(1, 1, 1))
+			for k in 4:
+				var a := age * (17.0 + k * 5.0) + k * 1.7 + sin(age * 53.0 + k) * 2.0
+				var d := r * (1.6 + 0.8 * sin(age * 41.0 + k * 2.3))
+				var at := Vector2(cos(a), sin(a)) * d
+				glow.draw_texture_rect(soft, Rect2(at - Vector2(r, r) * 0.45, Vector2(r, r) * 0.9), false, Color(0.85, 0.75, 1.0, 0.9))
+		"missile", "seeker", "torpedo", "drone":
+			_draw_flame(soft)
+		"mine":
+			_draw_mine_glow(soft)
+
+
+## A fading ribbon of soft light through the last few positions.
+func _draw_trail(soft: Texture2D, c: Color, w: float) -> void:
+	var n := trail.size()
+	if n < 2:
+		return
+	glow.draw_set_transform_matrix(global_transform.affine_inverse())
+	var head := global_position
+	for i in n - 1:
+		var a: Vector2 = trail[i]
+		var b: Vector2 = trail[i + 1] if i + 1 < n - 1 else head
+		var t := float(i + 1) / float(n)
+		var steps := clampi(int(a.distance_to(b) / maxf(w * 1.2, 1.0)), 1, 6)
+		for k in steps:
+			var p := a.lerp(b, (k + 0.5) / steps)
+			var ww := w * (0.35 + 0.65 * t)
+			glow.draw_texture_rect(soft, Rect2(p - Vector2(ww, ww), Vector2(ww, ww) * 2.0), false, Color(c, c.a * t * t))
+	glow.draw_set_transform_matrix(Transform2D.IDENTITY)
+
+
+## The motor of a missile, seeker, torpedo or drone: a flickering flame
+## out of the tail, longer while the motor is still building speed.
+func _draw_flame(soft: Texture2D) -> void:
+	var r := radius
+	var c := color
+	var back: float = -r * PAINT_LEN.get(data["look"], 4.0) * 0.5 + r * 0.3
+	var flick := 0.85 + 0.15 * sin(age * 67.0) + 0.1 * sin(age * 23.0)
+	var burn := 1.0 if age < 0.6 else 0.75
+	var w := r * (0.9 if data["look"] != "torpedo" else 1.1)
+	if data["look"] == "drone":
+		w *= 0.75
+		burn *= 0.7
+	var flame := r * 3.5 * flick * burn
+	glow.draw_texture_rect(soft, Rect2(back - flame, -w, flame + r * 0.6, w * 2.0), false, Color(c, 0.75))
+	glow.draw_texture_rect(soft, Rect2(back - flame * 0.45, -w * 0.5, flame * 0.45 + r * 0.4, w), false, Color(1, 1, 0.95, 0.95))
+	glow.draw_texture_rect(soft, Rect2(Vector2(back, 0) - Vector2(w, w) * 2.2, Vector2(w, w) * 4.4), false, Color(c, 0.3))
+	if data["look"] == "seeker":
+		# the seeker's eye glows on the nose
+		var nose: float = r * PAINT_LEN["seeker"] * 0.42
+		glow.draw_texture_rect(soft, Rect2(Vector2(nose, 0) - Vector2(r, r) * 0.8, Vector2(r, r) * 1.6), false, Color(1.0, 0.45, 0.25, 0.6 + 0.3 * sin(age * 12.0)))
+
+
+## A mine must read from across the screen: a soft red glow over its
+## trigger reach that pulses, and a beacon that blinks faster once armed.
+func _draw_mine_glow(soft: Texture2D) -> void:
+	var hot := armed <= 0.0
+	var rate := 3.0 if hot else 1.0
+	var blink := fmod(age * rate, 1.0) < 0.3
+	var pulse := 0.5 + 0.5 * sin(age * TAU * rate * 0.5)
+	var trigger: float = radius + float(data.get("prox", 0.0))
+	var c := color
+	glow.draw_texture_rect(soft, Rect2(Vector2(-trigger, -trigger) * 1.1, Vector2(trigger, trigger) * 2.2), false, Color(c, (0.03 + 0.03 * pulse) if hot else 0.015))
+	glow.draw_arc(Vector2.ZERO, trigger, 0, TAU, 48, Color(c, (0.22 + 0.16 * pulse) if hot else 0.08), 2.0, true)
+	var b := radius * (0.9 if blink else 0.5)
+	glow.draw_texture_rect(soft, Rect2(Vector2(-b, -b) * 2.0, Vector2(b, b) * 4.0), false, Color(c, 0.9 if blink else 0.35))

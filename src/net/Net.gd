@@ -1091,7 +1091,7 @@ func _rpc_boom(mid: int, pos: Vector2, splash: float) -> void:
 	for m in world.missiles:
 		if is_instance_valid(m) and m.has_meta("net_id") and m.get_meta("net_id") == mid:
 			m.exploded = true
-			world.fx.explosion(pos, (splash * 0.5) if splash > 0.0 else (6.0 + m.radius * 2.0), m.color, m.missile_id == "002")
+			world.munition_fx(m, pos, splash, "hit")
 			m.queue_free()
 			return
 
