@@ -38,6 +38,7 @@ const ACTIONS := [
 	["shields_toggle", "Lower / raise shields", "Weapons"],
 	["target_next", "Next target", "Weapons"],
 	["target_nearest", "Nearest enemy", "Weapons"],
+	["select_target", "Select target / world", "Weapons"],
 	["land", "Land / lift off", "Ship"],
 	["colonists_board", "Take colonists on", "Ship"],
 	["colonists_unload", "Put colonists down", "Ship"],
@@ -66,6 +67,11 @@ const SHARED := [
 	["weapon_group_1", "colonists_board"],
 	["weapon_group_2", "colonists_unload"],
 ]
+
+## Keys held with another key or a mouse button make a combination
+## ("Shift+Mouse left"); saved as a "mods" bit mask.
+const MOD_KEYS := [KEY_SHIFT, KEY_CTRL, KEY_ALT, KEY_META]
+const MOD_NAMES := {1: "Shift", 2: "Ctrl", 4: "Alt", 8: "Meta"}
 
 const PAD_BUTTONS := {
 	0: "A", 1: "B", 2: "X", 3: "Y", 4: "Back", 5: "Guide", 6: "Start",
@@ -251,6 +257,14 @@ func short_text(action: String) -> String:
 func describe(d: Variant) -> String:
 	if d == null or not d is Dictionary:
 		return ""
+	if d.has("mods"):
+		var plain: Dictionary = d.duplicate()
+		plain.erase("mods")
+		var held := ""
+		for bit in MOD_NAMES:
+			if int(d["mods"]) & bit:
+				held += MOD_NAMES[bit] + "+"
+		return held + describe(plain)
 	if d.has("k"):
 		var code: int = d["k"]
 		var label: int = int(DisplayServer.keyboard_get_label_from_physical(code)) if DisplayServer.get_name() != "headless" else code
@@ -314,9 +328,12 @@ static func _same(a: Dictionary, b: Dictionary) -> bool:
 static func _ser(ev: InputEvent) -> Dictionary:
 	if ev is InputEventKey:
 		var code: int = ev.physical_keycode if ev.physical_keycode != 0 else ev.keycode
-		return {"k": code} if code != 0 else {}
+		if code == 0:
+			return {}
+		# a modifier pressed on its own is the key itself, not a combination
+		return _with_mods({"k": code}, ev) if code not in MOD_KEYS else {"k": code}
 	if ev is InputEventMouseButton:
-		return {"m": ev.button_index}
+		return _with_mods({"m": ev.button_index}, ev)
 	if ev is InputEventJoypadButton:
 		return {"jb": ev.button_index}
 	if ev is InputEventJoypadMotion:
@@ -328,10 +345,12 @@ static func _deser(d: Dictionary) -> InputEvent:
 	if d.has("k"):
 		var e := InputEventKey.new()
 		e.physical_keycode = int(d["k"])
+		_set_mods(e, int(d.get("mods", 0)))
 		return e
 	if d.has("m"):
 		var e := InputEventMouseButton.new()
 		e.button_index = int(d["m"])
+		_set_mods(e, int(d.get("mods", 0)))
 		return e
 	if d.has("jb"):
 		var e := InputEventJoypadButton.new()
@@ -341,3 +360,17 @@ static func _deser(d: Dictionary) -> InputEvent:
 	e.axis = int(d["ja"])
 	e.axis_value = float(d["v"])
 	return e
+
+
+static func _with_mods(d: Dictionary, ev: InputEventWithModifiers) -> Dictionary:
+	var mods := (1 if ev.shift_pressed else 0) | (2 if ev.ctrl_pressed else 0) | (4 if ev.alt_pressed else 0) | (8 if ev.meta_pressed else 0)
+	if mods != 0:
+		d["mods"] = mods
+	return d
+
+
+static func _set_mods(e: InputEventWithModifiers, mods: int) -> void:
+	e.shift_pressed = mods & 1 != 0
+	e.ctrl_pressed = mods & 2 != 0
+	e.alt_pressed = mods & 4 != 0
+	e.meta_pressed = mods & 8 != 0
