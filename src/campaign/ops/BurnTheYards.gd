@@ -8,7 +8,7 @@ extends StoryOp
 
 const YARD_OFF := 2600.0          # as in Silent Running
 const LAUNCH_TIME := 330.0        # seconds until the Hammer's cradle opens
-const YARD_HULL := 3.0            # the yard's hull, times a Shipyard's
+const YARD_HULL := 3.0            # the yard's hull, times a Shipyard's before GameData.STATION_TOUGHNESS
 const STRIKE := [["Cruiser", "TSS Resolute"], ["Destroyer", "TSS Harrow"], ["Destroyer", "TSS Kestrel"]]
 const STRIKE_FROM := 7000.0       # the strike group forms this far from the yard
 const WAVES := [                  # [seconds in, designs], from Mars
@@ -34,7 +34,8 @@ var half_said := false
 func setup() -> void:
 	mars = planet("Mars")
 	yard = hammer_yard(YARD_OFF)
-	yard.hull_max *= YARD_HULL
+	# the clock was timed on this much hull: keep it so
+	yard.hull_max *= YARD_HULL / GameData.STATION_TOUGHNESS
 	yard.hull = yard.hull_max
 	yard.died.connect(_on_yard_died)
 	hammer = spawn("Kesh Varr", 2, "Dreadnought", "Hammer of Mars", yard.global_position, mars.velocity, 14)
