@@ -33,6 +33,7 @@ var demo_ships: Array = []
 var capture_action := ""     # Controls page: the action waiting for a key
 var capture_slot := ""       # "kb0", "kb1" or "pad"
 var capture_since := 0
+var capture_mod: InputEventKey = null   # Shift, Ctrl, Alt held while waiting: a combination, or the key itself on release
 var controls_status := ""
 var campaign_note := ""      # the warning before a new campaign replaces the saved one
 var save_info := {}          # the saved campaign's summary, read once
@@ -107,7 +108,10 @@ func _gui_input(event: InputEvent) -> void:
 
 
 ## While a Controls slot waits for a key, the next key, mouse button or
-## gamepad control goes into it, before anything else sees it.
+## gamepad control goes into it, before anything else sees it.  Shift,
+## Ctrl or Alt wait to see what comes with them: a key or mouse button
+## pressed while one is held makes a combination (Shift+Mouse left);
+## letting go with nothing else binds the modifier on its own.
 func _input(event: InputEvent) -> void:
 	if capture_action.is_empty():
 		return
@@ -121,11 +125,21 @@ func _input(event: InputEvent) -> void:
 		pressed = event.pressed
 	elif event is InputEventJoypadMotion:
 		pressed = absf(event.axis_value) > 0.6
+	var mod_key: bool = event is InputEventKey and event.physical_keycode in Keybinds.MOD_KEYS
+	if mod_key and pressed:
+		if capture_mod == null:
+			capture_mod = event
+		get_viewport().set_input_as_handled()
+		return
+	if mod_key and not event.pressed and capture_mod != null and event.physical_keycode == capture_mod.physical_keycode:
+		event = capture_mod             # let go with nothing else: the modifier on its own
+		pressed = true
 	if not pressed:
 		if not event is InputEventMouseMotion:
 			get_viewport().set_input_as_handled()
 		return
 	get_viewport().set_input_as_handled()
+	capture_mod = null
 	var label := _action_label(capture_action)
 	if event is InputEventKey and event.physical_keycode == KEY_ESCAPE and capture_action != "pause_menu":
 		controls_status = "Cancelled."
@@ -546,7 +560,16 @@ func _draw_controls(vp: Vector2) -> void:
 	var slot_w := 132.0
 	var col_w := label_w + 3.0 * (slot_w + 6.0)
 	var x0 := (vp.x - (col_w * 2.0 + 60.0)) * 0.5
-	var row_h := 25.0
+	# rows shrink a little when the longer column would push the buttons
+	# under the bottom of the screen
+	var most := 0
+	for col in cols:
+		var n: int = col.size()
+		for row in rows:
+			if row[2] in col:
+				n += 1
+		most = maxi(most, n)
+	var row_h := clampf((vp.y - top - 26.0 - 130.0) / maxf(most, 1.0), 21.0, 25.0)
 	var bottom := top
 	for c in 2:
 		var x := x0 + c * (col_w + 60.0)
@@ -566,6 +589,8 @@ func _draw_controls(vp: Vector2) -> void:
 				for slot in ["kb0", "kb1", "pad"]:
 					var waiting: bool = capture_action == row[0] and capture_slot == slot
 					var text := "press..." if waiting else Keybinds.slot_text(row[0], slot)
+					if waiting and capture_mod != null:
+						text = Keybinds.describe({"k": capture_mod.physical_keycode}) + "+..."
 					_slot_button(Rect2(sx, y + 1, slot_w, row_h - 3), text, _start_capture.bind(row[0], slot), waiting)
 					sx += slot_w + 6.0
 				y += row_h
@@ -585,6 +610,7 @@ func _start_capture(action: String, slot: String) -> void:
 	capture_action = action
 	capture_slot = slot
 	capture_since = Time.get_ticks_msec()
+	capture_mod = null
 	controls_status = "Press the new control for %s..." % _action_label(action)
 
 

@@ -14,6 +14,10 @@ var time := 0.0
 var dead_time := 0.0
 var wheel: OrdersWheel = null
 var radio: AudioStreamPlayer = null   # wingmen's voices
+var planet_pic: PlanetPicture = null  # the inspected world's picture on its info card
+
+const PIC_H := 130.0                  # the picture under the target readout
+const CARD_PIC_H := 140.0             # the picture at the foot of a world's info card
 
 
 func _ready() -> void:
@@ -34,6 +38,9 @@ func attach(p_world: World) -> void:
 	wheel = OrdersWheel.new()
 	wheel.world = world
 	add_child(wheel)
+	planet_pic = PlanetPicture.new()
+	planet_pic.visible = false
+	add_child(planet_pic)
 	radio = AudioStreamPlayer.new()
 	radio.bus = "Voice" if AudioServer.get_bus_index("Voice") >= 0 else "Master"
 	add_child(radio)
@@ -106,6 +113,8 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
+	if planet_pic != null:
+		planet_pic.visible = false      # _draw_planet_card shows it again
 	if world == null or world.player == null:
 		return
 	# the shipyard, tactical map and scoreboard cover the game; the HUD
@@ -134,6 +143,7 @@ func _draw() -> void:
 	if p.dead:
 		_draw_dead(vp)
 	if show_help:
+		planet_pic.visible = false
 		_draw_help(vp)
 	else:
 		draw_string(font, Vector2(vp.x * 0.5 - 150, vp.y - 14), "H: help   Esc: menu", HORIZONTAL_ALIGNMENT_CENTER, 300, 14, Color(1, 1, 1, 0.45))
@@ -511,6 +521,8 @@ func _draw_target(p: Ship, vp: Vector2) -> void:
 	var tall := 112.0 + (60.0 if t is Ship and not t.systems.list.is_empty() else (24.0 if boardable_station and vis else 0.0))
 	draw_rect(Rect2(x - 10, y - 4, 320, tall), Color(0.02, 0.04, 0.08, 0.6))
 	if t is Ship:
+		_draw_ship_picture(t, Rect2(x - 10, y + tall + 2, 320, PIC_H), vis, col)
+	if t is Ship:
 		draw_string(font, Vector2(x, y + 14), "%s   %s %s" % [t.pilot_name, GameData.race(t.race_id)["adj"], t.design_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, col)
 		draw_string(font, Vector2(x, y + 34), "%s   range %d" % [GameData.rank_name(t.rank), int(t.global_position.distance_to(p.global_position))], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.9, 0.9))
 		_shield_bar(Vector2(x, y + 44), 300, 18, t, false)
@@ -555,6 +567,30 @@ func _draw_target(p: Ship, vp: Vector2) -> void:
 			draw_string(font, Vector2(x, y + 104), line, HORIZONTAL_ALIGNMENT_LEFT, 300, 13, lcol)
 
 
+## The target as it looks right now, under its readout: its own painting,
+## coat, turrets and damage.  A contact you can't see is only a dim shape.
+func _draw_ship_picture(t: Ship, box: Rect2, vis: bool, col: Color) -> void:
+	draw_rect(box, Color(0.02, 0.04, 0.08, 0.6))
+	draw_rect(box, Color(col.r, col.g, col.b, 0.35), false, 1.0)
+	var m: Dictionary = t.art_model if not t.art_model.is_empty() else ShipArt.build_model(t.design, t.hull_race if t.hull_race >= 0 else t.race_id, t.size)
+	var rect: Rect2 = m["rect"]
+	var scale := minf(box.size.x * 0.84 / maxf(rect.size.x, 1.0), box.size.y * 0.8 / maxf(rect.size.y, 1.0))
+	var tex: Texture2D = m["tex"]
+	if tex != null:
+		scale = minf(scale, 1.9 * tex.get_width() / maxf(rect.size.x, 1.0))   # no blurrier than the shipyard shows it
+	var at := Transform2D(0.0, Vector2.ONE * scale, 0.0, box.get_center() - rect.get_center() * scale)
+	if vis:
+		var aims := []
+		for w in t.weapons:
+			aims.append(w.get("aim_vis", w["fire_angle"]))
+		ShipArt.draw_model(self, m, t.race_color(), t.thrust_level, 1.0, 1.0 - t.hull / maxf(t.hull_max, 1.0), at, aims,
+			clampf(t.hit_flash * 5.0, 0.0, 1.0), t.systems.broken_map(), t._coat_wear(), t.pdc.aims())
+	else:
+		ShipArt.draw_model(self, m, Color(0.5, 0.55, 0.6), 0.0, 0.18, 0.0, at)
+		draw_string(font, Vector2(box.position.x, box.end.y - 10), "NO VISUAL", HORIZONTAL_ALIGNMENT_CENTER, box.size.x, 12, Color(1, 0.7, 0.5, 0.8))
+	draw_set_transform_matrix(Transform2D.IDENTITY)
+
+
 func _draw_nav(p: Ship, vp: Vector2) -> void:
 	var t := p.nav_target
 	if t == null or not is_instance_valid(t):
@@ -592,11 +628,12 @@ func _draw_planet_card(p: Ship, vp: Vector2) -> void:
 	if on_screen:
 		draw_arc(screen, r + 8.0, 0, TAU, 64, Color(0.9, 0.95, 1.0, 0.6), 1.5, true)
 	var rows: Array = pl.info_lines(p.race_id)
-	rows.append(["Shift-click it again to close", "hint"])
+	rows.append(["Select it again to close (%s)" % Keybinds.short_text("select_target"), "hint"])
 	var w := 0.0
 	for row in rows:
 		w = maxf(w, font.get_string_size(row[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 18 if row[1] == "title" else 14).x)
-	var size := Vector2(w + 28.0, 18.0 + rows.size() * 20.0 + 8.0)
+	w = maxf(w, 200.0)
+	var size := Vector2(w + 28.0, 18.0 + rows.size() * 20.0 + 8.0 + CARD_PIC_H)
 	var at := screen + Vector2(r + 24.0, -size.y * 0.5)
 	if at.x + size.x > vp.x - 16.0:
 		at.x = screen.x - r - 24.0 - size.x
@@ -620,6 +657,10 @@ func _draw_planet_card(p: Ship, vp: Vector2) -> void:
 			"warn": Color(1.0, 0.7, 0.3), "hint": Color(0.6, 0.7, 0.85, 0.7)}.get(row[1], Color(0.88, 0.92, 1.0))
 		draw_string(font, Vector2(at.x + 14.0, y), row[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 18 if row[1] == "title" else 14, col)
 		y += 22.0 if row[1] == "title" else 20.0
+	# the world itself at the foot of the card, lit as it is now
+	var pic := Rect2(at.x + 6.0, box.end.y - CARD_PIC_H - 4.0, size.x - 12.0, CARD_PIC_H)
+	draw_rect(pic, Color(0.0, 0.01, 0.04, 0.9))
+	planet_pic.show_planet(pl, pic)
 
 
 func _draw_radar(p: Ship, vp: Vector2) -> void:
@@ -1086,7 +1127,7 @@ func _text(pos: Vector2, text: String, align: HorizontalAlignment, width: float,
 ## gets a small sideways nudge so two in the same direction do not stack.
 func _edge_anchor(dir: Vector2, vp: Vector2) -> Vector2:
 	var panels := [
-		Rect2(vp.x - 345, 0, 345, 140),            # target panel
+		Rect2(vp.x - 345, 0, 345, 140 + PIC_H),    # target panel and its picture
 		Rect2(0, vp.y - 190, 640, 190),            # status and weapons
 		Rect2(vp.x - 300, vp.y - 310, 300, 310),   # radar
 		Rect2(vp.x * 0.5 - 360, 0, 720, 110),      # planets, clock, hold bar
@@ -1237,7 +1278,7 @@ func _draw_help(vp: Vector2) -> void:
 		[_keys("pdc_toggle"), "point defence (PDC) on / off"],
 		["", ""],
 		["TARGETS AND NAVIGATION", ""],
-		[_keys("target_next"), "next target"], [_keys("target_nearest"), "nearest enemy"], ["Shift+click", "target a ship, world info"],
+		[_keys("target_next"), "next target"], [_keys("target_nearest"), "nearest enemy"], [_keys("select_target"), "target a ship, world info"],
 		[_keys("tactical_map"), "system map (hold or tap)"], [_keys("nav_next"), "next nav planet"], [_keys("autopilot"), "autopilot to the nav planet"],
 		[_keys("ledger"), "empire ledger: resources"],
 		["", ""],
@@ -1277,3 +1318,32 @@ func _draw_help(vp: Vector2) -> void:
 	draw_string(font, Vector2(x, fy + 22), "Capture enemy ships: shoot out engines or reactor, then board with %s. Stations: shields down, hull under half." % Keybinds.short_text("board"), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
 	draw_string(font, Vector2(x, fy + 44), "Wrecks drop parts and blueprints.  Dock at your starbase (%s) to refit and set weapon groups." % Keybinds.short_text("refit"), HORIZONTAL_ALIGNMENT_CENTER, w, 15, Color(0.95, 0.97, 1.0))
 	draw_string(font, Vector2(x, fy + 66), "Change any key or gamepad button in Settings > Controls.", HORIZONTAL_ALIGNMENT_CENTER, w, 14, Color(0.7, 0.8, 0.95))
+
+
+## A world's picture on its info card: drawn by the planet's own shader
+## material, so it is the same world, lit from the same side.  A child of
+## the HUD because a material belongs to a whole canvas item.
+class PlanetPicture extends Node2D:
+	var planet: Planet = null
+
+	func show_planet(pl: Planet, box: Rect2) -> void:
+		planet = pl
+		material = pl.material_
+		# room for the corona or the atmosphere
+		var reach := 1.4 if pl.look == "Sun" else 1.3
+		var px := minf(box.size.x, box.size.y) * 0.5 / reach
+		position = box.get_center()
+		scale = Vector2.ONE * px / maxf(pl.radius, 1.0)
+		visible = true
+		queue_redraw()
+
+	func _draw() -> void:
+		if planet == null or not is_instance_valid(planet):
+			return
+		var r := planet.radius
+		if planet.look == "Saturn" or planet.look == "Uranus":
+			var rc := Color(0.85, 0.8, 0.65, 0.45) if planet.look == "Saturn" else Color(0.7, 0.85, 0.9, 0.3)
+			for i in 5:
+				draw_arc(Vector2.ZERO, r * (1.35 + i * 0.09), 0, TAU, 96, rc, r * 0.06, true)
+		var ext := planet.quad_extent()
+		draw_texture_rect(Planet.white_tex, Rect2(-r * ext, -r * ext, r * ext * 2.0, r * ext * 2.0), false)
