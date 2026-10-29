@@ -429,6 +429,18 @@ func _moving_and_turning(b, gd) -> Dictionary:
 		b.mounts[d] = keep
 		b.focus_key = "hp:%d" % d
 		_check(b._hints().any(func(h): return h[1] == "Turn"), "a turret that can turn shows the Turn key")
+		# a disruptor turns too, and fires all round
+		b.mounts[d] = {"id": "4020"}
+		var t_dis: int = b.turns[d]
+		b._command("turn_r")
+		var dh: Array = b._hp_turned(d)
+		_check(b.turns[d] != t_dis and b._hints().any(func(h): return h[1] == "Turn"), "a disruptor turns in the shipyard and shows the Turn key")
+		_check(int(dh[4]) - int(dh[3]) >= int(Ship.FREE_AIM_ARC) and absi((int(dh[3]) + int(dh[4])) / 2 - int(dh[2])) <= 1,
+			"a disruptor's arc is %d° around its facing (%d..%d, faces %d)" % [int(dh[4]) - int(dh[3]), dh[3], dh[4], dh[2]])
+		b.mounts[d] = keep
+		b.turns[d] = t_dis
+		var wide: Vector2 = Ship.free_aim_arc(0.0, -10.0, 10.0)
+		_check(is_equal_approx(wide.x, -Ship.FREE_AIM_ARC * 0.5) and is_equal_approx(wide.y, Ship.FREE_AIM_ARC * 0.5), "a narrow mount gives a disruptor the wide arc (%s)" % wide)
 	# a turned arc that crosses astern still holds a target behind
 	var arc := {"arc0": deg_to_rad(150.0), "arc1": deg_to_rad(210.0)}
 	_check(Ship.in_arc(arc, deg_to_rad(-170.0)) and not Ship.in_arc(arc, 0.0) and absf(Ship.clamp_to_arc(arc, deg_to_rad(-90.0)) - deg_to_rad(210.0)) < 0.01,
