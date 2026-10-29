@@ -540,7 +540,7 @@ func _build_weapons() -> void:
 			entry["dps"] = float(GameData.BEAM_DPS.get(w[0], 45.0 + float(m["p"][1]) * 0.15)) * GameData.DAMAGE_SCALE
 			entry["rate"] = 0.0
 		weapons.append(entry)
-		if is_turret(entry):
+		if is_turret(entry) or is_free_aim(entry):
 			has_turret = true
 
 
@@ -1361,7 +1361,7 @@ func _weapons(delta: float) -> void:
 		if w["cooldown"] > 0.0:
 			w["cooldown"] -= delta
 		# turrets visibly swing toward where they would shoot
-		if is_turret(w):
+		if is_turret(w) or is_free_aim(w):
 			w["aim_vis"] = rotate_toward(w.get("aim_vis", w["fire_angle"]), _aim_angle(w), 5.0 * delta)
 		var want := false
 		if group_fire:
@@ -1429,6 +1429,14 @@ func is_turret(w: Dictionary) -> bool:
 	return w["arc1"] - w["arc0"] >= deg_to_rad(150.0)
 
 
+## Shots that aim themselves from any mount, whatever its arc (Kyle: the
+## disruptor is a lock/mouse weapon, it never fires down a rear rack).
+const FREE_AIM_SHOTS := ["020"]
+
+func is_free_aim(w: Dictionary) -> bool:
+	return w["kind"] == "tube" and w["missile"] in FREE_AIM_SHOTS
+
+
 func _aim_angle(w: Dictionary) -> float:
 	# Fire toward the target if it is inside the arc, else straight down the arc centre.
 	var centre: float = w["fire_angle"]
@@ -1438,6 +1446,8 @@ func _aim_angle(w: Dictionary) -> float:
 		var lock := _beam_lock(w)
 		if lock != INF:
 			return lock
+	if is_free_aim(w):
+		return _free_aim(w)
 	# a turret under a pilot's hand points where the pilot points
 	if aim_point != Vector2.INF and is_turret(w):
 		var rel := wrapf((aim_point - global_position).angle() - rotation, -PI, PI)
@@ -1445,14 +1455,7 @@ func _aim_angle(w: Dictionary) -> float:
 			return rel
 		return clampf(rel, w["arc0"], w["arc1"])
 	if target != null and is_instance_valid(target) and not (target is Ship and target.dead):
-		var to := target.global_position - global_position
-		var lead := to
-		if target is Ship and w["kind"] == "tube":
-			var md: Dictionary = GameData.MISSILES[w["missile"]]
-			var mv: float = md["fire_v"] * GameData.LIGHT_SPEED
-			var tt := to.length() / maxf(mv + 1.0, 1.0)
-			lead = to + (target.velocity - velocity) * tt * 0.9
-		var rel := wrapf(lead.angle() - rotation, -PI, PI)
+		var rel := _lead_angle(w, target)
 		if rel >= w["arc0"] - 0.01 and rel <= w["arc1"] + 0.01:
 			return rel
 		if w["arc1"] - w["arc0"] >= TAU - 0.2:
@@ -1464,10 +1467,8 @@ func _aim_angle(w: Dictionary) -> float:
 ## when there is no lock: no enemy ship targeted, not seen, out of reach
 ## or outside the mount's arc.
 func _beam_lock(w: Dictionary) -> float:
-	if target == null or not is_instance_valid(target) or not (target is Ship):
-		return INF
-	var t: Ship = target
-	if t.dead or t.team() == team() or t.is_landing() or not t.visible_to(self):
+	var t := _locked_foe()
+	if t == null:
 		return INF
 	var to := t.global_position - global_position
 	if to.length() > w["range"] + t.size:
@@ -1476,6 +1477,43 @@ func _beam_lock(w: Dictionary) -> float:
 	if w["arc1"] - w["arc0"] < TAU - 0.2 and (rel < w["arc0"] - 0.01 or rel > w["arc1"] + 0.01):
 		return INF
 	return rel
+
+
+## The targeted enemy ship, when we hold a track on it (null otherwise).
+func _locked_foe() -> Ship:
+	if target == null or not is_instance_valid(target) or not (target is Ship):
+		return null
+	var t: Ship = target
+	if t.dead or t.team() == team() or t.is_landing() or not t.visible_to(self):
+		return null
+	return t
+
+
+## Ship-relative angle to fire a shot from `w` at `t`, led for a tube.
+func _lead_angle(w: Dictionary, t: Node2D) -> float:
+	var to := t.global_position - global_position
+	var lead := to
+	if t is Ship and w["kind"] == "tube":
+		var md: Dictionary = GameData.MISSILES[w["missile"]]
+		var mv: float = md["fire_v"] * GameData.LIGHT_SPEED
+		var tt := to.length() / maxf(mv + 1.0, 1.0)
+		lead = to + (t.velocity - velocity) * tt * 0.9
+	return wrapf(lead.angle() - rotation, -PI, PI)
+
+
+## A free-aim shot (the disruptor) goes at the locked target, else where
+## the pilot points (mouse or right stick), else at whatever is targeted,
+## else straight off the nose: never down the mount's own arc, which on a
+## rear rack is behind the ship.
+func _free_aim(w: Dictionary) -> float:
+	var foe := _locked_foe()
+	if foe != null:
+		return _lead_angle(w, foe)
+	if aim_point != Vector2.INF:
+		return wrapf((aim_point - global_position).angle() - rotation, -PI, PI)
+	if target != null and is_instance_valid(target) and not (target is Ship and target.dead):
+		return _lead_angle(w, target)
+	return 0.0
 
 
 func _fire_tube(w: Dictionary) -> void:
