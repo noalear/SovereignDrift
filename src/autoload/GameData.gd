@@ -226,7 +226,7 @@ const HULL_MATERIALS := {
 # "tough" ones take that many rounds.
 
 const MISSILES := {
-	"001": {"dtype": "kinetic", "name": "bolt", "warhead": 150, "fire_v": 0.75, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.20, "life": 14.0, "radius": 4, "look": "bolt"},
+	"001": {"dtype": "kinetic", "name": "bolt", "warhead": 150, "fire_v": 0.75, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.20, "life": 14.0, "radius": 4, "look": "slug"},
 	"002": {"dtype": "explosive", "name": "mine", "shootable": true, "tough": 2, "blast": 127, "warhead": 2500, "fire_v": 0.05, "guided": false, "trigger": "prox", "prox": 58, "seek_range": 0, "max_v": 0.05, "life": 60.0, "radius": 9, "look": "mine"},
 	"003": {"dtype": "plasma", "name": "plasma", "warhead": 500, "fire_v": 0.35, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "plasma"},
 	"004": {"dtype": "explosive", "name": "torpedo", "shootable": true, "tough": 2, "blast": 90, "warhead": 700, "fire_v": 0.30, "guided": true, "trigger": "prox", "prox": 64, "seek_range": 600, "max_v": 0.90, "life": 4.5, "radius": 7, "look": "grenade", "turn": 0.6, "accel": 240},

@@ -148,6 +148,7 @@ static func weapon_icon(id: String) -> String:
 	if mod["func"] == "beam":
 		return "laser"
 	match mod["p"][3]:
+		"001": return "massdriver"
 		"010": return "rapid"
 		"004": return "grenade"
 		"018": return "cannon"
@@ -891,6 +892,12 @@ static func _sockets(m: Dictionary, size: float) -> void:
 		m["sockets"].append({"tex": t, "pos": p, "w": w, "h": d, "rot": (-feed).angle(), "anchor": (w - d * 0.5) / w})
 
 
+## Long-barrelled turrets: drawn length in turret radii, and where the
+## ring's centre (the pivot) sits along the picture.
+const TURRET_LENGTH := {"massdriver": 3.2}
+const TURRET_PIVOT := {"massdriver": 0.223}
+
+
 static func _turret_overlay(m: Dictionary, w: Array, index: int, mount: Vector2) -> void:
 	var id: String = w[0]
 	var cls := GameData.weapon_class(id)
@@ -899,9 +906,9 @@ static func _turret_overlay(m: Dictionary, w: Array, index: int, mount: Vector2)
 	var t := part_texture(icon)
 	if t == null:
 		return
-	var width := r * (2.6 if icon in ["cannon", "disruptor", "torpedo", "mine"] else 2.0)
+	var width: float = r * TURRET_LENGTH.get(icon, 2.6 if icon in ["cannon", "disruptor", "torpedo", "mine"] else 2.0)
 	m["turrets"].append({"tex": t, "pos": mount, "w": width, "h": width * t.get_height() / t.get_width(),
-		"fire": deg_to_rad(float(w[3])), "index": index, "turret": w[5] - w[4] >= 150, "anchor": 0.42 if icon != "mine" else 0.5})
+		"fire": deg_to_rad(float(w[3])), "index": index, "turret": w[5] - w[4] >= 150, "anchor": TURRET_PIVOT.get(icon, 0.42 if icon != "mine" else 0.5)})
 
 
 # ------------------------------------------------------------------ draw

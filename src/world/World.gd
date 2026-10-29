@@ -1288,6 +1288,11 @@ func spawn_missile(owner: Node, missile_id: String, pos: Vector2, vel: Vector2, 
 	var race: int = owner.race_id if owner is Ship else owner.owner_race
 	m.setup(self, owner, race, missile_id, pos, vel, angle, target)
 	missiles.append(m)
+	var md: Dictionary = GameData.MISSILES[missile_id]
+	if md["look"] == "slug" and fx != null:
+		# the flash rides with the gun: the shot's speed less its muzzle velocity
+		var shooter: Vector2 = vel - Vector2.RIGHT.rotated(angle) * md["fire_v"] * GameData.LIGHT_SPEED
+		fx.muzzle_flash(pos, angle, shooter, m.color, 6.0 + m.radius * 1.5)
 	Net.host_shot(m, owner, missile_id, pos, vel, angle)
 	space.add_body(m.body)
 

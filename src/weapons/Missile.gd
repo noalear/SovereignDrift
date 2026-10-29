@@ -24,6 +24,16 @@ var color := Color.WHITE
 var exploded := false
 var toughness := 1               # gun rounds it takes to shoot it down
 
+static var _slug_mat: CanvasItemMaterial = null
+
+
+## Mass driver slugs glow: they are drawn additively, like the Fx lights.
+static func slug_material() -> CanvasItemMaterial:
+	if _slug_mat == null:
+		_slug_mat = CanvasItemMaterial.new()
+		_slug_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	return _slug_mat
+
 
 func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vector2, p_vel: Vector2, p_angle: float, p_target: Node2D) -> void:
 	world = p_world
@@ -60,6 +70,9 @@ func setup(p_world: Node, p_owner: Node, p_race: int, p_id: String, p_pos: Vecto
 	var rc: Color = GameData.race(p_race)["color"]
 	match data["look"]:
 		"bolt": color = rc.lerp(Color.WHITE, 0.4)
+		"slug":
+			color = rc.lerp(Color(0.55, 0.9, 1.0), 0.6)
+			material = slug_material()
 		"plasma": color = rc.lerp(Color(1, 0.6, 1), 0.5)
 		"grenade": color = Color(1.0, 0.85, 0.4)
 		"mine": color = Color(0.7, 0.7, 0.75)
@@ -187,6 +200,17 @@ func shoot_down() -> void:
 
 func _draw() -> void:
 	match data["look"]:
+		"slug":
+			# a mass driver slug: a white-hot core in a stretched blue glow,
+			# with an ionised wake that grows over the first instants of flight
+			var soft := Fx.soft_texture()
+			var r := radius
+			var wake := r * lerpf(5.0, 16.0, clampf(age / 0.12, 0.0, 1.0))
+			draw_texture_rect(soft, Rect2(-wake, -r * 1.3, wake + r * 2.0, r * 2.6), false, Color(color.r, color.g, color.b, 0.3))
+			draw_texture_rect(soft, Rect2(-wake * 0.55, -r * 0.6, wake * 0.55 + r * 1.8, r * 1.2), false, Color(color.r, color.g, color.b, 0.8))
+			draw_texture_rect(soft, Rect2(-r * 1.5, -r * 2.0, r * 4.0, r * 4.0), false, Color(color.r, color.g, color.b, 0.55))
+			for k in 2:
+				draw_texture_rect(soft, Rect2(-r * 1.8, -r * 0.65, r * 3.2, r * 1.3), false, Color(1, 1, 1, 0.95))
 		"bolt":
 			draw_line(Vector2(-radius * 3.0, 0), Vector2(radius * 1.5, 0), color, radius * 0.9, true)
 			draw_circle(Vector2(radius, 0), radius * 0.8, Color.WHITE)
