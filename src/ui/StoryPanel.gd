@@ -53,15 +53,15 @@ func _draw_list(vp: Vector2) -> void:
 	var key := Keybinds.short_text("briefing")
 	var title := ""
 	var rows: Array = []            # [text, state] state: open | done | failed | optional | note
-	if story.op != null:
-		title = "OPERATION  ·  %s" % str(story.op.spec.get("title", "")).to_upper()
-		for o in story.op.objectives:
+	if story.op_title() != "":
+		title = "OPERATION  ·  %s" % story.op_title().to_upper()
+		for o in story.objectives():
 			var st := "done" if o["done"] else ("failed" if o["failed"] else ("optional" if o["optional"] else "open"))
 			rows.append([o["text"], st])
 	elif story.failed != "":
 		title = "OPERATION FAILED"
 		rows.append([story.failed, "failed"])
-		rows.append(["Press %s to try again from the briefing" % key, "note"])
+		rows.append(["The host tries it again from the briefing" if story.mirror else "Press %s to try again from the briefing" % key, "note"])
 	elif story.briefing_ready():
 		title = "BRIEFING READY"
 		rows.append(["Operation %s. Press %s" % [story.current()["title"], key], "open"])

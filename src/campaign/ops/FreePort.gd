@@ -31,20 +31,19 @@ var path := ""                    # pay | steal
 
 func setup() -> void:
 	port = world.spawn_free_port()
-	var p := player()
-	p.credits += EXPENSES
-	world.notify(p, "Fleet expenses: %d credits." % EXPENSES)
+	for p in pilots():
+		p.credits += EXPENSES
+		world.notify(p, "Fleet expenses: %d credits." % EXPENSES)
 	say("port_start")
 	objective("port", "Fly to the free port at Jupiter's Trojan point", port, "Jupiter free port")
 	go("travel")
 
 
 func step(delta: float) -> void:
-	var p := player()
 	_patrol(delta)
 	match stage:
 		"travel":
-			if not p.dead and p.global_position.distance_to(port.global_position) < MEET_REACH:
+			if pilot_near(port.global_position, MEET_REACH) != null:
 				complete("port")
 				say("port_marrow_1")
 				say("port_marrow_2")
@@ -54,7 +53,8 @@ func step(delta: float) -> void:
 					["steal", "Copy them under silent running", "Free, but port security must not get a contact on you, and the port will charge Terrans more for the rest of the war."]])
 				go("choose")
 		"pay":
-			if not p.dead and p.cargo.get("exotics", 0.0) >= PRICE and p.global_position.distance_to(port.global_position) - port.size < PAY_REACH:
+			var p := _payer()
+			if p != null:
 				p.cargo["exotics"] -= PRICE
 				if p.cargo["exotics"] < 0.01:
 					p.cargo.erase("exotics")
@@ -63,13 +63,14 @@ func step(delta: float) -> void:
 				say("port_paid")
 				_records()
 		"steal":
-			if _shot_at(p):
-				fail("You fired on port security.", "port_fail_shot")
-				return
-			if _spotted(p):
-				fail("Port security spotted you.", "port_fail_seen")
-				return
-			if not p.dead and p.global_position.distance_to(relay.global_position) < RELAY_REACH:
+			for p in pilots():
+				if _shot_at(p):
+					fail("You fired on port security.", "port_fail_shot")
+					return
+				if _spotted(p):
+					fail("Port security spotted you.", "port_fail_seen")
+					return
+			if pilot_near(relay.global_position, RELAY_REACH) != null:
 				copied += delta
 				set_text("steal", "Copying the records: %d%%" % int(minf(copied / COPY_TIME, 1.0) * 100.0))
 				if copied >= COPY_TIME:
@@ -84,11 +85,10 @@ func step(delta: float) -> void:
 			if path == "steal" and stage_time > 14.0:
 				say_once("port_found")
 			var base: Ship = world.starbase_of(1)
-			if base != null and not p.dead and p.global_position.distance_to(base.global_position) < HOME_REACH:
+			if base != null and pilot_near(base.global_position, HOME_REACH) != null:
 				complete("home")
 				say("port_done")
-				p.earn(300)
-				world.notify(p, "Operation pay: 300 credits.")
+				pay(300)
 				win()
 
 
@@ -140,6 +140,14 @@ func _patrol(delta: float) -> void:
 		c.rotation = tangent.angle() if tangent.length() > 1.0 else a
 
 
+## A pilot alongside the port with the Exotics in the hold.
+func _payer() -> Ship:
+	for p in pilots():
+		if alive(p) and p.cargo.get("exotics", 0.0) >= PRICE and p.global_position.distance_to(port.global_position) - port.size < PAY_REACH:
+			return p
+	return null
+
+
 func _shot_at(p: Ship) -> bool:
 	for c in cutters:
 		if not alive(c) or c.hull < c.hull_max - 0.5 or c.last_attacker == p:
@@ -147,7 +155,7 @@ func _shot_at(p: Ship) -> bool:
 	return false
 
 
-## Port security has a contact on the player near the relay.
+## Port security has a contact on this pilot near the relay.
 func _spotted(p: Ship) -> bool:
 	if p.dead or p.global_position.distance_to(relay.global_position) > WATCH_RANGE:
 		return false
@@ -170,5 +178,5 @@ func _records() -> void:
 
 
 func on_breach(attacker: Node, victim: Node) -> void:
-	if attacker == player() and (victim is Ship and victim.race_id == 2 or victim is Planet and victim.owner_race != 1):
+	if is_pilot(attacker) and (victim is Ship and victim.race_id == 2 or victim is Planet and victim.owner_race != 1):
 		fail("You fired first on an Accord ship.", "fw_fail_breach")

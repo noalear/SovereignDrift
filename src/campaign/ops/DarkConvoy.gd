@@ -15,6 +15,7 @@ var site := Vector2.ZERO          # from Ceres's centre, so it moves with it
 var wrecks: Array = []            # [ship, objective id, seconds scanned]
 var lead: Ship                    # the raider to take alive
 var wing: Ship
+var wings: Array = []             # the lead's wingmen: one, and another for each two friends along
 var brandt: Ship
 var captured := false
 
@@ -51,10 +52,9 @@ func _site() -> Vector2:
 
 
 func step(delta: float) -> void:
-	var p := player()
 	match stage:
 		"travel":
-			if not p.dead and p.global_position.distance_to(_site()) < ARRIVE_REACH:
+			if pilot_near(_site(), ARRIVE_REACH) != null:
 				complete("site")
 				say("dc_arrive")
 				say("dc_scan")
@@ -68,9 +68,9 @@ func step(delta: float) -> void:
 					continue
 				left += 1
 				var ship: Ship = w[0]
-				if not alive(ship) or p.dead:
+				if not alive(ship):
 					continue
-				if p.global_position.distance_to(ship.global_position) - ship.size < SCAN_REACH:
+				if pilot_near(ship.global_position, SCAN_REACH + ship.size) != null:
 					w[2] += delta
 					if w[2] >= SCAN_TIME:
 						complete(w[1])
@@ -102,40 +102,49 @@ func step(delta: float) -> void:
 				go("home")
 		"home":
 			var base: Ship = world.starbase_of(1)
-			if base != null and not p.dead and p.global_position.distance_to(base.global_position) < HOME_REACH:
+			if base != null and pilot_near(base.global_position, HOME_REACH) != null:
 				complete("home")
 				complete("wing")
 				say("dc_done")
 				say("dc_done2")
-				p.earn(500)
-				world.notify(p, "Operation pay: 500 credits.")
+				pay(500)
 				story.flags["drengin_log"] = true
 				win()
 
 
 ## Two raiders with pirate transponders out of the rocks.
 func _ambush() -> void:
-	var p := player()
-	var from := p.global_position if not p.dead else _site()
+	var p := lead_pilot()
+	var from := p.global_position if alive(p) else _site()
 	var a := randf() * TAU
 	lead = spawn("Raider Skeg", 3, "Scout", "Rust Wake", clear_spot(from, a, AMBUSH_FROM), planet("Ceres").velocity, 4)
 	lead.hull_max *= LEAD_HULL
 	lead.hull = lead.hull_max
 	lead.crew = 3.0                    # a small crew: a boarding party wins
 	lead.died.connect(_on_lead_died)
-	wing = spawn("Raider Holt", 3, "Scout", "Rust Fang", clear_spot(from, a + 0.5, AMBUSH_FROM + 200.0), planet("Ceres").velocity, 3)
-	for r in [lead, wing]:
+	var squad := pilots()
+	for i in scaled(1):
+		wings.append(spawn("Raider %s" % ["Holt", "Dace", "Wrenn", "Corve"][i % 4], 3, "Scout", "Rust %s" % ["Fang", "Claw", "Tooth", "Spur"][i % 4],
+			clear_spot(from, a + 0.5 + i * 0.4, AMBUSH_FROM + 200.0), planet("Ceres").velocity, 3))
+	wing = wings[0]
+	for r in [lead] + wings:
 		r.rotation = (from - r.global_position).angle()
 		r.reset_physics_interpolation()
-		r.target = p
+		var mark: Ship = squad[wings.find(r) % squad.size()] if r != lead and not squad.is_empty() else p
+		r.target = mark if alive(mark) else p
 		var ai: AIPilot = r.get_node("AI")
 		ai.duel = true                  # it came for you, not for the supply ships
 	say("dc_ambush")
 	say("dc_raider")
 	say("dc_weapons")
 	objective("disable", "Knock out the lead raider's engines (shoot its stern)", lead, "Lead raider")
-	objective("wing", "Drive off or destroy the second raider", wing, "Raider", true)
-	wing.died.connect(func(_s, _k): complete("wing"))
+	objective("wing", "Drive off or destroy the second raider" if wings.size() == 1 else "Drive off or destroy the other raiders", wing, "Raider", true)
+	for r in wings:
+		r.died.connect(func(_s, _k):
+			for o in wings:
+				if alive(o):
+					return
+			complete("wing"))
 
 
 func _on_lead_died(s: Ship, killer: Node) -> void:

@@ -2,6 +2,8 @@
 ## question and a button for each answer with what it means.  Offline the
 ## war holds still while it is open; the call window keeps talking beside
 ## it.  There is no "not now": the operation waits on the answer.
+## Online the host decides: a friend's pick is a vote, and the host sees
+## who would pick what under each answer.
 class_name StoryChoice
 extends Control
 
@@ -11,6 +13,7 @@ var story: Story
 var font: Font
 var time := 0.0
 var buttons: Array = []           # [Button, option row]
+var voted := ""                   # a friend's vote, sent to the host
 
 
 func setup(p_story: Story) -> void:
@@ -39,7 +42,7 @@ func _ready() -> void:
 func _panel() -> Rect2:
 	var vp := get_viewport_rect().size
 	var w := minf(680.0, vp.x - 380.0)
-	var h := 150.0 + buttons.size() * 112.0
+	var h := 150.0 + buttons.size() * 112.0 + (24.0 if story.mirror else 0.0)
 	return Rect2(maxf(vp.x * 0.5 - w * 0.5, 360.0), vp.y * 0.5 - h * 0.5, w, h)
 
 
@@ -70,6 +73,23 @@ func _draw() -> void:
 		for ln in _wrap(str(row[2]), r.size.x - 48.0, 15):
 			draw_string(font, Vector2(r.position.x + 28, ty), ln, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.75, 0.82, 0.92))
 			ty += 19.0
+		var who := []
+		for pilot in story.votes:
+			if story.votes[pilot] == row[0]:
+				who.append(pilot)
+		if not who.is_empty():
+			draw_string(font, Vector2(r.position.x + 24, r.position.y + 110.0 + i * 112.0 - 6.0), "Votes: " + ", ".join(who),
+				HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 48.0, 14, Color(1.0, 0.85, 0.5))
+	if story.mirror:
+		var note := "Your vote: %s. The host decides." % _label(voted) if voted != "" else "The host decides. Your pick goes to them as a vote."
+		draw_string(font, Vector2(r.position.x + 24, r.end.y - 14), note, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 48.0, 14, Color(0.7, 0.8, 0.95))
+
+
+func _label(key: String) -> String:
+	for b in buttons:
+		if b[1][0] == key:
+			return str(b[1][1])
+	return key
 
 
 func _wrap(text: String, width: float, size: int) -> PackedStringArray:

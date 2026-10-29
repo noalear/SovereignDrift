@@ -5,7 +5,8 @@
 extends SceneTree
 
 const CALLS := [["hale", "ops_room"], ["okafor", "admiralty"], ["brandt", "cockpit_terran"], ["freighter", "bridge_freighter"],
-	["raider", "cockpit_pirate"], ["marrow", "port_backroom"], ["kesh", "bridge_drengin"]]
+	["raider", "cockpit_pirate"], ["marrow", "port_backroom"], ["kesh", "bridge_drengin"], ["rhee", "dropship_bay"],
+	["tenn", "bridge_arcean"], ["corrigan", "cockpit_pirate"]]
 
 var out_dir := "/tmp/claude-0/sf/shots"
 var board: Control
@@ -18,7 +19,7 @@ class Board extends Control:
 	func _draw() -> void:
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.03, 0.05))
 		for i in CALLS.size():
-			var r := Rect2(20 + (i % 4) * 470, 20 + (i / 4) * 380, 450, 337)
+			var r := Rect2(20 + (i % 5) * 375, 20 + (i / 5) * 290, 360, 270)
 			CallView.draw_call(self, r, CALLS[i][0], CALLS[i][1], talk, 0.0, 1.0)
 
 

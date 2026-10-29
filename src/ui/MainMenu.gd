@@ -14,6 +14,7 @@ signal story_continue_pressed()
 signal story_load_pressed()
 signal host_pressed()
 signal duel_pressed()
+signal story_host_pressed()          # the story campaign, hosted for friends
 signal mode_pressed(which: String, online: bool)   # "survival" or "skirmish", alone or hosted
 signal join_pressed(address: String)
 signal quit_pressed()
@@ -434,7 +435,11 @@ func _draw_online(vp: Vector2) -> void:
 	_button(Rect2(x + 304, y + 20, 296, 48), "Host a duel (free-for-all)", func(): duel_pressed.emit())
 	_button(Rect2(x, y + 76, 296, 48), "Host Survival (co-op, up to %d)" % Survival.MAX_PLAYERS, func(): mode_pressed.emit("survival", true))
 	_button(Rect2(x + 304, y + 76, 296, 48), "Host Skirmish (teams)", func(): mode_pressed.emit("skirmish", true))
+	_button(Rect2(x, y + 132, 600, 48), "Host my story campaign (%s)" % ("continue the war" if not story_info.is_empty() else "a new war"), func(): story_host_pressed.emit())
 	y += 56
+	draw_string(font, Vector2(x, y + 142), "The story is yours: your single-player pilot and save. Friends fly as Lantern Squadron and share every objective.",
+		HORIZONTAL_ALIGNMENT_LEFT, 600, 13, Color(0.7, 0.75, 0.85))
+	y += 80
 	draw_string(font, Vector2(x, y + 90), "Friends join with your address. Online, open UDP %d on your router or use Tailscale." % Net.PORT,
 		HORIZONTAL_ALIGNMENT_LEFT, 600, 13, Color(0.7, 0.75, 0.85))
 	y += 30
@@ -449,7 +454,7 @@ func _draw_online(vp: Vector2) -> void:
 		draw_string(font, Vector2(x, gy + 22), "Listening... a host on your LAN shows up here within a few seconds.", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.6, 0.65, 0.75))
 		gy += 40
 	for g in games.slice(0, 5):
-		var label := "%s  (%s, %s, %d/%d players)  %s" % [g["name"], {"duel": "duel", "survival": "Survival", "skirmish": "Skirmish"}.get(g.get("mode", ""), "co-op"), g.get("system", "Sol"), int(g["players"]), int(g["max"]), g["ip"]]
+		var label := "%s  (%s, %s, %d/%d players)  %s" % [g["name"], {"duel": "duel", "survival": "Survival", "skirmish": "Skirmish", "story": "story co-op"}.get(g.get("mode", ""), "co-op"), g.get("system", "Sol"), int(g["players"]), int(g["max"]), g["ip"]]
 		var ok: bool = int(g.get("protocol", -1)) == Net.PROTOCOL
 		_button(Rect2(x, gy, 600, 40), label if ok else label + "  (different version)", func(): join_pressed.emit("%s:%d" % [g["ip"], int(g["port"])]), ok)
 		gy += 48
