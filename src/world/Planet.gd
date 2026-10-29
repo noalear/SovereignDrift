@@ -631,7 +631,7 @@ func _draw() -> void:
 	var ext := quad_extent()
 	draw_texture_rect(white_tex, Rect2(-radius * ext, -radius * ext, radius * ext * 2.0, radius * ext * 2.0), false)
 	if is_colonised():
-		var rc: Color = GameData.race(owner_race)["color"]
+		var rc: Color = world.colony_color(world.player.race_id if world.player != null else -1, owner_race) if world != null else GameData.race(owner_race)["color"]
 		if hit_flash > 0.0:
 			rc = rc.lerp(Color.WHITE, 0.6)
 		rc.a = 0.9

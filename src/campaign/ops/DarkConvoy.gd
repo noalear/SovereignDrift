@@ -4,6 +4,8 @@
 extends StoryOp
 
 const SITE_OFF := 900.0           # the wrecks drift this far off Ceres
+const QUIET := 4500.0             # and at least this far from any colony's guns or armed station
+const BELT_STEP := 0.05           # rad along Ceres's orbit per try when Mars is too near
 const ARRIVE_REACH := 1600.0      # from the site
 const SCAN_REACH := 320.0         # from a wreck's hull
 const SCAN_TIME := 2.0            # seconds alongside to scan it
@@ -22,10 +24,7 @@ var captured := false
 
 func setup() -> void:
 	var ceres := planet("Ceres")
-	var sun: Planet = world.sun
-	# the wrecks lie on Ceres's sunward side, clear of the rock itself
-	var dir := (sun.global_position - ceres.global_position).angle() if sun != null else 0.0
-	site = clear_spot(ceres.global_position, dir, ceres.radius + SITE_OFF) - ceres.global_position
+	site = _quiet_site(ceres) - ceres.global_position
 	var at := _site()
 	for row in [["Tern", Vector2(-180, -60)], ["Petrel", Vector2(200, 120)]]:
 		var w := spawn("Convoy %s" % row[0], 1, "Freighter", "TSS %s" % row[0], at + row[1], ceres.velocity)
@@ -42,8 +41,31 @@ func setup() -> void:
 	ai.state = AIPilot.State.ESCORT
 	brandt.died.connect(_on_brandt_died)
 	say("dc_start")
-	objective("site", "Fly to the Tern convoy's last position near Ceres", _site, "Last known position")
+	objective("site", "Fly to the Tern convoy's last position in the belt", _site, "Last known position")
 	go("travel")
+
+
+## Where the wrecks lie: off Ceres, or further along the belt when Mars
+## (its guns, the Drengin starbase) or any other armed place is near, so
+## the raiders' ambush plays out between them and the pilots alone.
+func _quiet_site(ceres: Planet) -> Vector2:
+	var sun: Planet = world.sun
+	var c := sun.global_position if sun != null else Vector2.ZERO
+	var best := clear_spot(ceres.global_position, (c - ceres.global_position).angle(), ceres.radius + SITE_OFF)
+	var best_room := guns_near(best)
+	var k := 0
+	while best_room < QUIET and k < 48:
+		# step along Ceres's orbit either way, a little in or out of it
+		k += 1
+		var turn := (k / 2 + 1) / 2 * BELT_STEP * (1.0 if k % 2 == 0 else -1.0)
+		var out := 1.0 + (0.06 if k % 4 < 2 else -0.06)
+		var at := c + (ceres.global_position - c).rotated(turn) * out
+		at = clear_spot(at, randf() * TAU, 1.0)
+		var room := guns_near(at)
+		if room > best_room:
+			best = at
+			best_room = room
+	return best
 
 
 func _site() -> Vector2:
@@ -157,3 +179,4 @@ func _on_lead_died(s: Ship, killer: Node) -> void:
 func _on_brandt_died(s: Ship, _killer: Node) -> void:
 	if not s.captured:
 		say("brandt_down")
+

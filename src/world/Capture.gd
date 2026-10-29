@@ -183,7 +183,7 @@ func try_board(captor: Ship, victim: Node) -> bool:
 	world.notify(captor, ("Tractor locked on %s. Boarding: your %d crew%s against their %d, about %d s. Stay close." % [victim.ship_name, int(ceil(captor.crew)), marines, int(ceil(victim.crew)), int(ceil(est))]) if est < INF
 		else ("Tractor locked on %s. Warning: their %d crew will likely throw your %d back." % [victim.ship_name, int(ceil(victim.crew)), int(ceil(captor.crew))]))
 	world.notify(victim, "%s is boarding us! Fight them off or get the engines back." % captor.pilot_name)
-	if victim.is_station:
+	if victim.is_station and world.in_feed(captor, victim):
 		world.notify_all("%s is boarding the %s %s!" % [captor.pilot_name, GameData.race(victim.race_id)["adj"], victim.ship_name],
 			captor.race_color() if captor.is_player else Color(0.85, 0.85, 0.75))
 	return true
@@ -292,8 +292,9 @@ func take(captor: Ship, victim: Ship) -> void:
 	if round_rules != null:
 		round_rules.on_kill(captor.race_id)
 		round_rules.note("%s captured %s's %s" % [captor.pilot_name, victim.pilot_name, victim.design_name], captor.race_id)
-	world.notify_all("%s (%s) captured %s's %s." % [captor.pilot_name, GameData.race(captor.race_id)["name"], victim.pilot_name, victim.design_name],
-		captor.race_color() if captor.is_player or victim.is_player else Color(0.85, 0.85, 0.75))
+	if world.in_feed(captor, victim):
+		world.notify_all("%s (%s) captured %s's %s." % [captor.pilot_name, GameData.race(captor.race_id)["name"], victim.pilot_name, victim.design_name],
+			captor.race_color() if captor.is_player or victim.is_player else Color(0.85, 0.85, 0.75))
 	if victim.is_player:
 		world.notify(victim, "Your ship was boarded and captured.")
 	Sfx.play_ui("captured", 0.7)
@@ -402,8 +403,9 @@ func take_station(captor: Ship, st: Ship) -> void:
 	if round_rules != null:
 		round_rules.on_kill(captor.race_id)
 		round_rules.note("%s captured the %s %s" % [captor.pilot_name, was, label.to_lower()], captor.race_id)
-	world.notify_all("%s (%s) captured the %s %s." % [captor.pilot_name, GameData.race(captor.race_id)["name"], was, st.ship_name],
-		captor.race_color() if captor.is_player else Color(0.85, 0.85, 0.75))
+	if world.in_feed(captor, st):
+		world.notify_all("%s (%s) captured the %s %s." % [captor.pilot_name, GameData.race(captor.race_id)["name"], was, st.ship_name],
+			captor.race_color() if captor.is_player else Color(0.85, 0.85, 0.75))
 	Sfx.play_ui("captured", 0.7)
 	var ns := _turn_station(captor, st)
 	for s in world.ships:

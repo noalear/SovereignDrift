@@ -19,6 +19,7 @@ extends Node
 
 enum State { PATROL, ATTACK, EVADE, RETREAT, ESCORT, BOARD, FERRY, FLEE }
 
+const CLEARANCE := 90.0       # room a wingman keeps off every other ship near its slot
 ## A boarding that would take longer than this is not worth trying.
 const BOARD_PATIENCE := 20.0
 ## A prize keeps within this of the ship it escorts, and fights what
@@ -603,6 +604,7 @@ func _act(delta: float) -> void:
 			# hold our place in the wing, a little ahead of the leader's motion
 			var spot := _wing_spot() if not convoy_guard else escort.global_position \
 				+ Vector2(-1.0, (1.0 if ship.get_instance_id() % 2 == 0 else -1.0) * 0.9).normalized().rotated(escort.rotation) * (escort.size + ship.size + 140.0) + escort.velocity * 0.8
+			spot = _clear_spot(spot)
 			var far := ship.global_position.distance_to(spot)
 			if ship.warping and far < 2500.0:
 				ship.end_warp()
@@ -614,6 +616,7 @@ func _act(delta: float) -> void:
 			if far < 160.0 and order() != "hold":
 				# in our slot: face the way the leader faces
 				i["turn"] = clampf(wrapf(escort.rotation - ship.rotation, -PI, PI) * 2.0, -1.0, 1.0)
+			_keep_clear()
 			_avoid_planets(delta)
 			if ship.qdrv > 0.0 and far > 5000.0 and not ship.warping and absf(i["turn"]) < 0.1:
 				ship.start_warp()
@@ -1811,6 +1814,40 @@ func _flee(delta: float) -> void:
 
 
 ## Steer away from planets and the sun we are about to hit.
+## The wing slot, moved off any other ship sitting in it: a wingman never
+## parks on the freighter or envoy its leader is escorting.
+func _clear_spot(spot: Vector2) -> Vector2:
+	for o in world.ships:
+		if o == ship or o == escort or o.dead:
+			continue
+		var room: float = o.size + ship.size + CLEARANCE
+		var off: Vector2 = spot - o.global_position
+		if off.length_squared() < room * room:
+			spot = o.global_position + (off.normalized() if off != Vector2.ZERO else Vector2.RIGHT.rotated(ship.rotation)) * room
+	return spot
+
+
+## About to bump another ship: slide off it sideways and stop pushing
+## towards it, so a wingman never shoves the ship it is guarding.
+func _keep_clear() -> void:
+	for o in world.ships:
+		if o == ship or o.dead:
+			continue
+		var to: Vector2 = o.global_position - ship.global_position
+		var room: float = o.size + ship.size + CLEARANCE * 0.6
+		if to.length_squared() > room * room:
+			continue
+		var dir := to.normalized()
+		if (ship.velocity - o.velocity).dot(dir) <= 0.0 and to.length() > o.size + ship.size + 20.0:
+			continue           # already drifting apart
+		var side := Vector2.from_angle(ship.rotation).orthogonal()
+		ship.inputs["strafe"] = -1.0 if side.dot(dir) > 0.0 else 1.0
+		if Vector2.from_angle(ship.rotation).dot(dir) > 0.3:
+			ship.inputs["thrust"] = 0.0
+			ship.inputs["brake"] = true
+		return
+
+
 func _avoid_planets(_delta: float) -> void:
 	var p: Planet = world.nearest_body(ship.global_position)
 	if p == null:

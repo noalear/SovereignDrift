@@ -110,9 +110,11 @@ func step(_delta: float) -> void:
 			_home_check()
 
 
+## The strike group's one job is the yard: they never break off for
+## anything else while it stands.
 func _strike_orders() -> void:
 	for s in strike:
-		if alive(s) and alive(yard) and (s.target == null or not is_instance_valid(s.target)):
+		if alive(s) and alive(yard):
 			s.target = yard
 
 

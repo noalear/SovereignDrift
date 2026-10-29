@@ -123,6 +123,8 @@ func tick(delta: float) -> void:
 		new_phase = "final"
 	else:
 		new_phase = "war"
+	if world.get("story_mode"):
+		return            # the story has no round to win: its operations are the war
 	if new_phase != phase:
 		phase = new_phase
 		match phase:

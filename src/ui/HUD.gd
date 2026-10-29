@@ -176,7 +176,7 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 		if sh.shield_bubble != null:
 			reach = maxf(reach, maxf(sh.shield_bubble.half.x, sh.shield_bubble.half.y) + sh.shield_bubble.position.length())
 		var friend: bool = sh.team() == p.team()
-		var col := Color(0.45, 1.0, 0.5) if friend else Color(1.0, 0.38, 0.32)
+		var col := Color(0.45, 1.0, 0.5) if friend else (Color(1.0, 0.38, 0.32) if world.shown_hostile(p, sh) else World.PEACE_COLOR)
 		if sh.race_id == GameData.NEUTRAL:
 			col = sh.race_color()
 		var text: String = station_label(sh) if sh.is_station else sh.pilot_name
@@ -577,7 +577,7 @@ func _draw_planet_card(p: Ship, vp: Vector2) -> void:
 	draw_rect(box, Color(0.02, 0.04, 0.1, 0.88))
 	draw_rect(box, Color(0.5, 0.7, 1.0, 0.6), false, 1.5)
 	if pl.is_colonised():
-		draw_rect(Rect2(at, Vector2(4.0, size.y)), GameData.race(pl.owner_race)["color"])
+		draw_rect(Rect2(at, Vector2(4.0, size.y)), world.colony_color(world.player.race_id if world.player != null else -1, pl.owner_race))
 	var y := at.y + 26.0
 	for row in rows:
 		if row[1] == "bar":
@@ -613,7 +613,7 @@ func _draw_radar(p: Ship, vp: Vector2) -> void:
 		if pl.look == "Sun":
 			col = Color(1.0, 0.8, 0.3)
 		elif pl.is_colonised():
-			col = GameData.race(pl.owner_race)["color"]
+			col = world.colony_color(p.race_id, pl.owner_race)
 		draw_circle(c + d, pr, col)
 	for s in world.ships:
 		if s.dead or s == p:
@@ -621,7 +621,7 @@ func _draw_radar(p: Ship, vp: Vector2) -> void:
 		var q := p.contact_quality(s)
 		if q == 0:
 			continue
-		var col := s.race_color()
+		var col := world.ship_color(p, s)
 		if q == 1:
 			# a bearing only (an EM or temporal receiver): a tick on the rim
 			var dir := (s.global_position - p.global_position).normalized()
@@ -636,7 +636,7 @@ func _draw_radar(p: Ship, vp: Vector2) -> void:
 			draw_arc(c + d, 5.5, 0, TAU, 12, Color(col, 0.55), 1.2)
 			draw_string(font, c + d + Vector2(-3, 4), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 1, 1, 0.75))
 			continue
-		var hostile := s.team() != p.team() and s.race_id != GameData.NEUTRAL
+		var hostile := world.shown_hostile(p, s)
 		if s.is_station:
 			draw_rect(Rect2(c + d - Vector2(4, 4), Vector2(8, 8)), col)
 		else:
@@ -1081,7 +1081,7 @@ func _draw_pointers(p: Ship, vp: Vector2) -> void:
 	var xf := world.get_viewport().get_canvas_transform()
 	var marks := []
 	if p.target != null and is_instance_valid(p.target) and p.target is Ship and not p.target.dead:
-		var hostile: bool = p.target.team() != p.team()
+		var hostile: bool = world.shown_hostile(p, p.target)
 		marks.append([p.target, Color(1.0, 0.35, 0.3) if hostile else Color(1.0, 0.9, 0.4), p.target.pilot_name])
 	var base: Ship = world.starbase_of(p.race_id)
 	if base != null and base != p.target:
@@ -1139,7 +1139,7 @@ func _draw_aim(p: Ship, vp: Vector2) -> void:
 		return
 	var col := Color(0.6, 1.0, 0.7, 0.85)
 	var hover := world.ship_at(p.aim_point, 40.0 / cam.zoom.x)
-	if hover != null and hover != p and hover.team() != p.team():
+	if hover != null and hover != p and world.shown_hostile(p, hover):
 		col = Color(1.0, 0.45, 0.4, 0.95)
 	draw_arc(screen, 11.0, 0.0, TAU, 24, col, 1.5)
 	for d in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:

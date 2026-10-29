@@ -83,6 +83,7 @@ var practice_opponent := true    # false: Free flight, practice with no pirate a
 var tutorial := false            # the voiced tutorial (practice too): a calm Sol with the economy running (Tutorial)
 var campaign := false            # a campaign: no round clock, saved as it goes (SaveGame)
 var campaign_data := {}          # a saved campaign to pick up, read before _ready
+const PEACE_COLOR := Color(0.95, 0.86, 0.5)   # an empire we are at peace with, on labels, radar and map
 var story_mode := false          # the story campaign (Story): a campaign with operations laid over the war
 ## How far the system is spread out: 1 is Sol as Conquest plays it; the
 ## story campaign's is bigger (Story.MAP_SCALE), so getting places takes
@@ -314,6 +315,11 @@ func _spawn_pilots() -> void:
 		ai.setup(base, self, home, 14)
 	_keep_station()
 	_place_at_home(player)
+	if story_mode:
+		# the story is scripted: no empire fleets, haulers or pirates of
+		# their own, only the operations' ships (and the free port)
+		spawn_free_port()
+		return
 	# computer pilots
 	var per_race := {0: 0, 1: 0, 2: 0}
 	var robots: Array = GameData.ROBOTS.duplicate()
@@ -462,6 +468,31 @@ func spawn_ship(pilot: String, race_id: int, design: String, ship_name: String, 
 		ai.name = "AI"
 		s.add_child(ai)
 		ai.setup(s, self, _home_planet(player.race_id if player != null else race_id), ai_rank)
+	return s
+
+
+## Back at the starbase, mended and fuelled (the story's days between
+## operations).
+func send_home(s: Ship) -> void:
+	if s.warping:
+		s.end_warp()
+	_place_at_home(s)
+	s.respawn(s.global_position, s.velocity)
+	Net.host_ship_respawned(s)
+
+
+## A ship for a friend joining the story (it has no computer pilots to
+## hand over): a Scout off the starbase, theirs from the next relaunch on.
+func spawn_story_seat(race_id: int) -> Ship:
+	var s := _make_ship("Wingman", race_id, "Scout", "Lantern", false)
+	var ai := AIPilot.new()
+	ai.name = "AI"
+	s.add_child(ai)
+	ai.setup(s, self, _home_planet(race_id), 3)
+	_place_at_home(s, 300.0)
+	s.body.pos = s.global_position
+	s.body.vel = s.velocity
+	Net.host_ship_added(s)
 	return s
 
 
@@ -752,8 +783,9 @@ func _physics_process(delta: float) -> void:
 	elif not practice or tutorial:
 		economy.tick(delta)
 		ground.tick(delta)
-		for g in governors.values():
-			g.tick(delta)
+		if not story_mode:        # the story's war is scripted: no convoys, raids or invasions of the empires' own
+			for g in governors.values():
+				g.tick(delta)
 	if story != null:
 		story.tick(delta)
 	_respawns()
@@ -968,6 +1000,29 @@ func at_war(a: int, b: int) -> bool:
 		if (pair[0] == a and pair[1] == b) or (pair[0] == b and pair[1] == a):
 			return false
 	return true
+
+
+## How `viewer` sees a ship: its empire's colour when it is its own side
+## or at war with it, a neutral gold for an empire it is at peace with (so
+## red always means a fight).
+func ship_color(viewer: Node, s: Node) -> Color:
+	if viewer == null or not (viewer is Ship) or s.race_id == GameData.NEUTRAL:
+		return s.race_color()
+	if s.team() == viewer.team() or at_war(viewer.team(), s.team()):
+		return s.race_color()
+	return PEACE_COLOR
+
+
+## A colony's colour as `viewer_race` sees it (as ship_color).
+func colony_color(viewer_race: int, owner: int) -> Color:
+	if viewer_race == owner or viewer_race < 0 or at_war(viewer_race, owner):
+		return GameData.race(owner)["color"]
+	return PEACE_COLOR
+
+
+## Would `viewer` fight `s`?  Its HUD marks only these as hostile.
+func shown_hostile(viewer: Node, s: Node) -> bool:
+	return viewer is Ship and s is Ship and s.team() != viewer.team() and s.race_id != GameData.NEUTRAL and at_war(viewer.team(), s.team())
 
 
 ## The Accord, or a peace between two empires after it: someone may be
@@ -1562,9 +1617,10 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 			var bounty := 30 + s.rank * 8 + (300 if s.is_starbase() else (80 if s.is_station else 0))
 			killer_ship.earn(bounty)
 			notify(killer_ship, "Bounty: %d credits." % bounty)
-		notify_all("%s (%s) destroyed %s (%s)." % [killer_ship.pilot_name, GameData.race(killer_ship.race_id)["name"], s.pilot_name, GameData.race(s.race_id)["name"]],
-			killer_ship.race_color() if killer_ship.is_player or s.is_player else Color(0.8, 0.8, 0.8))
-	else:
+		if in_feed(killer_ship, s):
+			notify_all("%s (%s) destroyed %s (%s)." % [killer_ship.pilot_name, GameData.race(killer_ship.race_id)["name"], s.pilot_name, GameData.race(s.race_id)["name"]],
+				killer_ship.race_color() if killer_ship.is_player or s.is_player else Color(0.8, 0.8, 0.8))
+	elif in_feed(s):
 		notify_all("%s was lost." % s.pilot_name, Color(0.75, 0.75, 0.75))
 	if s.is_player:
 		if records_career():
@@ -1706,8 +1762,8 @@ func _respawns() -> void:
 		var s: Ship = entry[0]
 		if not is_instance_valid(s):
 			continue
-		if elapsed >= entry[1] and (s.is_prize or s.has_meta("ordered") or s.has_meta("tutorial") or s.has_meta("wave") or (s.is_station and not s.is_starbase())):
-			remove_ship(s)        # a prize's crew does not come back, nor a built station, an ordered ship or a Survival raider
+		if elapsed >= entry[1] and (s.is_prize or s.has_meta("ordered") or s.has_meta("tutorial") or s.has_meta("wave") or s.has_meta("story") or (s.is_station and not s.is_starbase())):
+			remove_ship(s)        # a prize's crew does not come back, nor a built station, an ordered ship, a Survival raider or an operation's ship
 		elif elapsed >= entry[1] and mode_rules != null and not mode_rules.may_relaunch(s):
 			keep.append(entry)    # Survival after the starbase fell, a Skirmish hull still launching
 		elif elapsed >= entry[1]:
@@ -3015,6 +3071,17 @@ func notify(s: Ship, text: String) -> void:
 		message.emit(text, Color(0.85, 0.9, 1.0))
 	else:
 		Net.relay_notify(s, text)
+
+
+## Does this kill or capture go out to everyone?  In the story only the
+## pilots' own fights do: the rest is the script's to tell.
+func in_feed(a: Node, b: Node = null) -> bool:
+	return not story_mode or is_pilot(a) or is_pilot(b)
+
+
+## Flown by a person: the player or a seated friend online.
+func is_pilot(s: Node) -> bool:
+	return s is Ship and is_instance_valid(s) and (s.is_player or s.net_id in Net.seats.values())
 
 
 func notify_all(text: String, color: Color) -> void:
