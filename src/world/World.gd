@@ -14,6 +14,10 @@ signal radio_heard(voice_path: String)
 
 const MISSILE_SCRIPT := preload("res://src/weapons/Missile.gd")
 const RESPAWN_DELAY := 4.0
+## A destroyed home starbase is rebuilt this long after it falls (Kyle:
+## "about 1 minute").  Meanwhile its pilots launch from orbit over the
+## home world, and nobody docks, refits or buys a kit there.
+const STARBASE_RESPAWN_DELAY := 60.0
 ## Computer pilots take longer to relaunch, pirates longer still, and none
 ## of them ever appears inside this distance of the player: the next one
 ## arrives from out of view, not on top of you.
@@ -630,6 +634,15 @@ func starbase_of(race_id: int) -> Ship:
 		if s.is_starbase() and s.race_id == race_id and not s.dead:
 			return s
 	return null
+
+
+## Seconds until a fallen home starbase is back, or -1 while it stands
+## (or when nobody here saw it fall: a late joiner).
+func starbase_back_in(race_id: int) -> float:
+	for s in ships:
+		if s.is_starbase() and s.race_id == race_id and s.dead and s.has_meta("down_at"):
+			return maxf(STARBASE_RESPAWN_DELAY - (elapsed - float(s.get_meta("down_at"))), 0.0)
+	return -1.0
 
 
 ## Stations hold a fixed spot beside their world instead of falling free
@@ -1600,6 +1613,8 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 			slowmo = 0.12
 	if is_arena() and s.is_player:
 		arena_rules().killed_by = killer.pilot_name if killer is Ship and killer != s else ""
+	if s.is_starbase() and not is_arena():
+		s.set_meta("down_at", elapsed)     # for the countdown, on every machine
 	if Net.is_client():
 		if s.is_player:
 			player_died.emit()
@@ -1689,11 +1704,16 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 			duel_score[0] += 1
 		notify_all("Duel: you %d, pirates %d.%s" % [duel_score[0], duel_score[1], "" if s.is_player else "  Another pirate comes at you in a few seconds."], Color(1.0, 0.9, 0.6))
 	respawn_queue.append([s, elapsed + _respawn_delay(s)])
+	if s.is_starbase() and not is_arena():   # (Survival ends the run instead)
+		notify_all("The %s starbase at %s is down. It will be rebuilt in %d seconds." % [GameData.race(s.race_id)["name"], _home_planet(s.race_id).body_name, int(STARBASE_RESPAWN_DELAY)],
+			Color(1.0, 0.7, 0.45))
 
 
 func _respawn_delay(s: Ship) -> float:
+	if s.is_starbase():
+		return STARBASE_RESPAWN_DELAY
 	if s.is_station:
-		return RESPAWN_DELAY + (6.0 if s.is_starbase() else 0.0)
+		return RESPAWN_DELAY
 	if s.is_player or practice or s.net_id in Net.seats.values():
 		return RESPAWN_DELAY
 	return randf_range(PIRATE_RETURN.x, PIRATE_RETURN.y) if s.race_id == 3 else AI_RESPAWN_DELAY
@@ -1847,6 +1867,8 @@ func _respawns() -> void:
 				keep.append(entry)
 				continue
 			Net.host_ship_respawned(s)
+			if s.is_starbase() and not is_arena():
+				notify_all("The %s starbase at %s is rebuilt and back on station." % [GameData.race(s.race_id)["name"], home.body_name], Color(0.6, 1.0, 0.7))
 			if s.is_player:
 				player_respawned.emit()
 				var base := starbase_of(s.race_id)

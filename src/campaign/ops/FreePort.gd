@@ -84,8 +84,7 @@ func step(delta: float) -> void:
 		"home":
 			if path == "steal" and stage_time > 14.0:
 				say_once("port_found")
-			var base: Ship = world.starbase_of(1)
-			if base != null and pilot_near(base.global_position, HOME_REACH) != null:
+			if pilot_near(home_base().global_position, HOME_REACH) != null:
 				complete("home")
 				say("port_done")
 				pay(300)
@@ -169,7 +168,7 @@ func _records() -> void:
 	say("port_records_1")
 	say("port_records_2")
 	flag("records", "varr_shipping")
-	objective("home", "Bring the records home to the Terran starbase", world.starbase_of(1), "Terran starbase")
+	objective("home", "Bring the records home to the Terran starbase", home_base, "Terran starbase")
 	go("home")
 	for c in cutters:
 		if alive(c):

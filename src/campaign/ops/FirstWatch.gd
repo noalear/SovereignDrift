@@ -140,12 +140,11 @@ func step(delta: float) -> void:
 				cormorant.autopilot = false
 				say("fw_arrived")
 				say("fw_home")
-				objective("home", "Return to the Terran starbase", world.starbase_of(1), "Terran starbase")
+				objective("home", "Return to the Terran starbase", home_base, "Terran starbase")
 				go("home")
 		"home":
 			_scout_away(delta)
-			var base: Ship = world.starbase_of(1)
-			if base != null and pilot_near(base.global_position, HOME_REACH) != null:
+			if pilot_near(home_base().global_position, HOME_REACH) != null:
 				complete("home")
 				complete("hold_fire")
 				say("fw_done")

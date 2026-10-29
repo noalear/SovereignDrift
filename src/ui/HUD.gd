@@ -1166,6 +1166,9 @@ func _draw_pointers(p: Ship, vp: Vector2) -> void:
 	var base: Ship = world.starbase_of(p.race_id)
 	if base != null and base != p.target:
 		marks.append([base, Color(0.45, 1.0, 0.6), "Starbase"])
+	elif base == null and world.starbase_back_in(p.race_id) >= 0.0:
+		# shot down: home is still home, and the arrow says when it is back
+		marks.append([world._home_planet(p.race_id), Color(0.6, 0.7, 0.65), "Starbase back in %ds" % int(ceil(world.starbase_back_in(p.race_id)))])
 	var centre := vp * 0.5
 	for mk in marks:
 		var t: Node2D = mk[0]
@@ -1239,6 +1242,8 @@ func _draw_dead(vp: Vector2) -> void:
 		_draw_hull_picker(vp, a)
 	elif world.mode == "survival" and world.mode_rules != null and world.mode_rules.over:
 		line = "The starbase has fallen.  A new run starts in %s." % world.mode_rules.clock_text()
+	elif world.starbase_back_in(world.player.race_id) >= 0.0:
+		line += "   (the starbase is down: you launch over %s)" % world._home_planet(world.player.race_id).body_name
 	draw_string(font, Vector2(0, vp.y * 0.4 + 40), line, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, Color(1, 1, 1, a))
 
 

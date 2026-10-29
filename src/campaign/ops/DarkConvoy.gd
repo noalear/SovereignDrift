@@ -120,11 +120,10 @@ func step(delta: float) -> void:
 				complete("board")
 				say("dc_captured")
 				say("dc_captured2")
-				objective("home", "Bring the raider's log home to the Terran starbase", world.starbase_of(1), "Terran starbase")
+				objective("home", "Bring the raider's log home to the Terran starbase", home_base, "Terran starbase")
 				go("home")
 		"home":
-			var base: Ship = world.starbase_of(1)
-			if base != null and pilot_near(base.global_position, HOME_REACH) != null:
+			if pilot_near(home_base().global_position, HOME_REACH) != null:
 				complete("home")
 				complete("wing")
 				say("dc_done")
