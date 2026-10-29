@@ -209,7 +209,7 @@ func _interlude_check() -> void:
 	st.unlock_at = INF
 	st.interlude_at = w.elapsed
 	for i in 30:
-		await physics_frame
+		await _frames(1)                # the last words of the operation said, it fades
 		if main.interlude != null:
 			break
 	_check(main.interlude != null, "between operations the screen fades to the next stardate")
