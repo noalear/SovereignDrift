@@ -24,6 +24,7 @@ const MAX_LOOPS := 10        # rocket loops alive at once
 ## name -> [max voices, min gap s, priority, pitch jitter, gain]
 const SPEC := {
 	"torpedo": [6, 0.03, 4, 0.05, 0.85],
+	"railgun": [6, 0.03, 4, 0.05, 0.85],
 	"rapid": [6, 0.025, 3, 0.07, 0.7],
 	"plasma": [5, 0.04, 5, 0.05, 0.85],
 	"grenade": [4, 0.05, 5, 0.05, 0.9],

@@ -412,7 +412,7 @@ func _defend(delta: float) -> void:
 			var aim := to + (enemy.velocity - velocity) * tt * 0.85
 			var dir := aim.normalized()
 			world.spawn_missile(self, w["missile"], global_position + dir * (radius + 12.0), velocity + dir * mv, dir.angle(), enemy)
-			Sfx.play("grenade" if w["missile"] == "004" else "torpedo", global_position, 0.5)
+			Sfx.play({"004": "grenade", "001": "railgun"}.get(w["missile"], "torpedo"), global_position, 0.5)
 		else:
 			if to.length() > w["range"] + radius:
 				continue

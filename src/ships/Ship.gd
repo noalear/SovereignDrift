@@ -1607,6 +1607,7 @@ func _fire_tube(w: Dictionary) -> void:
 		world.last_player_fire = world.elapsed
 	var snd := "torpedo"
 	match w["missile"]:
+		"001": snd = "railgun"
 		"003": snd = "plasma"
 		"011": snd = "battery"
 		"010": snd = "rapid"
