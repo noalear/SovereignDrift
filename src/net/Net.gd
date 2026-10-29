@@ -1020,6 +1020,7 @@ func _rpc_shot(mid: int, owner_id: int, race: int, missile_id: String, pos: Vect
 	if owner != null and is_instance_valid(owner):
 		var snd := "torpedo"
 		match missile_id:
+			"001": snd = "railgun"
 			"003": snd = "plasma"
 			"011": snd = "battery"
 			"010": snd = "rapid"
