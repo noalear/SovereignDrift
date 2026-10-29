@@ -137,6 +137,13 @@ static func _painting_key(tex: Texture2D) -> String:
 	return path.get_base_dir().get_file() + "/" + path.get_file().get_basename()
 
 
+## The name of a part's picture for an empire: "<icon>_<empire>" when that
+## empire has its own painting (the mass driver does), else the shared one.
+static func race_part_icon(icon: String, race_id: int) -> String:
+	var own: String = icon + "_" + ["arcean", "terran", "drengin", "pirate"][clampi(race_id, 0, 3)]
+	return own if part_texture(own) != null else icon
+
+
 ## The empty weapon socket in an empire's style.  Its feed conduits point
 ## left; the ring itself is the square at the right end of the picture.
 static func socket_texture(race_id: int) -> Texture2D:
@@ -1034,9 +1041,10 @@ static func _sockets(m: Dictionary, size: float) -> void:
 
 
 ## Long-barrelled turrets: drawn length in turret radii, and where the
-## ring's centre (the pivot) sits along the picture.
-const TURRET_LENGTH := {"massdriver": 3.2}
-const TURRET_PIVOT := {"massdriver": 0.223}
+## ring's centre (the pivot) sits along the picture (per empire painting
+## where they differ).
+const TURRET_LENGTH := {"massdriver": 3.2, "massdriver_arcean": 2.65, "massdriver_drengin": 2.35, "massdriver_pirate": 2.85}
+const TURRET_PIVOT := {"massdriver": 0.223, "massdriver_arcean": 0.366, "massdriver_drengin": 0.318, "massdriver_pirate": 0.305}
 
 
 static func _turret_overlay(m: Dictionary, w: Array, index: int, mount: Vector2) -> void:
@@ -1044,12 +1052,14 @@ static func _turret_overlay(m: Dictionary, w: Array, index: int, mount: Vector2)
 	var cls := GameData.weapon_class(id)
 	var r := seat_radius(m, cls)
 	var icon := weapon_icon(id)
-	var t := part_texture(icon)
+	var pic := race_part_icon(icon, m["race"])
+	var t := part_texture(pic)
 	if t == null:
 		return
-	var width: float = r * TURRET_LENGTH.get(icon, 2.6 if icon in ["cannon", "disruptor", "torpedo", "mine"] else 2.0)
+	var width: float = r * TURRET_LENGTH.get(pic, TURRET_LENGTH.get(icon, 2.6 if icon in ["cannon", "disruptor", "torpedo", "mine"] else 2.0))
 	m["turrets"].append({"tex": t, "pos": mount, "w": width, "h": width * t.get_height() / t.get_width(),
-		"fire": deg_to_rad(float(w[3])), "index": index, "turret": w[5] - w[4] >= 150, "anchor": TURRET_PIVOT.get(icon, 0.42 if icon != "mine" else 0.5)})
+		"fire": deg_to_rad(float(w[3])), "index": index, "turret": w[5] - w[4] >= 150,
+		"anchor": TURRET_PIVOT.get(pic, TURRET_PIVOT.get(icon, 0.42 if icon != "mine" else 0.5))})
 
 
 # ------------------------------------------------------------------ draw
