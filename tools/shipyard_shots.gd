@@ -60,22 +60,45 @@ func _process(_delta: float) -> bool:
 		b._select("hold", 0)
 	if frames == 125:
 		_shot("yard_hold")
-		# a gamepad walking the parts list: the numbers preview the focused part
+		# Add a part: the part types as buttons
 		Builder.pad_mode = true
-		b.focus_key = "hp:2"
+		b.sel_kind = ""
+		b.sel_index = -1
+		b.focus_key = "bay:%d" % b.modules.size()
 		b._command("accept")      # shows the focus
-		b._command("accept")      # picks the mount; focus goes to the parts
-		b._command("down")
-		b._command("down")
+		b._command("accept")      # picks the slot; the list shows the types
 	if frames == 140:
-		_shot("yard_pad_parts")
-		# a full hold: taking a part off asks first
+		_shot("yard_types")
+		b.focus_key = "type:Shields"
+		b._command("accept")      # opens Shields: families with their marks
+		b._command("down")
+		b._command("down")
+	if frames == 155:
+		_shot("yard_shields")
+		# a weapon mount, switching out: weapon types, then Guns
 		Builder.pad_mode = false
+		b.focus_key = "hp:2"
+		b._command("accept")
+		b.focus_key = "type:Guns"
+		b._command("accept")
+		b._command("down")
+	if frames == 170:
+		_shot("yard_guns")
+		# buy a few things and press Accept: the bill
+		b._command("accept")
+		b._select("bay", b.modules.size())
+		b._mount("9203")
+		b._sell_hold(0)
+		b._command("launch")
+	if frames == 185:
+		_shot("yard_bill")
+		b._answer(1)
+		# a full hold: taking a part off asks first
 		while b.hold.size() < 16:
 			b.hold.append("9202")
 		b.focus_key = "bay:0"
 		b._command("remove")
-	if frames == 155:
+	if frames == 200:
 		_shot("yard_hold_full")
 		return true
 	return false
