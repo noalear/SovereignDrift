@@ -75,11 +75,16 @@ const INTERLUDE_LATEST := 20.0    # fade by then even if someone is still talkin
 const STORY_WORLDS := ["Luna", "Deimos"]   # worlds the operations take or lose: tidy_world leaves them be
 const PORT_MARKUP := 0.25         # on the free port's prices for Terrans once the records were stolen
 const BREACH_WARN_EVERY := 30.0   # Hale's "hold your fire" between operations
+## Lantern Squadron's own pilots: their ships, purses and holds go on from
+## one operation to the next (roster), so the player can outfit them.
+const LANTERN := ["Lt. Brandt", "Lt. Vance", "Lt. Osei", "Lt. Marsh", "Lt. Ibarra", "Lt. Kade"]
 
 var world: Node
 var index := 0                    # the operation offered or under way; OPS.size() when the story so far is told
 var op: StoryOp = null            # the operation under way
 var flags := {}                   # what the story remembers: choices, outcomes
+## Lantern pilot -> {ship_name, design, credits, hold, hold_stock, rank, score, kills}
+var roster := {}
 var unlock_at := 0.0              # world.elapsed when the next operation is offered
 static var interludes := true     # false: tests step through the story without the fades
 var interlude_at := INF           # world.elapsed when the fade to the next operation's stardate begins
@@ -122,6 +127,7 @@ func _init(p_world: Node, saved: Dictionary = {}, p_mirror := false) -> void:
 	else:
 		index = clampi(int(saved.get("index", 0)), 0, OPS.size())
 		flags = saved.get("flags", {}).duplicate(true)
+		roster = saved.get("roster", {}).duplicate(true)
 		world.accord = bool(saved.get("accord", true))
 		unlock_at = world.elapsed + minf(float(saved.get("wait", 4.0)), float(OPS[mini(index, OPS.size() - 1)]["wait"]))
 		keep_peace()
@@ -129,7 +135,86 @@ func _init(p_world: Node, saved: Dictionary = {}, p_mirror := false) -> void:
 
 
 func pack() -> Dictionary:
-	return {"index": index, "flags": flags.duplicate(true), "accord": world.accord, "wait": clampf(unlock_at - world.elapsed, 4.0, 60.0)}
+	return {"index": index, "flags": flags.duplicate(true), "accord": world.accord, "wait": clampf(unlock_at - world.elapsed, 4.0, 60.0),
+		"roster": roster.duplicate(true)}
+
+
+# ------------------------------------------------------ Lantern's ships
+
+## An operation's Lantern pilot flies the ship the roster remembers (the
+## fit the player gave it, its purse and hold), or joins the roster.  A
+## ship lost in an operation comes back with the same fit.
+func dress(s: Ship, rank: int) -> void:
+	if mirror or s.race_id != 1 or not s.pilot_name in LANTERN:
+		return
+	s.set_meta("lantern", true)
+	var e: Dictionary = roster.get(s.pilot_name, {})
+	if e.is_empty():
+		var r := maxi(rank, 0)
+		s.rank = r
+		s.score = GameData.RANKS[r]["score"]
+		s.kills = GameData.RANKS[r]["kills"]
+		s.credits = Wing.start_purse(r)
+		remember(s)
+		return
+	var d: Dictionary = e.get("design", {})
+	if d.has("name") and GameData.SHIPS.has(d["name"]):
+		s.refit(d)
+	s.rank = int(e.get("rank", rank))
+	s.score = int(e.get("score", 0))
+	s.kills = int(e.get("kills", 0))
+	s.credits = int(e.get("credits", 0))
+	s.hold = e.get("hold", []).duplicate()
+	s.hold_stock = e.get("hold_stock", {}).duplicate()
+
+
+## Keep a Lantern pilot's ship, purse and rank for the next operation.
+func remember(s: Ship) -> void:
+	if mirror or s == null or not is_instance_valid(s) or not s.pilot_name in LANTERN or s.race_id != 1:
+		return
+	roster[s.pilot_name] = {"ship_name": s.ship_name, "design": s.design.duplicate(true), "credits": s.credits,
+		"hold": s.hold.duplicate(), "hold_stock": s.hold_stock.duplicate(), "rank": s.rank, "score": s.score, "kills": s.kills}
+
+
+## The Lantern pilots the yard can outfit between operations, by name.
+func roster_names() -> Array:
+	return LANTERN.filter(func(n): return roster.has(n))
+
+
+## A stand-in for a Lantern pilot's ship between operations, for the
+## shipyard (Builder): never in the world; outfit() keeps what it is given.
+func roster_ship(pilot: String) -> Ship:
+	var e: Dictionary = roster.get(pilot, {})
+	if e.is_empty():
+		return null
+	var s := Ship.new()
+	s.name = pilot
+	s.race_id = 1
+	s.hull_race = 1
+	s.pilot_name = pilot
+	s.ship_name = str(e.get("ship_name", "Lantern"))
+	s.rank = int(e.get("rank", 0))
+	s.design = GameData.fix_design(e["design"])
+	s.design_name = s.design["name"]
+	s.credits = int(e.get("credits", 0))
+	s.hold = e.get("hold", []).duplicate()
+	s.hold_stock = e.get("hold_stock", {}).duplicate()
+	s.set_meta("roster", pilot)
+	return s
+
+
+## The yard fitted a roster stand-in: a new hull takes the yard's materials.
+func outfit(s: Ship, design: Dictionary, base: Ship) -> void:
+	if design.get("name", "") != s.design_name:
+		World.take_materials(world.yard_stock(base), design["name"])
+	s.design = GameData.fix_design(design)
+	s.design_name = s.design["name"]
+	var e: Dictionary = roster.get(s.pilot_name, {})
+	e["design"] = s.design.duplicate(true)
+	e["credits"] = s.credits
+	e["hold"] = s.hold.duplicate()
+	e["hold_stock"] = s.hold_stock.duplicate()
+	roster[s.pilot_name] = e
 
 
 ## A story saved before the war was scripted carries the old free-running

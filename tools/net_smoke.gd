@@ -15,6 +15,10 @@ var start_pos := Vector2.INF
 var net: Node
 var shipyard_opened := false
 var build_sent := false
+var wing_build_sent := false
+var wing_purse_seen := false
+var wing_refit_seen := false
+var wing_refit_id := 0
 var hooked := false
 var trade_seen := false
 var trade_hooked := false
@@ -230,6 +234,9 @@ func _process(_delta: float) -> bool:
 				if base != null:
 					s.global_position = base.global_position + Vector2(base.size + 100.0, 0)
 					s.velocity = base.velocity
+					for m in w.wing.members(s):
+						m.global_position = base.global_position + Vector2(base.size + 300.0, 150.0)
+						m.velocity = base.velocity      # and its wing, to be outfitted
 					print("[host] parked the joiner at the starbase")
 	# systems and capture: the host shoots out an enemy's engines, then
 	# boards it; the client should see both
@@ -266,6 +273,22 @@ func _process(_delta: float) -> bool:
 		build_sent = true
 		net.client_build(p, p.design)
 		print("[%s] build sent" % _tag())
+		# and a Destroyer for the first wingman, from its purse
+		var wing: Array = w.wing.members(p)
+		if not wing.is_empty() and not wing_build_sent:
+			var wm = wing[0]
+			wing_build_sent = true
+			wing_purse_seen = wm.credits > 0
+			wing_refit_id = wm.net_id
+			var gd = root.get_node("/root/GameData")
+			var theirs := mini(wm.credits, 400)
+			wm.credits -= theirs       # the rest would be ours: left alone for the trade check's arithmetic
+			net.client_build_wing(wm, gd.stock_design("Destroyer", wm.race_id), p)
+			print("[%s] wingman build sent (%d from its purse)" % [_tag(), theirs])
+	if not is_host and wing_refit_id != 0 and not wing_refit_seen:
+		var wm = net.ships_by_id.get(wing_refit_id, null)
+		if wm != null and is_instance_valid(wm) and wm.design_name == "Destroyer":
+			wing_refit_seen = true
 	if p != null and not p.dead and not p.is_puppet and not p.docked:
 		# fly in a slow circle and shoot
 		p.inputs["thrust"] = 1.0
@@ -345,5 +368,7 @@ func _finish(w) -> void:
 		_check(saw_job, "the job board arrived, and the joiner took a haul job (%d jobs)" % w.job_board.size())
 		_check(saw_wing, "the joiner called up a wing (%d)" % w.wing.members(w.player).size())
 		_check(saw_wing_order, "and its order and the wingmen's doings came back")
+		_check(wing_build_sent and wing_purse_seen, "the shipyard brought the wingman's purse along")
+		_check(wing_refit_seen, "the host fitted the wingman's Destroyer and everyone sees it")
 		_check(net.client != null and net.client.correction_px < 60.0, "reconciliation error small (%.1f px)" % (net.client.correction_px if net.client else -1.0))
 	print("[%s] %s" % [_tag(), "FAILED" if failed else "passed"])

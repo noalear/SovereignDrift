@@ -55,7 +55,7 @@ const STEPS := [
 	{"id": "shipyard", "chapter": 4, "goal": "Brake ({brake}), then press {refit} for the shipyard", "mark": "starbase"},
 	{"id": "armor", "chapter": 4},
 	{"id": "shield_types", "chapter": 4},
-	{"id": "shipyard_tour", "chapter": 4, "goal": "Look around, then launch or close the shipyard"},
+	{"id": "shipyard_tour", "chapter": 4, "goal": "Look around (wingmen near the yard get tabs too), then launch or close the shipyard"},
 	{"id": "base_cargo", "chapter": 4, "goal": "Press {cargo} at the starbase for station kits and ship orders", "mark": "starbase"},
 	{"id": "land", "chapter": 5, "goal": "Get low over Earth, slow down and press {land}", "mark": "Earth"},
 	{"id": "colonists", "chapter": 5, "goal": "Landed: press {colonists_board} to take colonists on"},

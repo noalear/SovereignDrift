@@ -12,6 +12,13 @@
 ##
 ## The host runs it all; a client sees its own and its friends' wings in
 ## `mirror`, filled by Net.
+##
+## A leader can outfit its wingmen at a yard (Builder's ship tabs).  Called
+## pilots and the story's Lantern pilots keep a purse of their own: their
+## kills pay them the bounty a pilot gets and an operation pays them a
+## share.  Their purse pays for their ship first and the leader covers the
+## rest (PURSE).  Prizes and escorts the leader ordered are the leader's to
+## pay for.
 class_name Wing
 extends RefCounted
 
@@ -53,6 +60,17 @@ const COMMODORE_RANK := 9
 const ADMIRAL_RANK := 12
 ## How often computer leaders look for wingmen.
 const AI_CALL_EVERY := 15.0
+
+## Who pays for a wingman's ship: "both" (their purse first, the leader
+## covers the rest), "own" (only their purse) or "leader" (no purses).
+const PURSE := "both"
+## A wingman this close to the yard (past its hull) can be outfitted there.
+const OUTFIT_REACH := 2500.0
+## A computer pilot's purse to start with: this, and PURSE_PER_RANK a rank.
+const START_PURSE := 150
+const PURSE_PER_RANK := 50
+## A wingman's cut of an operation's pay, against a pilot's.
+const OP_SHARE := 0.5
 
 var world: Node
 var orders := {}             # leader -> {"order", "target", "at", "body", "lost"}
@@ -312,6 +330,49 @@ func _free_for(s: Ship, leader: Ship, ignore_rank: bool = false) -> bool:
 	if not members(s).is_empty():
 		return false               # leads a wing of its own
 	return ignore_rank or (would_serve(s.rank, leader) and (s.rank < leader.rank or leader.is_player or leader.net_id in Net.seats.values()))
+
+
+# ------------------------------------------------------------ outfitting
+
+## The purse a computer pilot of `rank` starts with.
+static func start_purse(rank: int) -> int:
+	return START_PURSE + PURSE_PER_RANK * maxi(rank, 0) if PURSE != "leader" else 0
+
+
+## The wingman pays from a purse of its own: not a prize or an escort the
+## leader ordered (those are the leader's ships).
+static func has_purse(s: Ship) -> bool:
+	return PURSE != "leader" and s != null and not s.is_prize and not s.has_meta("ordered")
+
+
+## The leader's credits help pay for this wingman's ship.
+static func leader_pays(s: Ship) -> bool:
+	return PURSE != "own" or not has_purse(s)
+
+
+## A kill by `s` pays it a bounty: a wingman with a purse, on a pilot's wing.
+func earns(s: Ship) -> bool:
+	var ai := _ai(s)
+	return ai != null and not s.is_player and has_purse(s) and ai.escort != null and is_instance_valid(ai.escort) \
+		and not ai.convoy_guard and _human(ai.escort)
+
+
+## The wingmen `leader` can outfit at the yard `base`: alive, flying close
+## to it, of the leader's empire.  In the story only the Lantern pilots
+## (their ships go on from one operation to the next) and prizes.
+func outfittable(leader: Ship, base: Ship) -> Array:
+	var out := []
+	if leader == null or base == null or not is_instance_valid(base):
+		return out
+	for s in members(leader):
+		if s.dead or s.is_station or s.support or s.race_id != leader.race_id or s.is_landing():
+			continue
+		if s.global_position.distance_to(base.global_position) > base.size + OUTFIT_REACH:
+			continue
+		if world.story_mode and not s.is_prize and not s.pilot_name in Story.LANTERN:
+			continue
+		out.append(s)
+	return out
 
 
 ## Called pilots go back to the empire.  Prizes and ordered escorts stay.

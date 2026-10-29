@@ -678,15 +678,31 @@ func open_builder(ship: Ship, base: Ship) -> void:
 	else:
 		world.set_paused(true)
 	world.visible = false
+	_builder_for(ship, base, ship)
+
+
+## The shipyard on one ship of the pilot's: its own (`edit` = the pilot) or
+## a wingman's (a Ship, or a Lantern pilot's name between operations).  The
+## ship tabs swap one Builder for the next.
+func _builder_for(pilot: Ship, base: Ship, edit: Variant) -> void:
+	var s: Ship = edit as Ship if edit is Ship else null
+	if edit is String and world.story != null:
+		s = world.story.roster_ship(edit)
+	if s == null or not is_instance_valid(s) or (s != pilot and s.dead):
+		s = pilot
 	builder = Builder.new()
 	ui_layer.add_child(builder)
-	builder.open(ship, base, world)
+	builder.open(s, base, world, pilot)
+	builder.switched.connect(func(to: Variant):
+		builder = null
+		if world != null:
+			_builder_for(pilot, base, to))
 	builder.closed.connect(func(launched: bool):
 		builder = null
 		if world != null:
 			world.visible = true
 			if Net.is_active():
-				ship.docked = false
+				pilot.docked = false
 				if Net.is_client() and not launched:
 					Net.client_command("undock")
 			else:

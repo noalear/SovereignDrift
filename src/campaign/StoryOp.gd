@@ -94,6 +94,10 @@ func pay(amount: int) -> void:
 	for s in pilots():
 		s.earn(amount)
 		world.notify(s, "Operation pay: %d credits." % amount)
+	# the Lantern pilots who flew it take their share
+	for s in spawned:
+		if is_instance_valid(s) and s.has_meta("lantern") and Wing.has_purse(s):
+			s.earn(int(amount * Wing.OP_SHARE))
 
 
 # ------------------------------------------------------------ objectives
@@ -222,6 +226,7 @@ func flag(key: String, value: Variant) -> void:
 func spawn(pilot: String, race: int, design: String, ship_name: String, pos: Vector2, vel: Vector2, rank: int = -1, hull_race: int = -1) -> Ship:
 	var s: Ship = world.spawn_ship(pilot, race, design, ship_name, pos, vel, rank, hull_race)
 	s.set_meta("story", true)
+	story.dress(s, rank)               # a Lantern pilot flies the ship the player outfitted
 	spawned.append(s)
 	Net.host_ship_added(s)            # friends online see it too
 	var ai: AIPilot = s.get_node_or_null("AI")
@@ -306,6 +311,9 @@ func hold_in_cradle(h: Ship, y: Ship, off: Vector2) -> void:
 
 
 func cleanup() -> void:
+	for s in spawned:
+		if is_instance_valid(s) and s.has_meta("lantern"):
+			story.remember(s)          # the ship, purse and rank go on to the next operation
 	for s in spawned:
 		if is_instance_valid(s) and world.ships.has(s) and not s.is_prize:
 			world.remove_ship(s)
