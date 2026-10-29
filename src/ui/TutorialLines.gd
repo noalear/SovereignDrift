@@ -21,7 +21,7 @@ const LINES := [
 	["intro", "hale", "Welcome to the Terran Naval Academy, cadet. I'm Commander Hale, and I'll be with you on comms for this flight. Nobody out here is shooting at us today, so take your time."],
 	["intro2", "hale", "By the end of this flight you'll know how to fly, fight, capture ships, command a wing, move colonists and cargo, and run a war for the Sol system. Let's start with your cockpit."],
 	["hud_status", "hale", "Bottom left are your shields, hull, energy and fuel. Shields soak up hits and recharge on their own. The hull does not, so protect it. The row of lights above shows your ship's systems."],
-	["hud_weapons", "hale", "Beside them is your weapons panel, with your four weapon groups. Bottom right is the radar. Ships show in their empire's colour, Terran blue is us, and enemies get a red ring."],
+	["hud_weapons", "hale", "Beside them is your weapons panel, with your four weapon groups. Bottom right is the radar. Ships show as little darts pointing the way they're flying, in their empire's colour. Terran blue is us, and enemies get a red ring."],
 	["hud_top", "hale", "Along the top are your rank, score and credits, and how many planets each empire holds. Planets are what this war is about."],
 	# --- flight school
 	["thrust", "hale", "Let's fly. Hold thrust to push forward, and turn to steer. There's no friction in space, so when you let go, you keep drifting. Take her out a little way from the starbase."],
