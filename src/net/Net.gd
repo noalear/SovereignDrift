@@ -12,7 +12,7 @@ signal session_ended(reason: String)
 signal round_restarted()       # the host started the next Conquest round (client)
 
 const PORT := 7777
-const PROTOCOL := 25   # 25: the story's stardate interludes; 24: story co-op
+const PROTOCOL := 26   # 26: outfitting wingmen; 25: the story's stardate interludes; 24: story co-op
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -432,6 +432,43 @@ func _rpc_build(design: Dictionary, credits: int, hold: Array, blueprints: Array
 	world.apply_build(s, design)
 
 
+## A client outfitted a wingman at the yard it is docked at: the wingman
+## must fly on its wing near that yard.  `pilot_credits`: the leader's
+## purse after covering what the wingman's could not.
+@rpc("any_peer", "reliable")
+func _rpc_build_wing(net_id: int, design: Dictionary, credits: int, hold: Array, hold_stock: Dictionary, pilot_credits: int) -> void:
+	if not is_host():
+		return
+	var leader: Node = ships_by_id.get(seats.get(multiplayer.get_remote_sender_id(), 0), null)
+	var s: Node = ships_by_id.get(net_id, null)
+	if leader == null or s == null or not is_instance_valid(leader) or not is_instance_valid(s) or leader.dead:
+		return
+	var base: Node = world.nearest_base(leader)
+	if base == null or not world.wing.outfittable(leader, base).has(s) or credits < 0 or pilot_credits < 0 \
+			or not design.has("name") or not design.has("weapons") or not design.has("modules"):
+		world.notify(leader, "The shipyard refused that build.")
+		return
+	var why: String = world.build_refusal(s, design, base)
+	if why != "":
+		world.notify(leader, why)
+		return
+	if Wing.has_purse(s):
+		s.credits = credits
+	s.hold = hold
+	s.hold_stock = hold_stock
+	leader.credits = pilot_credits
+	world.apply_build(s, design, base, leader)
+
+
+## The wingmen a docked pilot can outfit, with their purses and holds
+## (a client's copies of computer ships carry none).
+func _wing_purses(leader: Node, base: Node) -> Array:
+	var rows := []
+	for w in world.wing.outfittable(leader, base):
+		rows.append([w.net_id, w.credits, w.hold, w.hold_stock])
+	return rows
+
+
 @rpc("any_peer", "unreliable")
 func _rpc_ping(sent_ms: int) -> void:
 	if is_host():
@@ -490,7 +527,7 @@ func _rpc_command(cmd: String) -> void:
 				for k in s.inputs.keys():
 					s.inputs[k] = false if typeof(s.inputs[k]) == TYPE_BOOL else 0.0
 				s.inputs["brake"] = true
-				_rpc_open_shipyard.rpc_id(multiplayer.get_remote_sender_id(), base.net_id, s.credits, s.hold, s.blueprints)
+				_rpc_open_shipyard.rpc_id(multiplayer.get_remote_sender_id(), base.net_id, s.credits, s.hold, s.blueprints, _wing_purses(s, base))
 		"undock":
 			s.docked = false
 		_ when cmd.begins_with("board:"):
@@ -721,6 +758,12 @@ func client_build(s: Node, design: Dictionary) -> void:
 		_rpc_build.rpc_id(1, design, s.credits, s.hold, s.blueprints)
 
 
+## The Builder's accept for a wingman on a client.
+func client_build_wing(s: Node, design: Dictionary, pilot: Node) -> void:
+	if is_client():
+		_rpc_build_wing.rpc_id(1, s.net_id, design, s.credits, s.hold, s.hold_stock, pilot.credits)
+
+
 @rpc("authority", "reliable")
 func _rpc_purse(credits: int, hold: Array, blueprints: Array) -> void:
 	var s: Node = ships_by_id.get(local_net_id, null)
@@ -732,7 +775,7 @@ func _rpc_purse(credits: int, hold: Array, blueprints: Array) -> void:
 
 
 @rpc("authority", "reliable")
-func _rpc_open_shipyard(base_id: int, credits: int, hold: Array, blueprints: Array) -> void:
+func _rpc_open_shipyard(base_id: int, credits: int, hold: Array, blueprints: Array, wing: Array) -> void:
 	if world == null:
 		return
 	var s: Node = ships_by_id.get(local_net_id, null)
@@ -742,6 +785,12 @@ func _rpc_open_shipyard(base_id: int, credits: int, hold: Array, blueprints: Arr
 	s.credits = credits
 	s.hold = hold
 	s.blueprints = blueprints
+	for row in wing:
+		var w: Node = ships_by_id.get(row[0], null)
+		if w != null and is_instance_valid(w):
+			w.credits = row[1]
+			w.hold = row[2]
+			w.hold_stock = row[3]
 	world.shipyard_requested.emit(s, base)
 
 

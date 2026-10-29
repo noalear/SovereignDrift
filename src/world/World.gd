@@ -334,6 +334,7 @@ func _spawn_pilots() -> void:
 		s.rank = rank
 		s.score = GameData.RANKS[rank]["score"]
 		s.kills = GameData.RANKS[rank]["kills"]
+		s.credits = Wing.start_purse(rank)     # what it brings to a player's wing for its ship
 		var ai := AIPilot.new()
 		ai.name = "AI"
 		s.add_child(ai)
@@ -1618,10 +1619,12 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 	if killer_ship != null and killer_ship != s and not killer_ship.dead:
 		var points := 10 + s.rank * 2 + (40 if s.is_starbase() else (15 if s.is_station else 0))
 		killer_ship.add_score(points, true)
+		var bounty := 30 + s.rank * 8 + (300 if s.is_starbase() else (80 if s.is_station else 0))
 		if killer_ship.is_player:
-			var bounty := 30 + s.rank * 8 + (300 if s.is_starbase() else (80 if s.is_station else 0))
 			killer_ship.earn(bounty)
 			notify(killer_ship, "Bounty: %d credits." % bounty)
+		elif wing != null and wing.earns(killer_ship):
+			killer_ship.earn(bounty)       # a wingman's purse, for its ship
 		if in_feed(killer_ship, s):
 			notify_all("%s (%s) destroyed %s (%s)." % [killer_ship.pilot_name, GameData.race(killer_ship.race_id)["name"], s.pilot_name, GameData.race(s.race_id)["name"]],
 				killer_ship.race_color() if killer_ship.is_player or s.is_player else Color(0.8, 0.8, 0.8))
@@ -3034,23 +3037,29 @@ static func take_materials(stock: Dictionary, hull: String) -> void:
 
 ## Why the yard this ship is docked at cannot launch it as `design`, or "":
 ## a new hull takes its materials from the yard's stock.
-func build_refusal(s: Ship, design: Dictionary) -> String:
+## `base`: the yard (a wingman's leader is the one docked there).
+func build_refusal(s: Ship, design: Dictionary, base: Ship = null) -> String:
 	if design.get("name", "") == s.design_name:
 		return ""
-	return materials_short(yard_stock(nearest_base(s)), design.get("name", ""))
+	return materials_short(yard_stock(base if base != null else nearest_base(s)), design.get("name", ""))
 
 
-## Apply a shipyard build to a ship where it sits.
-func apply_build(s: Ship, design: Dictionary) -> void:
+## Apply a shipyard build to a ship where it sits.  A wingman's (`pilot`
+## is the leader who outfitted it at `base`) is fitted where it flies.
+func apply_build(s: Ship, design: Dictionary, base: Ship = null, pilot: Ship = null) -> void:
+	var told: Ship = pilot if pilot != null else s
 	if Net.is_client():
-		Net.client_build(s, design)   # the host fits it and tells everyone
+		if pilot != null and pilot != s:
+			Net.client_build_wing(s, design, pilot)
+		else:
+			Net.client_build(s, design)   # the host fits it and tells everyone
 		return
-	var why := build_refusal(s, design)
+	var why := build_refusal(s, design, base)
 	if why != "":
-		notify(s, why)
+		notify(told, why)
 		return
 	if design["name"] != s.design_name:
-		take_materials(yard_stock(nearest_base(s)), design["name"])
+		take_materials(yard_stock(base if base != null else nearest_base(s)), design["name"])
 	var pos := s.global_position
 	var vel := s.velocity
 	var rot := s.rotation
@@ -3060,8 +3069,13 @@ func apply_build(s: Ship, design: Dictionary) -> void:
 	s.rotation = rot
 	s.invulnerable = 2.0
 	Net.host_refit(s)
+	if story != null:
+		story.remember(s)                 # a Lantern pilot keeps it for the next operation
 	Sfx.play("dock", pos, 0.8)
-	notify(s, "Launched: %s." % design["name"])
+	if told != s:
+		notify(told, "%s's ship is refitted: %s." % [s.pilot_name, GameData.hull_label(design["name"])])
+	else:
+		notify(s, "Launched: %s." % design["name"])
 
 
 var _last_notes := {}           # text -> time, so one event never floods the log

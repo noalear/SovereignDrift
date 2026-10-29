@@ -13,10 +13,16 @@
 ## Everything here is a draft order: nothing is bought, sold or fitted until
 ## the pilot accepts (an itemised bill first), and Cancel drops it all.  A
 ## part bought in this order and taken off again simply leaves the order.
+##
+## The pilot can outfit its wingmen here too: a tab for each one flying near
+## the yard (Wing.outfittable), and in the story for each Lantern pilot
+## between operations (a stand-in ship from Story.roster_ship).  A wingman's
+## purse pays first and the pilot's credits cover the rest (Wing.PURSE).
 class_name Builder
 extends Control
 
 signal closed(launched: bool)
+signal switched(to: Variant)        # a ship tab: Main opens the yard on that ship (a Ship, or a Lantern pilot's name)
 
 const BG := Color(0.012, 0.02, 0.045, 1.0)
 const CARD := Color(0.04, 0.065, 0.12, 0.96)
@@ -43,9 +49,19 @@ const SECTIONS := ["hulls", "fit", "parts", "hold"]
 static var pad_mode := false
 
 var font: Font
-var ship: Ship
+var ship: Ship                      # the ship on the slip: the pilot's own or a wingman's
 var base: Ship
 var world: World
+var pilot: Ship                     # who is docked at the yard and gives the orders
+var crew: Array = []                # the ship tabs: the pilot, its wingmen near the yard, Lantern pilots by name
+var art_race := 0                   # whose painting the hull on the slip is
+var own := 0                        # a wingman's purse, in the budget
+var cover := 0                      # the pilot's credits helping pay for a wingman's ship
+var gift := 0                       # credits the pilot hands the wingman on accept
+var start_credits := 0              # the budget as the yard opened
+var _loaded: Dictionary = {}        # the design as the yard opened, as current_design() writes it
+static var _carry := ""             # a status line for the next tab
+var _wing_name := ""                # the wingman's name, should its ship go
 
 var hull := "Scout"
 var orig_hull := "Scout"
@@ -98,10 +114,13 @@ var _pad_axes := {}                 # trigger / right stick -> last direction, s
 const TURN_STEP := 15
 
 
-func open(p_ship: Ship, p_base: Ship, p_world: World) -> void:
+func open(p_ship: Ship, p_base: Ship, p_world: World, p_pilot: Ship = null) -> void:
 	ship = p_ship
 	base = p_base
 	world = p_world
+	pilot = p_pilot if p_pilot != null else p_ship
+	art_race = ship.hull_race if ship.hull_race >= 0 else ship.race_id
+	_wing_name = ship.pilot_name
 	font = ThemeDB.fallback_font
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -111,14 +130,149 @@ func open(p_ship: Ship, p_base: Ship, p_world: World) -> void:
 	hold = ship.hold.duplicate()
 	blueprints = ship.blueprints.duplicate()
 	credits = ship.credits
+	if _wingman():
+		for b in pilot.blueprints:
+			if not blueprints.has(b):
+				blueprints.append(b)      # the wing builds from its leader's blueprints
+		own = ship.credits if Wing.has_purse(ship) else 0
+		cover = pilot.credits if Wing.leader_pays(ship) else 0
+		credits = own + cover
+	start_credits = credits
+	crew = _crew()
 	for id in ship.hold_stock:
 		var n := mini(int(ship.hold_stock[id]), hold.count(id))
 		if n > 0:
 			hold_stock[id] = n
 	_opened_at = Time.get_ticks_msec()
 	_load_hull(orig_hull, orig_design, true)
+	_loaded = current_design()
 	focus_key = "hp:0" if not hardpoints.is_empty() else "bay:0"
-	_say("Pick a mount or bay, then a part from the list.")
+	if _carry != "":
+		_say(_carry)
+		_carry = ""
+	elif _wingman():
+		_say("%s's %s: %s" % [ship.pilot_name, GameData.hull_label(orig_hull), _who_pays()])
+	else:
+		_say("Pick a mount or bay, then a part from the list.")
+
+
+func _exit_tree() -> void:
+	# a Lantern pilot's stand-in ship lives only as long as its tab
+	if ship != null and is_instance_valid(ship) and ship.has_meta("roster") and not ship.is_inside_tree():
+		ship.free()
+
+
+# ------------------------------------------------------------ the wing
+
+## The ship on the slip is a wingman's, not the pilot's own.
+func _wingman() -> bool:
+	return ship != pilot
+
+
+## The ship tabs: the pilot's own ship first.
+func _crew() -> Array:
+	var out: Array = [pilot]
+	if world.wing != null:
+		out.append_array(world.wing.outfittable(pilot, base))
+	var story: Story = world.story
+	if story != null and not story.mirror and not Net.is_client() and not story.in_op():
+		for n in story.roster_names():
+			if not out.any(func(c): return c is Ship and c.pilot_name == n):
+				out.append(n)
+	return out
+
+
+func _is_current(c: Variant) -> bool:
+	return (c is Ship and c == ship) or (c is String and str(ship.get_meta("roster", "")) == c)
+
+
+## Who pays for this wingman's ship, in words.
+func _who_pays() -> String:
+	if not Wing.has_purse(ship):
+		return "your ship to outfit, from your credits."
+	if not Wing.leader_pays(ship):
+		return "they pay from their own %d cr." % own
+	return "their own %d cr pay first, your credits cover the rest." % own
+
+
+## Hulls this ship's pilot may fly: a prize or an ordered escort is the
+## leader's own ship, so the leader's rank counts.
+func _rank() -> int:
+	return pilot.rank if _wingman() and (ship.is_prize or ship.has_meta("ordered")) else ship.rank
+
+
+func _tab_label(c: Variant) -> String:
+	if c is Ship and c == pilot:
+		return "Your %s" % GameData.hull_label(pilot.design_name)
+	if c is String:
+		var e: Dictionary = world.story.roster.get(c, {})
+		return "%s · %s · %d cr" % [c, GameData.hull_label(str(e.get("design", {}).get("name", "Scout"))), int(e.get("credits", 0))]
+	var s: Ship = c
+	if s.is_prize or s.has_meta("ordered"):
+		return "%s · %s" % [s.ship_name, GameData.hull_label(s.design_name)]
+	if Wing.has_purse(s):
+		return "%s · %s · %d cr" % [s.pilot_name, GameData.hull_label(s.design_name), s.credits]
+	return "%s · %s" % [s.pilot_name, GameData.hull_label(s.design_name)]
+
+
+## Open the yard on another ship of the wing; an order not yet accepted
+## is dropped (asked first).
+func _switch_to(c: Variant) -> void:
+	if _is_current(c):
+		return
+	if _dirty():
+		_ask("Switch ships?", "This order is not accepted yet. Switching drops it: nothing is bought or sold.", [
+			["Discard and switch", _do_switch.bind(c)],
+			["Keep editing", func(): pass],
+		])
+		return
+	_do_switch(c)
+
+
+func _do_switch(c: Variant) -> void:
+	Sfx.play_ui("click", 0.5)
+	switched.emit(c)
+	queue_free()
+
+
+func _cycle_ship(step: int) -> void:
+	if crew.size() < 2:
+		_say("No wingmen at the yard: they need to fly within %d of it." % int(Wing.OUTFIT_REACH))
+		return
+	var at := 0
+	for i in crew.size():
+		if _is_current(crew[i]):
+			at = i
+	_switch_to(crew[posmod(at + step, crew.size())])
+
+
+## Hand the wingman credits of the pilot's own, paid on accept.
+func _give(amount: int) -> void:
+	gift = clampi(gift + amount, 0, maxi(cover, 0))
+	_say(("%d cr for %s on accept." % [gift, ship.pilot_name]) if gift > 0 else "No credits handed over.")
+	Sfx.play_ui("pickup" if amount > 0 else "click", 0.4)
+
+
+## What the order costs each purse: [wingman pays, pilot pays] (negative:
+## money back), the gift counted.
+func _split() -> Array:
+	var spent := start_credits - credits        # the order, net (< 0: it sold more than it bought)
+	if not _wingman() or not Wing.has_purse(ship):
+		return [0, spent]
+	var o := own + gift
+	var from_own := spent if spent <= o else o
+	return [from_own - gift, spent - from_own + gift]
+
+
+## Pay for the order: the wingman's purse first, the pilot's for the rest.
+func _settle() -> void:
+	if not _wingman():
+		ship.credits = credits
+		return
+	var sp := _split()
+	if Wing.has_purse(ship):
+		ship.credits = own - sp[0]
+	pilot.credits -= sp[1]
 
 
 ## Put a hull on the slip.  `fit` is the design to fill it from (the stock
@@ -432,8 +586,9 @@ func _problems() -> Array:
 
 ## Anything changed since the yard opened?
 func _dirty() -> bool:
-	return not order.is_empty() or hull != orig_hull or credits != ship.credits or hold != ship.hold or current_design()["weapons"] != orig_design["weapons"] \
-		or current_design()["modules"] != orig_design["modules"] or current_design().get("places", {}) != orig_design.get("places", {})
+	var d := current_design()
+	return not order.is_empty() or gift > 0 or hull != orig_hull or credits != start_credits or hold != ship.hold or d["weapons"] != _loaded["weapons"] \
+		or d["modules"] != _loaded["modules"] or d.get("places", {}) != _loaded.get("places", {})
 
 
 func _hull_price(name: String) -> int:
@@ -609,13 +764,13 @@ static func _socket_kind(id: String) -> String:
 
 ## The hull sockets of one kind, in the slip's model space.
 func _sockets(kind: String) -> Array:
-	return ShipArt.system_sockets(hull, base.race_id, current_design()["size"], kind)
+	return ShipArt.system_sockets(hull, art_race, current_design()["size"], kind)
 
 
 ## Which socket each socketed bay part sits in now: bay index -> socket.
 func _socket_of_bays() -> Dictionary:
 	var d := current_design()
-	var choice := ShipArt.socket_choice(d, hull, base.race_id, d["size"])
+	var choice := ShipArt.socket_choice(d, hull, art_race, d["size"])
 	var seen := {}
 	var out := {}
 	for i in modules.size():
@@ -970,12 +1125,24 @@ func _launch() -> void:
 		_say(problems[0])
 		Sfx.play_ui("ui_back", 0.5)
 		return
-	ship.credits = credits
+	_settle()
 	ship.hold = hold
 	ship.hold_stock = hold_stock
-	ship.blueprints = blueprints
-	world.apply_build(ship, current_design())
-	closed.emit(true)
+	if not _wingman():
+		ship.blueprints = blueprints
+		world.apply_build(ship, current_design())
+		closed.emit(true)
+		queue_free()
+		return
+	# a wingman's ship: fitted where it flies (or in the roster between
+	# operations), and the yard goes back to the pilot's own ship
+	if ship.has_meta("roster"):
+		world.story.outfit(ship, current_design(), base)
+	else:
+		world.apply_build(ship, current_design(), base, pilot)
+	Sfx.play_ui("dock", 0.6)
+	_carry = "%s's %s is fitted%s." % [ship.pilot_name, GameData.hull_label(hull), (" (%d cr left in their purse)" % ship.credits) if Wing.has_purse(ship) else ""]
+	switched.emit(pilot)
 	queue_free()
 
 
@@ -986,14 +1153,36 @@ func _accept() -> void:
 		_say(problems[0])
 		Sfx.play_ui("ui_back", 0.5)
 		return
-	if order.is_empty():
+	if order.is_empty() and gift == 0:
 		_launch()
 		return
 	var t := _order_total()
-	confirm = {"title": "Accept the order?", "text": "You have %d cr. Nothing is paid until you accept." % ship.credits, "lines": _order_lines(),
+	var text := "You have %d cr. Nothing is paid until you accept." % ship.credits
+	if _wingman():
+		text = "%s. Nothing is paid until you accept." % _bill_split()
+	confirm = {"title": "Accept the order?", "text": text, "lines": _order_lines(),
 		"total": t, "options": [["Accept  %s" % _money(t), _launch], ["Keep editing", func(): pass]], "back": 1}
 	focus_key = "modal:0"
 	Sfx.play_ui("notify", 0.5)
+
+
+## Who pays what on a wingman's bill, in words.
+func _bill_split() -> String:
+	var sp := _split()
+	var parts := []
+	var theirs: int = sp[0] + gift                 # out of the wingman's purse, the gift in it
+	var yours: int = sp[1] - gift
+	if gift > 0:
+		parts.append("you give %s %d cr" % [ship.pilot_name, gift])
+	if Wing.has_purse(ship) and theirs != 0:
+		var who := "they" if gift > 0 else ship.pilot_name
+		parts.append(("%s pay%s %d cr from their purse" if theirs > 0 else "%s get%s %d cr back") % [who, "" if gift > 0 else "s", absi(theirs)])
+	if yours != 0 or not Wing.has_purse(ship):
+		parts.append(("you cover %d cr" if Wing.has_purse(ship) else "you pay %d cr") % yours if yours >= 0 else "you get %d cr back" % -yours)
+	if parts.is_empty():
+		return "Nothing to pay"
+	var out: String = parts[0] if parts.size() == 1 else ", ".join(parts.slice(0, parts.size() - 1)) + " and " + parts[-1]
+	return out.left(1).to_upper() + out.substr(1)
 
 
 func _cancel() -> void:
@@ -1106,6 +1295,7 @@ func _input(event: InputEvent) -> void:
 			KEY_L: cmd = "launch"
 			KEY_M: cmd = "place"
 			KEY_R: cmd = "turn_l" if event.shift_pressed else "turn_r"
+			KEY_C: cmd = "ship_prev" if event.shift_pressed else "ship_next"
 		if event.echo and not cmd in ["up", "down", "left", "right", "turn_l", "turn_r"]:
 			cmd = ""
 		if cmd == "" and event.is_action_pressed("pause_menu"):
@@ -1128,15 +1318,15 @@ func _input(event: InputEvent) -> void:
 		if cmd in ["up", "down", "left", "right"]:
 			_repeat_dir = _dir_of(cmd)
 			_repeat_t = 0.4
-	elif event is InputEventJoypadMotion and event.axis in [JOY_AXIS_TRIGGER_LEFT, JOY_AXIS_RIGHT_X]:
-		# LT moves a part, the right stick turns a turret: once per push
+	elif event is InputEventJoypadMotion and event.axis in [JOY_AXIS_TRIGGER_LEFT, JOY_AXIS_TRIGGER_RIGHT, JOY_AXIS_RIGHT_X]:
+		# LT moves a part, RT goes to the next ship, the right stick turns a turret: once per push
 		pad_mode = true
 		var v: float = event.axis_value
 		var d := 0 if absf(v) < 0.5 else int(signf(v))
 		if d != _pad_axes.get(event.axis, 0):
 			_pad_axes[event.axis] = d
 			if d != 0:
-				_command("place" if event.axis == JOY_AXIS_TRIGGER_LEFT else ("turn_r" if d > 0 else "turn_l"))
+				_command("place" if event.axis == JOY_AXIS_TRIGGER_LEFT else ("ship_next" if event.axis == JOY_AXIS_TRIGGER_RIGHT else ("turn_r" if d > 0 else "turn_l")))
 		get_viewport().set_input_as_handled()
 		return
 	elif event is InputEventJoypadMotion and absf(event.axis_value) > 0.6 and event.axis in [JOY_AXIS_LEFT_X, JOY_AXIS_LEFT_Y]:
@@ -1238,6 +1428,8 @@ func _command(cmd: String) -> void:
 				_cycle_group(slot[1])
 		"launch":
 			_accept()
+		"ship_next", "ship_prev":
+			_cycle_ship(1 if cmd == "ship_next" else -1)
 		"place":
 			var slot := _focus_slot()
 			if slot.is_empty() and (sel_kind == "hp" or sel_kind == "bay"):
@@ -1495,6 +1687,14 @@ func _scroll_to_focus() -> void:
 
 func _process(delta: float) -> void:
 	time += delta
+	# online the war goes on: a wingman shot down while its tab is open
+	# sends the yard back to the pilot's own ship
+	crew = crew.filter(func(c): return typeof(c) == TYPE_STRING or (is_instance_valid(c) and not c.dead))
+	if _wingman() and (not is_instance_valid(ship) or (not ship.has_meta("roster") and ship.dead)) and not is_queued_for_deletion():
+		_carry = "%s was shot down before the order went through." % _wing_name
+		switched.emit(pilot)
+		queue_free()
+		return
 	# a held D-pad or stick repeats
 	if _repeat_dir != Vector2i.ZERO:
 		var still := _stick_dir() == _repeat_dir
@@ -1584,8 +1784,8 @@ func _glyph_w(g: String, size: int) -> float:
 ## The key or pad button for a shipyard command, as the hints show it.
 func _key(cmd: String) -> String:
 	if pad_mode:
-		return {"accept": "A", "back": "B", "switch": "X", "remove": "Y", "group": "Back", "launch": "Start", "section": "LB / RB", "move": "D-pad", "place": "LT", "turn": "R stick"}[cmd]
-	return {"accept": "Enter", "back": "Esc", "switch": "X", "remove": "Del", "group": "G", "launch": "L", "section": "Tab", "move": "Arrows", "place": "M", "turn": "R"}[cmd]
+		return {"accept": "A", "back": "B", "switch": "X", "remove": "Y", "group": "Back", "launch": "Start", "section": "LB / RB", "move": "D-pad", "place": "LT", "turn": "R stick", "ship": "RT"}[cmd]
+	return {"accept": "Enter", "back": "Esc", "switch": "X", "remove": "Del", "group": "G", "launch": "L", "section": "Tab", "move": "Arrows", "place": "M", "turn": "R", "ship": "C"}[cmd]
 
 
 func _section_label(pos: Vector2, text: String, extra: String = "") -> void:
@@ -1621,6 +1821,8 @@ static func _func_color(id: String) -> Color:
 
 
 func _draw() -> void:
+	if is_queued_for_deletion():
+		return                          # leaving for another tab
 	preview_id = _preview_part()        # from last frame's buttons, before they are rebuilt
 	buttons.clear()
 	var vp := get_viewport_rect().size
@@ -1633,6 +1835,10 @@ func _draw() -> void:
 	var header := Rect2(m, m, vp.x - 2 * m, 64)
 	var footer := Rect2(m, vp.y - m - 40, vp.x - 2 * m, 40)
 	var top := header.end.y + 10
+	if crew.size() > 1:
+		var tabs := Rect2(m, header.end.y + 8, vp.x - 2 * m, 36)
+		top = tabs.end.y + 10
+		_draw_tabs(tabs, rc)
 	var bottom := footer.position.y - 10
 	var left := Rect2(m, top, 372, bottom - top)
 	var right := Rect2(vp.x - m - 540, top, 540, bottom - top)
@@ -1650,17 +1856,20 @@ func _draw_header(r: Rect2, rc: Color) -> void:
 	_card(r, CARD, LINE, 10.0)
 	draw_rect(Rect2(r.position.x + 1, r.position.y + 12, 4, r.size.y - 24), rc)
 	draw_string(font, r.position + Vector2(22, 30), "SHIPYARD", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, rc)
-	draw_string(font, r.position + Vector2(22, 52), "%s   ·   %s %s" % [base.ship_name, GameData.rank_name(ship.rank), ship.pilot_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DIM)
-	# credits and the yard's building stock, in pills
+	var who := "%s %s" % [GameData.rank_name(ship.rank), ship.pilot_name]
+	if _wingman():
+		who = "%s's ship (%s, your wing)" % [ship.pilot_name if not ship.is_prize else ship.ship_name, GameData.rank_name(_rank())]
+	draw_string(font, r.position + Vector2(22, 52), "%s   ·   %s" % [base.ship_name, who], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, DIM)
+	# credits and the yard's building stock, in pills: a wingman's purse and
+	# the pilot's credits that cover the rest
 	var x := r.position.x + 330
-	var cr := "%d cr" % ship.credits
-	var cw := font.get_string_size(cr, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x + 48
-	var pill := Rect2(x, r.position.y + 13, cw, 38)
-	_card(pill, Color(0.12, 0.1, 0.04, 0.9), Color(GOLD.r, GOLD.g, GOLD.b, 0.5), 19.0)
-	draw_circle(pill.position + Vector2(19, 19), 8.0, GOLD)
-	draw_circle(pill.position + Vector2(19, 19), 4.5, Color(0.55, 0.42, 0.1))
-	draw_string(font, pill.position + Vector2(34, 27), cr, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, GOLD)
-	x = pill.end.x + 10
+	if not _wingman():
+		x = _purse_pill(x, r, "%d cr" % ship.credits)
+	else:
+		if Wing.has_purse(ship):
+			x = _purse_pill(x, r, "%s  %d cr" % [ship.pilot_name.trim_prefix("Lt. "), own + gift])
+		if cover > 0 or not Wing.has_purse(ship):
+			x = _purse_pill(x, r, "You  %d cr" % (pilot.credits - gift))
 	# the bill so far: nothing is paid until Accept
 	if not order.is_empty():
 		var t := _order_total()
@@ -1687,6 +1896,41 @@ func _draw_header(r: Rect2, rc: Color) -> void:
 	var problems := _problems()
 	_button(Rect2(r.end.x - 316, r.position.y + 12, 170, 40), "Accept", _accept, problems.is_empty(), 18, true, "", _key("launch"))
 	_button(Rect2(r.end.x - 138, r.position.y + 12, 124, 40), "Cancel", _leave, true, 18, false, "", _key("back") if sel_kind == "" else "")
+
+
+func _purse_pill(x: float, r: Rect2, cr: String) -> float:
+	var cw := font.get_string_size(cr, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x + 48
+	var pill := Rect2(x, r.position.y + 13, cw, 38)
+	_card(pill, Color(0.12, 0.1, 0.04, 0.9), Color(GOLD.r, GOLD.g, GOLD.b, 0.5), 19.0)
+	draw_circle(pill.position + Vector2(19, 19), 8.0, GOLD)
+	draw_circle(pill.position + Vector2(19, 19), 4.5, Color(0.55, 0.42, 0.1))
+	draw_string(font, pill.position + Vector2(34, 27), cr, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, GOLD)
+	return pill.end.x + 10
+
+
+## The ship tabs: the pilot's own ship and each wingman it can outfit here.
+func _draw_tabs(r: Rect2, rc: Color) -> void:
+	var x := r.position.x
+	draw_string(font, Vector2(x + 4, r.position.y + 23), "SHIPS", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, LABEL)
+	x += 54
+	x += _glyph(Vector2(x, r.position.y + r.size.y * 0.5), _key("ship"), 12) + 10
+	for c in crew:
+		var label := _tab_label(c)
+		var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + 34
+		var tr := Rect2(x, r.position.y, w, r.size.y)
+		if _is_current(c):
+			_card(tr, CARD_SEL, Color(rc.r, rc.g, rc.b, 0.8), 8.0, 1.5)
+			draw_rect(Rect2(tr.position.x + 8, tr.end.y - 4, tr.size.x - 16, 2), rc)
+			draw_string(font, Vector2(tr.position.x + 17, tr.position.y + 24), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, TEXT)
+		else:
+			_button(tr, label, _switch_to.bind(c), true, 15)
+		x = tr.end.x + 8
+	# handing a wingman credits of the pilot's own
+	if _wingman() and Wing.has_purse(ship) and Wing.leader_pays(ship):
+		var bx := r.end.x - 300
+		if bx > x:
+			_button(Rect2(bx, r.position.y, 150, r.size.y), "Give 100 cr", _give.bind(100), cover - gift >= 100, 14)
+			_button(Rect2(bx + 158, r.position.y, 142, r.size.y), "Take back", _give.bind(-100), gift > 0, 14)
 
 
 func _draw_footer(r: Rect2) -> void:
@@ -1746,6 +1990,8 @@ func _hints() -> Array:
 	if not _selected_part().is_empty():
 		out.append([_key("switch"), "Other marks" if cat_mode == "switch" else "Switch out"])
 	out.append([_key("section"), "Section"])
+	if crew.size() > 1:
+		out.append([_key("ship"), "Next ship"])
 	out.append([_key("back"), "Back" if sel_kind != "" or sec != "fit" else "Cancel"])
 	out.append([_key("launch"), "Accept"])
 	return out
@@ -1778,7 +2024,11 @@ func _draw_modal(vp: Vector2) -> void:
 		var t: int = confirm["total"]
 		draw_string(font, Vector2(r.position.x + 40, y + 8), "Total", HORIZONTAL_ALIGNMENT_LEFT, -1, 17, TEXT)
 		draw_string(font, Vector2(r.end.x - 188, y + 8), _money(t), HORIZONTAL_ALIGNMENT_RIGHT, 150, 17, GOOD if t > 0 else GOLD)
-		draw_string(font, Vector2(r.position.x + 40, y + 30), "You will have %d cr left." % (ship.credits + t), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DIM)
+		var left := "You will have %d cr left." % (ship.credits + t)
+		if _wingman():
+			var sp := _split()
+			left = ("%s will have %d cr, you %d cr." % [ship.pilot_name, own - sp[0], pilot.credits - sp[1]]) if Wing.has_purse(ship) else "You will have %d cr left." % (pilot.credits - sp[1])
+		draw_string(font, Vector2(r.position.x + 40, y + 30), left, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DIM)
 	var opts: Array = confirm["options"]
 	var bw := 200.0
 	var bx := r.end.x - 28 - opts.size() * (bw + 12) + 12
@@ -1814,7 +2064,7 @@ func _draw_left(r: Rect2, rc: Color) -> void:
 	var row_h := clampf((r.size.y * 0.52 - 42.0) / rows.size(), 34.0, 52.0)
 	for name in rows:
 		var d: Dictionary = GameData.SHIPS[name]
-		var allowed: bool = d["rank"] <= ship.rank
+		var allowed: bool = d["rank"] <= _rank()
 		var row := Rect2(r.position.x + 10, y, r.size.x - 20, row_h - 5.0)
 		var selected: bool = name == hull
 		var key: String = "hull:" + name
@@ -1917,8 +2167,8 @@ func _draw_centre(r: Rect2, rc: Color) -> void:
 	_card(r, CARD, LINE, 10.0)
 	var design := current_design()
 	var st := GameData.stats_for(design)
-	draw_string(font, r.position + Vector2(18, 34), "%s %s" % [GameData.race(base.race_id)["adj"], GameData.hull_label(hull)], HORIZONTAL_ALIGNMENT_LEFT, -1, 24, rc)
-	var hw := font.get_string_size("%s %s" % [GameData.race(base.race_id)["adj"], GameData.hull_label(hull)], HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
+	draw_string(font, r.position + Vector2(18, 34), "%s %s" % [GameData.race(art_race)["adj"], GameData.hull_label(hull)], HORIZONTAL_ALIGNMENT_LEFT, -1, 24, rc)
+	var hw := font.get_string_size("%s %s" % [GameData.race(art_race)["adj"], GameData.hull_label(hull)], HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
 	draw_string(font, r.position + Vector2(30 + hw, 33), "%d mounts  ·  %d bay volume  ·  %s" % [hardpoints.size(), st["bay_cap"], GameData.coat_label(st["coat"]) + " armor" if st["coat"] != "" else "no armor coat"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DIM)
 	# which mount the pointer or focus is on, on the ship or in the list
 	# (from last frame's buttons, which share this frame's layout)
@@ -1939,17 +2189,17 @@ func _draw_centre(r: Rect2, rc: Color) -> void:
 	var scale := minf(pic.size.y * 0.36 / size, pic.size.x * 0.3 / size)
 	# never blow a painting up past about twice its pixels; small hulls
 	# simply look smaller than big ones, which is the point
-	var tex := ShipArt.hull_texture(hull, base.race_id)
+	var tex := ShipArt.hull_texture(hull, art_race)
 	if tex != null:
 		scale = minf(scale, 1.9 * tex.get_width() / (size * ShipArt.LENGTH))
 	# the part in focus in the list is shown on the ship before it is bought
 	var look := design if preview_id == "" else _design_with(preview_id)
-	ShipArt.draw_ship(self, look, base.race_id, size, rc, 0.4 + 0.2 * sin(time * 3.0), 1.0, 0.0, Transform2D(0.0, Vector2.ONE * scale, 0.0, centre))
+	ShipArt.draw_ship(self, look, art_race, size, rc, 0.4 + 0.2 * sin(time * 3.0), 1.0, 0.0, Transform2D(0.0, Vector2.ONE * scale, 0.0, centre))
 	if preview_id != "":
 		draw_string(font, Vector2(pic.position.x + 16, pic.end.y - 14), "Preview: %s fitted, not bought yet" % GameData.MODULES[preview_id]["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, GOLD)
 	# hardpoints: a small numbered badge on each turret; names live in the
 	# list below, and only the mount in focus shows its firing arc
-	var spots := ShipArt.hardpoint_spots(hull, base.race_id, size)
+	var spots := ShipArt.hardpoint_spots(hull, art_race, size)
 	var placed: Array[Vector2] = []
 	var badge := []
 	for i in hardpoints.size():
