@@ -12,7 +12,7 @@ signal session_ended(reason: String)
 signal round_restarted()       # the host started the next Conquest round (client)
 
 const PORT := 7777
-const PROTOCOL := 27   # 27: story signals (the story key calls in drop ships); 26: outfitting wingmen; 25: the story's stardate interludes; 24: story co-op
+const PROTOCOL := 28   # 28: guided shots carry their target; 27: story signals (the story key calls in drop ships); 26: outfitting wingmen; 25: the story's stardate interludes; 24: story co-op
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -607,7 +607,10 @@ func host_shot(m: Node, owner: Node, missile_id: String, pos: Vector2, vel: Vect
 	m.set_meta("net_id", mid)
 	var owner_id: int = owner.net_id if owner is Ship else 0
 	var race: int = owner.race_id if owner is Ship else owner.owner_race
-	_rpc_shot.rpc(mid, owner_id, race, missile_id, pos, vel, angle)
+	# a guided shot tells clients what it is homing on, so theirs chases the same ship
+	var tgt: Node = m.target if "target" in m else null
+	var target_id: int = tgt.net_id if tgt is Ship and is_instance_valid(tgt) else 0
+	_rpc_shot.rpc(mid, owner_id, race, missile_id, pos, vel, angle, target_id)
 
 
 func host_boom(m: Node, pos: Vector2, splash: float) -> void:
@@ -1016,7 +1019,7 @@ func _rpc_snapshot(data: PackedByteArray) -> void:
 
 
 @rpc("authority", "reliable")
-func _rpc_shot(mid: int, owner_id: int, race: int, missile_id: String, pos: Vector2, vel: Vector2, angle: float) -> void:
+func _rpc_shot(mid: int, owner_id: int, race: int, missile_id: String, pos: Vector2, vel: Vector2, angle: float, target_id: int = 0) -> void:
 	if world == null:
 		return
 	var owner: Node = ships_by_id.get(owner_id, null)
@@ -1040,7 +1043,10 @@ func _rpc_shot(mid: int, owner_id: int, race: int, missile_id: String, pos: Vect
 			Sfx.play(snd, pos, 0.3, randf_range(1.15, 1.3))
 	else:
 		owner = null
-	world.spawn_missile(owner if owner != null else _race_stub(race), missile_id, pos, vel, angle, null)
+	var tgt: Node = ships_by_id.get(target_id, null) if target_id != 0 else null
+	if tgt != null and not is_instance_valid(tgt):
+		tgt = null
+	world.spawn_missile(owner if owner != null else _race_stub(race), missile_id, pos, vel, angle, tgt)
 	world.missiles[world.missiles.size() - 1].set_meta("net_id", mid)
 
 

@@ -152,7 +152,7 @@ func _world_check(w: World, p: Ship) -> void:
 func _lesson(w: World, t: Tutorial, p: Ship, id: String, f: int) -> void:
 	var earth: Planet = w.planet_by_name["Earth"]
 	var luna: Planet = w.planet_by_name["Luna"]
-	if f != 3 and not id in ["warp", "map", "board", "land", "to_luna", "colonists", "unload", "stealth", "pdc", "jammer", "shield_focus", "shields_down", "shipyard_tour", "loot", "ground_tabs", "assist", "groups", "wing"]:
+	if f != 3 and not id in ["warp", "map", "board", "land", "to_luna", "colonists", "unload", "stealth", "pdc", "jammer", "shield_focus", "shields_down", "shipyard_tour", "loot", "ground_tabs", "assist", "groups", "seeker", "wing"]:
 		return
 	match id:
 		"thrust":
@@ -221,6 +221,29 @@ func _lesson(w: World, t: Tutorial, p: Ship, id: String, f: int) -> void:
 				_check(p.weapon_group == 4, "group 4 is selected")
 				_action("weapon_group_1")
 				_action("weapon_group_1", false)
+		"seeker":
+			# a real seeker off the rack: it has to find the drone by itself
+			if f == 3:
+				_action("weapon_group_3")
+				_action("weapon_group_3", false)
+			elif f == 10:
+				_check(p.weapon_group == 3, "group 3 is selected for the seeker rack")
+				Input.action_press("fire_primary")   # held, as a trigger is
+			elif t.seen.has("seeker_hit") and not t.seen.has("seeker_test_done"):
+				t.seen["seeker_test_done"] = true
+				Input.action_release("fire_primary")
+				_action("weapon_group_1")
+				_action("weapon_group_1", false)
+			elif f == 1200:
+				_check(false, "a seeker off the rack hits the drone")
+			if OS.has_environment("TUT_DEBUG") and f % 30 == 0:
+				var tube: Dictionary = {}
+				for wp in p.weapons:
+					if wp["missile"] == "009":
+						tube = wp
+				var ms := w.missiles.filter(func(m): return is_instance_valid(m) and m.missile_id == "009" and not m.exploded)
+				print("  seeker f%d grp %d d %.0f bearing %.2f ammo %s cd %.2f energy %.0f live %d fates %s fire %s" % [f, p.weapon_group, p.global_position.distance_to(t.drone.global_position),
+					angle_difference(p.rotation, (t.drone.global_position - p.global_position).angle()), str(tube.get("ammo", -9)), tube.get("cooldown", 0.0), p.energy, ms.size(), str(Missile.fates.get("009", {})), str(p.inputs["fire_primary"])])
 		"disable":
 			# hits on the stern, as Hale says
 			var d := t.drone
