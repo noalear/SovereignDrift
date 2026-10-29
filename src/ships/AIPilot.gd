@@ -704,7 +704,9 @@ func _act(delta: float) -> void:
 				i["fire_primary"] = aligned and dist < 820.0
 				i["fire_secondary"] = aligned and dist < 650.0 and randf() < 0.8
 				i["fire_beam"] = dist < ship.beam_reach() and absf(diff2) < 1.8
-				i["fire_missile"] = dist < 1200.0 and dist > 300.0 and fmod(Time.get_ticks_msec() / 1000.0, 3.0) < 0.2
+				# drones find their own way in, so a carrier launches them close in too
+				var launch_min := 120.0 if _carries_drones() else 300.0
+				i["fire_missile"] = dist < 1200.0 and dist > launch_min and fmod(Time.get_ticks_msec() / 1000.0, 3.0) < 0.2
 				i["fire_mine"] = _mine_ok(tgt, dist) and randf() < 0.02
 			else:
 				i["fire_primary"] = false
@@ -2003,3 +2005,11 @@ func _mine_ok(tgt: Node2D, dist: float) -> bool:
 		return false
 	var to: Vector2 = tgt.global_position - ship.global_position
 	return absf(wrapf(to.angle() - ship.rotation, -PI, PI)) > PI * 0.65
+
+
+## Does the ship still have drones in a bay?
+func _carries_drones() -> bool:
+	for w in ship.weapons:
+		if w["missile"] == "021" and w["ammo"] != 0:
+			return true
+	return false
