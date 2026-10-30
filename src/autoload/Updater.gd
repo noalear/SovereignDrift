@@ -2,7 +2,8 @@
 ## with the installer is the base; an update is a small patch pack holding
 ## only the files that changed since that base, loaded over it at start.
 ## At launch it reads the manifest, downloads a newer patch in the
-## background, and the main menu offers a restart.  Builds without
+## background (in parts when it is too big for one file on GitHub, joined
+## here), and the main menu offers a restart.  Builds without
 ## res://build.json (editor and test runs) never check.
 ##
 ## This must stay the first autoload: the patch has to be in place before
@@ -26,6 +27,9 @@ var latest := ""
 var _want := {}         # the manifest's patch for our base
 var _http: HTTPRequest
 var _file := ""         # where the download goes
+var _parts: Array = []  # [{url, size, sha256}] still to fetch, in order
+var _part := 0          # which part is downloading
+var _done := 0          # bytes of the parts already down
 
 
 func _init() -> void:
@@ -75,7 +79,7 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if state == "downloading" and _http != null:
 		var size := maxi(int(_want.get("size", 1)), 1)
-		note = "Downloading update: %d%% of %.1f MB" % [mini(100, _http.get_downloaded_bytes() * 100 / size), size / 1048576.0]
+		note = "Downloading update: %d%% of %.1f MB" % [mini(100, (_done + _http.get_downloaded_bytes()) * 100 / size), size / 1048576.0]
 
 
 ## Restart into the downloaded update with the same command line.
@@ -107,32 +111,68 @@ func _on_manifest(result: int, code: int, _headers: PackedStringArray, body: Pac
 			return
 		DirAccess.make_dir_recursive_absolute(DIR)
 		_file = "%s.pck" % latest
-		_http.download_file = DIR + _file + ".part"
+		# one file, or parts that are joined once they are all down
+		_parts = _want.get("parts", [{"url": _want.get("url", ""), "size": _want.get("size", 0), "sha256": _want.get("sha256", "")}])
+		_part = 0
+		_done = 0
 		_http.request_completed.connect(_on_patch)
-		if _http.request(str(_want.get("url", ""))) != OK:
-			_to("failed", "The update download didn't start.")
-			return
 		_to("downloading", "Downloading update...")
+		_fetch_part()
 	else:
 		_to("installer", "A new version needs the full installer.")
 
 
+func _part_path(i: int) -> String:
+	return DIR + _file + ".part%d" % i
+
+
+func _fetch_part() -> void:
+	_http.download_file = _part_path(_part)
+	if _http.request(str(_parts[_part].get("url", ""))) != OK:
+		_http.request_completed.disconnect(_on_patch)
+		_to("failed", "The update download didn't start.")
+
+
 func _on_patch(result: int, code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
-	_http.request_completed.disconnect(_on_patch)
-	var part := DIR + _file + ".part"
+	var got := _part_path(_part)
 	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
-		DirAccess.remove_absolute(part)
+		_drop_parts()
 		_to("failed", "The update download failed. It will try again next start.")
 		return
-	if FileAccess.get_sha256(part) != str(_want.get("sha256", "")):
-		DirAccess.remove_absolute(part)
+	if FileAccess.get_sha256(got) != str(_parts[_part].get("sha256", "")):
+		_drop_parts()
 		_to("failed", "The update download was damaged. It will try again next start.")
 		return
-	DirAccess.rename_absolute(part, DIR + _file)
+	_done += int(_parts[_part].get("size", 0))
+	_part += 1
+	if _part < _parts.size():
+		_fetch_part()
+		return
+	_http.request_completed.disconnect(_on_patch)
+	var whole := DIR + _file + ".part"
+	if _parts.size() == 1:
+		DirAccess.rename_absolute(_part_path(0), whole)
+	else:
+		var out := FileAccess.open(whole, FileAccess.WRITE)
+		for i in _parts.size():
+			out.store_buffer(FileAccess.get_file_as_bytes(_part_path(i)))
+			DirAccess.remove_absolute(_part_path(i))
+		out.close()
+	if FileAccess.get_sha256(whole) != str(_want.get("sha256", "")):
+		DirAccess.remove_absolute(whole)
+		_to("failed", "The update download was damaged. It will try again next start.")
+		return
+	DirAccess.rename_absolute(whole, DIR + _file)
 	var f := FileAccess.open(INFO, FileAccess.WRITE)
 	f.store_string(JSON.stringify({"base": base, "build": latest, "file": _file}))
 	f.close()
 	_to("ready", "Update ready: restart to play build %s." % latest)
+
+
+func _drop_parts() -> void:
+	_http.request_completed.disconnect(_on_patch)
+	for i in _parts.size():
+		DirAccess.remove_absolute(_part_path(i))
 
 
 func _to(s: String, line: String) -> void:
