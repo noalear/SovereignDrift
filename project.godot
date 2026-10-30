@@ -11,7 +11,7 @@ config/version="0.1.0"
 run/main_scene="res://src/Main.tscn"
 config/features=PackedStringArray("4.5", "GL Compatibility")
 run/low_processor_mode=false
-config/icon="res://assets/icon.svg"
+config/icon="res://assets/icon.png"
 
 [autoload]
 
