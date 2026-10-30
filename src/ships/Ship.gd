@@ -1191,11 +1191,11 @@ func start_warp() -> void:
 		return
 	var why := ""
 	if systems.is_offline("qdrv"):
-		why = "Quantum drive offline: damage control is on it."
+		why = "Warp drive offline: damage control is on it."
 	elif engines_out():
 		why = "Engines offline: no warp."
 	elif qdrv <= 0.0:
-		why = "No quantum drive fitted."
+		why = "No warp drive fitted."
 	elif energy < 200.0:
 		why = "Not enough energy to warp (needs 200)."
 	if not why.is_empty():

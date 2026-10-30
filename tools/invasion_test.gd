@@ -78,7 +78,7 @@ func _process(_delta: float) -> bool:
 			_check(earth.buildings.has("shield") and absf(earth.pshield - Ground.PSHIELD_HP) < 1.0, "Earth's shield starts charged")
 			_check(Ground.count(mars.garrison) == 4 and Ground.strength(mars.garrison) == 7.0, "Mars's garrison: %s" % Ground.units_text(mars.garrison))
 			_check(Ground.count(w.planet_by_name["Phobos"].garrison) == 0, "outposts start with militia only")
-			_check(absf(Ground.militia(mars) - 2.4) < 0.01, "1.2 B people raise militia 2.4 (%.2f)" % Ground.militia(mars))
+			_check(absf(Ground.militia(mars) - 3.0) < 0.01, "1.5 B people raise militia 3.0 (%.2f)" % Ground.militia(mars))
 			var drops := w.ships.filter(func(s): return s.support and s.design_name == "DropShip")
 			_check(drops.size() == 3, "each empire flies a computer drop ship (%d)" % drops.size())
 			_check("DropShip" in gd.yard_hulls() and gd.ORDERS.has("DropShip"), "the shipyard sells and builds drop ships")

@@ -22,7 +22,7 @@ const ACTIONS := [
 	["flight_assist", "Flight assist on / off", "Flight"],
 	["nav_next", "Next nav planet", "Flight"],
 	["autopilot", "Autopilot", "Flight"],
-	["warp", "Quantum drive", "Flight"],
+	["warp", "Warp drive", "Flight"],
 	["fire_primary", "Fire selected group", "Weapons"],
 	["fire_secondary", "Alt-fire", "Weapons"],
 	["weapon_group_1", "Select group 1", "Weapons"],

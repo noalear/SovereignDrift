@@ -56,7 +56,7 @@ const VITAL := ["engines", "reactor"]
 ## Display names and the short tags the HUD uses.
 const LABELS := {
 	"engines": ["Engines", "ENG"], "reactor": ["Reactor", "PWR"], "shields": ["Shields", "SHD"],
-	"sensors": ["Sensors", "SNS"], "qdrv": ["Quantum drive", "QD"], "jammer": ["Jammer", "JAM"],
+	"sensors": ["Sensors", "SNS"], "qdrv": ["Warp drive", "WD"], "jammer": ["Jammer", "JAM"],
 	"pdc": ["Point defence", "PDC"],
 }
 ## Which part overlay on the painting stands for which system.

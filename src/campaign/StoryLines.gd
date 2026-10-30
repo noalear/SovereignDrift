@@ -80,7 +80,7 @@ const LINES := [
 	["fw_start", "brandt", "cockpit_terran", "Lantern Two here. Kettle, if anyone's asking. I'm sitting on the Cormorant. Come say hello and we'll get her moving."],
 	["fw_formed", "brandt", "cockpit_terran", "There you are. Cormorant, Lantern flight is with you. Take her out."],
 	["fw_cormorant", "freighter", "bridge_freighter", "Cormorant copies, Lantern. Burning out from Earth. Once we're clear, we jump when you jump."],
-	["fw_jump", "brandt", "cockpit_terran", "We're clear of Earth. Point us at the free port and light your quantum drive, Lead. The Cormorant jumps with you."],
+	["fw_jump", "brandt", "cockpit_terran", "We're clear of Earth. Point us at the free port and light your warp drive, Lead. The Cormorant jumps with you."],
 	["fw_jumping", "freighter", "bridge_freighter", "Cormorant is jumping with you. Don't lose us."],
 	["fw_alone", "freighter", "bridge_freighter", "We can't sit out here waiting, Lantern. Cormorant is jumping for the port. Catch us up."],
 	["fw_dropped", "freighter", "bridge_freighter", "We've dropped out! Something just pulled us out of warp."],

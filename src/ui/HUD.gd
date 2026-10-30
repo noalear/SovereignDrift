@@ -455,7 +455,7 @@ func _draw_weapons(p: Ship, vp: Vector2) -> void:
 		sys.append("%s ping%s" % [Keybinds.short_text("ping"), (" (%d)" % ceili(p.sensors.ping_ready)) if p.sensors.ping_ready > 0.0 else ""])
 	sys.append("%s silent" % Keybinds.short_text("silent_running"))
 	if p.qdrv > 0.0:
-		sys.append("%s quantum drive" % Keybinds.short_text("warp"))
+		sys.append("%s warp drive" % Keybinds.short_text("warp"))
 	if p.has_boost:
 		sys.append("%s boost" % Keybinds.short_text("boost"))
 	draw_string(font, Vector2(x, y + 94), "  ".join(sys), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.75, 0.85, 1.0, 0.8))
@@ -1267,7 +1267,7 @@ func _draw_help(vp: Vector2) -> void:
 		[_keys("thrust"), "thrust"], [_keys("reverse"), "reverse"],
 		[_keys("turn_left"), "turn left"], [_keys("turn_right"), "turn right"],
 		[_keys("strafe_left"), "strafe left"], [_keys("strafe_right"), "strafe right"],
-		[_keys("boost"), "boost (with thrust, burns fuel)"], [_keys("brake"), "brake"], [_keys("warp"), "quantum drive (warp)"],
+		[_keys("boost"), "boost (with thrust, burns fuel)"], [_keys("brake"), "brake"], [_keys("warp"), "warp drive"],
 		[_keys("flight_assist"), "flight assist on / off"], ["Mouse / right stick", "aims the turrets"],
 		["", ""],
 		["SYSTEM", ""],
