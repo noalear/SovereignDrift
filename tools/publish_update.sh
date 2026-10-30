@@ -7,7 +7,7 @@
 # A new base (and so a new installer) is cut on the first run or with
 # --new-base.  Without it the script stops (exit 2) when Updater.gd, the
 # autoload list, the display or rendering settings or the engine changed
-# (they load before any patch), or when the patch grows past 60 MB.  BASES keeps the base pack the patches are made against.
+# (they load before any patch), or when the patch grows past 95 MB (GitHub refuses files over 100 MB).  BASES keeps the base pack the patches are made against.
 # Prints NEW_INSTALLER=build/StellarFrontierRemake-Setup.exe when the
 # installer has to be handed out again.
 set -euo pipefail
@@ -17,7 +17,7 @@ GODOT="${GODOT:-godot}"
 : "${BASES:?set BASES to the folder that keeps base packs}"
 REPO_URL="https://raw.githubusercontent.com/noalear/SFUpdater/main"
 INSTALLER_URL="${INSTALLER_URL:-https://drive.google.com/file/d/1xAcmV3v4agDk25Q6vmtaA_xgXHyXHVy7/view}"
-MAX_PATCH=$((60 * 1024 * 1024))
+MAX_PATCH=$((95 * 1024 * 1024))
 VERSION=$(sed -n 's/^config\/version="\(.*\)"/\1/p' project.godot)
 BUILD=$(git rev-parse --short HEAD)
 # what a patch can't change: the updater itself, the autoload list, the
@@ -46,7 +46,7 @@ if [[ $NEW_BASE == 0 ]]; then
 	"$GODOT" --headless --path . --export-patch "Windows Desktop" "$PATCH" --patches "$BASES/$BASE.pck" >/dev/null 2>&1
 	if (( $(stat -c %s "$PATCH") > MAX_PATCH )); then
 		rm -f "$PATCH"
-		echo "The patch is over 60 MB, too big for GitHub. Run again with --new-base to cut a new installer."
+		echo "The patch is over 95 MB, too close to GitHub's 100 MB file limit. Run again with --new-base to cut a new installer."
 		exit 2
 	fi
 fi
