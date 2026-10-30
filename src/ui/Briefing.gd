@@ -127,7 +127,7 @@ func _draw() -> void:
 	y += 34.0
 	draw_string(font, Vector2(x, y), spec.get("where", ""), HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color(1.0, 0.85, 0.55))
 	y += 40.0
-	for ln in _wrap(spec.get("summary", ""), info.size.x, 18):
+	for ln in _wrap(Names.fill(spec.get("summary", "")), info.size.x, 18):
 		draw_string(font, Vector2(x, y), ln, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.85, 0.9, 0.95))
 		y += 25.0
 	y += 16.0

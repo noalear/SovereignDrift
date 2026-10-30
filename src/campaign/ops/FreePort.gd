@@ -50,7 +50,7 @@ func step(delta: float) -> void:
 				say("port_choice")
 				ask("free_port", "Ilsa Marrow wants 8 Exotics for the transponder records.", [
 					["pay", "Pay her in Exotics", "Buy 8 Exotics at the port's market and hand them over. The port stays friendly."],
-					["steal", "Copy them under silent running", "Free, but port security must not get a contact on you, and the port will charge Terrans more for the rest of the war."]])
+					["steal", "Copy them under silent running", Names.fill("Free, but port security must not get a contact on you, and the port will charge {terrans} more for the rest of the war.")]])
 				go("choose")
 		"pay":
 			var p := _payer()
@@ -168,7 +168,7 @@ func _records() -> void:
 	say("port_records_1")
 	say("port_records_2")
 	flag("records", "varr_shipping")
-	objective("home", "Bring the records home to the Terran starbase", home_base, "Terran starbase")
+	objective("home", Names.fill("Bring the records home to the {terran} starbase"), home_base, Names.fill("{terran} starbase"))
 	go("home")
 	for c in cutters:
 		if alive(c):

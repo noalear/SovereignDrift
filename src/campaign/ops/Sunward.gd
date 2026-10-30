@@ -69,7 +69,7 @@ func setup() -> void:
 	var hai: AIPilot = hammer.get_node("AI")
 	hai.duel = true                   # it fights whoever comes, and never turns for home
 	for k in scaled(ESCORTS.size()):
-		var e := spawn("Drengin %s" % ESCORTS[k % ESCORTS.size()], 2, ESCORTS[k % ESCORTS.size()], "Hammer Guard %d" % (k + 1),
+		var e := spawn(Names.fill("{drengin} %s") % ESCORTS[k % ESCORTS.size()], 2, ESCORTS[k % ESCORTS.size()], "Hammer Guard %d" % (k + 1),
 			at + Vector2(-260, (k - 0.5) * 320.0).rotated(hammer.velocity.angle()), hammer.velocity, 7)
 		e.get_node("AI").guard(hammer)
 		escorts.append(e)
@@ -79,7 +79,7 @@ func setup() -> void:
 		var wait := _course(AMBUSH_AT)
 		var out := (wait - sun.global_position).normalized()
 		for k in rows.size():
-			var s := spawn("Arcean Captain" if arcean else "Terran Captain", 0 if arcean else 1, rows[k][0], rows[k][1],
+			var s := spawn(Names.fill("{arcean} Captain") if arcean else Names.fill("{terran} Captain"), 0 if arcean else 1, rows[k][0], rows[k][1],
 				wait + out * (AMBUSH_OFF + 220.0 * k), Vector2.ZERO, 8, 0 if arcean else -1)
 			s.rotation = (-out).angle()
 			s.reset_physics_interpolation()
@@ -218,5 +218,5 @@ func _on_hammer_died(_s: Ship, _k: Node) -> void:
 	for s in escorts:
 		if alive(s):
 			s.get_node("AI").release()
-	objective("home", "Come home to the Terran starbase", home_base, "Terran starbase")
+	objective("home", Names.fill("Come home to the {terran} starbase"), home_base, Names.fill("{terran} starbase"))
 	go("home")

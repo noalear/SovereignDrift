@@ -11,15 +11,15 @@ enum Intensity { CRUISE, TENSION, BATTLE }
 
 # file, title, style, energy
 const REMIXES := [
-	["remix1-space-ambient", "Stellar Frontier I", "space ambient", Intensity.CRUISE],
-	["remix2-synthwave", "Stellar Frontier II", "synthwave", Intensity.TENSION],
-	["remix3-liquid-dnb", "Stellar Frontier III", "liquid drum & bass", Intensity.BATTLE],
-	["remix4-chiptune", "Stellar Frontier IV", "chiptune", Intensity.TENSION],
-	["remix5-edm-trance", "Stellar Frontier V", "trance", Intensity.BATTLE],
-	["remix6-symphonic-metal", "Stellar Frontier VI", "symphonic metal", Intensity.BATTLE],
-	["remix7-epic-orchestral", "Stellar Frontier VII", "epic orchestral", Intensity.BATTLE],
-	["remix8-dubstep", "Stellar Frontier VIII", "dubstep", Intensity.BATTLE],
-	["remix8-darkwave", "Stellar Frontier VIII", "darkwave", Intensity.TENSION],
+	["remix1-space-ambient", Names.GAME + " I", "space ambient", Intensity.CRUISE],
+	["remix2-synthwave", Names.GAME + " II", "synthwave", Intensity.TENSION],
+	["remix3-liquid-dnb", Names.GAME + " III", "liquid drum & bass", Intensity.BATTLE],
+	["remix4-chiptune", Names.GAME + " IV", "chiptune", Intensity.TENSION],
+	["remix5-edm-trance", Names.GAME + " V", "trance", Intensity.BATTLE],
+	["remix6-symphonic-metal", Names.GAME + " VI", "symphonic metal", Intensity.BATTLE],
+	["remix7-epic-orchestral", Names.GAME + " VII", "epic orchestral", Intensity.BATTLE],
+	["remix8-dubstep", Names.GAME + " VIII", "dubstep", Intensity.BATTLE],
+	["remix8-darkwave", Names.GAME + " VIII", "darkwave", Intensity.TENSION],
 ]
 const NEW_TRACKS := [
 	["new01-graveyard-orbit", "Graveyard Orbit", "trip-hop", Intensity.CRUISE],

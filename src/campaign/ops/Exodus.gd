@@ -265,7 +265,7 @@ func _send_wave(designs_in: Array, i: int, at_point: Vector2 = Vector2.INF) -> v
 	var marks := transports.filter(func(t): return alive(t) and not saved.has(t))
 	for k in designs.size():
 		var at := from + Vector2((k % 3) * -160.0, (k - designs.size() * 0.5) * 180.0).rotated(dir)
-		var s := spawn("Drengin %s" % designs[k], 2, designs[k], "Claw of Varr %d-%d" % [i + 1, k + 1], at, luna.velocity, 5 + mini(i, 3))
+		var s := spawn(Names.fill("{drengin} %s") % designs[k], 2, designs[k], "Claw of Varr %d-%d" % [i + 1, k + 1], at, luna.velocity, 5 + mini(i, 3))
 		s.rotation = dir + PI
 		s.reset_physics_interpolation()
 		var ai: AIPilot = s.get_node("AI")

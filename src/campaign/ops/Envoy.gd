@@ -31,7 +31,7 @@ func setup() -> void:
 	var earth := planet("Earth")
 	var base: Ship = world.starbase_of(1)
 	var home: Node2D = base if base != null else earth
-	dest = waypoint("the Terran starbase", home, 160.0)
+	dest = waypoint(Names.fill("the {terran} starbase"), home, 160.0)
 	var at := saturn.global_position.lerp(home.global_position, MEET_FROM)
 	at = clear_spot(at, randf() * TAU, 10.0)
 	# an Arcean hull under a truce: Terrans may not fire on it
@@ -53,7 +53,7 @@ func setup() -> void:
 		if not s.captured:
 			say("brandt_down"))
 	say("env_start")
-	objective("meet", "Meet Speaker Tenn's ship in the belt", envoy, "Arcean envoy")
+	objective("meet", "Meet Speaker Tenn's ship in the belt", envoy, Names.fill("{arcean} envoy"))
 	objective("hold_fire", "Nothing touches the envoy's ship", null, "", true)
 	go("meet")
 
@@ -74,7 +74,7 @@ func step(_delta: float) -> void:
 				complete("meet")
 				say("env_tenn_1")
 				say("env_tenn_2")
-				objective("escort", "Escort the envoy to the Terran starbase", envoy, "Arcean envoy")
+				objective("escort", Names.fill("Escort the envoy to the {terran} starbase"), envoy, Names.fill("{arcean} envoy"))
 				envoy.nav_target = dest
 				envoy.autopilot = true
 				start_dist = maxf(envoy.global_position.distance_to(dest.global_position), 1.0)
@@ -103,9 +103,9 @@ func step(_delta: float) -> void:
 		"choice":
 			if stage_time > 1.0:
 				say("env_choice")
-				ask("envoy", "Speaker Tenn asks why the Arceans should join Terra's war.", [
-					["share", "Show Tenn the evidence", "The Ceres log and the free port records go to the Arceans. They learn the raids were Drengin, and their ships may stand with Terra."],
-					["keep", "Keep it for Fleet Intelligence", "Intelligence pays a %d credit bonus for your discretion. The Arceans stay out of the war." % BONUS]])
+				ask("envoy", Names.fill("Speaker Tenn asks why the {arceans} should join Terra's war."), [
+					["share", "Show Tenn the evidence", Names.fill("The Ceres log and the free port records go to the {arceans}. They learn the raids were {drengin}, and their ships may stand with Terra.")],
+					["keep", "Keep it for Fleet Intelligence", Names.fill("Intelligence pays a %d credit bonus for your discretion. The {arceans} stay out of the war.") % BONUS]])
 				go("asked")
 		"after":
 			if stage_time > 6.0 or not story.speaking():
@@ -158,7 +158,7 @@ func _arrival() -> void:
 		complete("hold_fire")
 		envoy.autopilot = false
 		say("env_arrive")
-		objective("talk", "Answer Speaker Tenn", envoy, "Arcean envoy")
+		objective("talk", "Answer Speaker Tenn", envoy, Names.fill("{arcean} envoy"))
 		go("choice")
 
 
@@ -202,4 +202,4 @@ func _on_envoy_hit(_s: Ship, _amount: float) -> void:
 func on_breach(attacker: Node, victim: Node) -> void:
 	if is_pilot(attacker) and (victim == envoy or (victim is Ship and victim.race_id == 0)):
 		fail_objective("hold_fire")
-		fail("You fired on the Arcean envoy.", "env_fail_breach")
+		fail(Names.fill("You fired on the {arcean} envoy."), "env_fail_breach")

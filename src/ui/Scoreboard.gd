@@ -88,7 +88,7 @@ func _draw() -> void:
 	var wcol: Color = GameData.race(winner)["color"] if winner >= 0 else Color.WHITE
 	var won := winner == player_race
 	# banner
-	var headline := "%s %s" % [GameData.race(winner)["name"], "win the Sol system"] if winner >= 0 else "The round is over"
+	var headline := "%s %s" % [GameData.race(winner).get("plural", GameData.race(winner)["name"]), "win the Sol system"] if winner >= 0 else "The round is over"
 	draw_string(font, Vector2(x, y + 40), headline.to_upper(), HORIZONTAL_ALIGNMENT_CENTER, w, 40, wcol)
 	var how: String = result.get("how", "")
 	var sub := "Victory" if won else "Defeat"

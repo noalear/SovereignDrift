@@ -32,6 +32,10 @@ var font: Font
 
 func _ready() -> void:
 	font = ThemeDB.fallback_font
+	# the window shows the game's name; project.godot's config/name stays
+	# "Stellar Frontier" because it names the user:// folder (saves, settings,
+	# downloaded updates)
+	get_window().title = Names.GAME
 	ui_layer = CanvasLayer.new()
 	ui_layer.layer = 10
 	add_child(ui_layer)

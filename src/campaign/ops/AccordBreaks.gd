@@ -58,8 +58,8 @@ func step(delta: float) -> void:
 				# the war goes hot, for good
 				world.accord = false
 				story.keep_peace()
-				world.notify_all("The Ceres Accord is over. The Drengin Empire is at war with Terra.", Color(1.0, 0.5, 0.4))
-				world.notify_all("The Arcean Union stays out of it: Arcean ships and worlds are still off limits to Terrans.", Color(0.8, 0.9, 1.0))
+				world.notify_all(Names.fill("The Ceres Accord is over. The {drengin} Empire is at war with Terra."), Color(1.0, 0.5, 0.4))
+				world.notify_all(Names.fill("The {arcean} Union stays out of it: {arcean} ships and worlds are still off limits to {terrans}."), Color(0.8, 0.9, 1.0))
 				go("hold")
 		"hold":
 			var left := HOLD_TIME - stage_time
@@ -103,7 +103,7 @@ func _send_wave(i: int) -> void:
 		designs.append(WAVES[i][1][k % WAVES[i][1].size()])
 	for k in designs.size():
 		var at := from + Vector2((k % 3) * -160.0, (k - designs.size() * 0.5) * 180.0).rotated(dir)
-		var s := spawn("Drengin %s" % designs[k], 2, designs[k], "Claw of Varr %d-%d" % [i + 1, k + 1], at, luna.velocity, 5 + i)
+		var s := spawn(Names.fill("{drengin} %s") % designs[k], 2, designs[k], "Claw of Varr %d-%d" % [i + 1, k + 1], at, luna.velocity, 5 + i)
 		s.rotation = dir + PI
 		s.reset_physics_interpolation()
 		var ai: AIPilot = s.get_node("AI")
@@ -150,7 +150,7 @@ func _relief() -> void:
 	for k in RELIEF.size():
 		var row := k / 3
 		var at := from + Vector2(row * 260.0, (k % 3 - 1) * 240.0 + row * 120.0).rotated(dir)
-		var s := spawn("Terran Captain %d" % (k + 1), 1, RELIEF[k][0], RELIEF[k][1], at, luna.velocity, 7)
+		var s := spawn(Names.fill("{terran} Captain %d") % (k + 1), 1, RELIEF[k][0], RELIEF[k][1], at, luna.velocity, 7)
 		s.rotation = dir + PI
 		s.reset_physics_interpolation()
 		var ai: AIPilot = s.get_node("AI")
@@ -185,7 +185,7 @@ func _relief_in() -> void:
 
 
 func _home() -> void:
-	objective("home", "Fall back to the Terran starbase" if story.flags.get("luna", "") == "lost" else "Return to the Terran starbase", home_base, "Terran starbase")
+	objective("home", Names.fill("Fall back to the {terran} starbase") if story.flags.get("luna", "") == "lost" else Names.fill("Return to the {terran} starbase"), home_base, Names.fill("{terran} starbase"))
 	go("home")
 
 

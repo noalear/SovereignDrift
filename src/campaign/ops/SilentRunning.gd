@@ -37,7 +37,7 @@ func setup() -> void:
 	hold_in_cradle(hammer, yard, hammer_off)
 	var n := scaled(4)
 	for i in n:
-		var c := spawn("Drengin picket", 2, "Scout", "Varr Listener %d" % (i + 1), yard.global_position, mars.velocity)
+		var c := spawn(Names.fill("{drengin} picket"), 2, "Scout", "Varr Listener %d" % (i + 1), yard.global_position, mars.velocity)
 		c.set_meta("phase", TAU * i / n)
 		c.sensors.suite = PICKET_SENSORS.duplicate()
 		c.damaged.connect(func(hit, _a):
@@ -48,7 +48,7 @@ func setup() -> void:
 		pickets.append(c)
 	_patrol(0.0)
 	say("sr_start")
-	objective("approach", "Fly to Mars, running silent (%s) once you near the picket net" % Keybinds.short_text("silent_running"), yard, "Drengin shipyard")
+	objective("approach", "Fly to Mars, running silent (%s) once you near the picket net" % Keybinds.short_text("silent_running"), yard, Names.fill("{drengin} shipyard"))
 	objective("unheard", "Stay off the pickets' arrays: coast, run silent, jam one that comes close (%s)" % Keybinds.short_text("cloak"), null, "", true)
 	go("approach")
 
@@ -137,4 +137,4 @@ func _patrol(delta: float) -> void:
 ## Someone fired: the net knows.
 func on_breach(attacker: Node, victim: Node) -> void:
 	if is_pilot(attacker) and victim is Ship and victim.race_id == 0:
-		fail("You fired on an Arcean ship.", "breach_warn_arcean")
+		fail(Names.fill("You fired on an {arcean} ship."), "breach_warn_arcean")

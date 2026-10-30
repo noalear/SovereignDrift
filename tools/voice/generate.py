@@ -139,8 +139,23 @@ def _peaking(f0, gain_db, q, sr):
     return np.array(b) / a[0], np.array(a) / a[0]
 
 
-def render(k, text, spk):
-    audio, sr = k.create(text, voice=spk["voice"], speed=float(spk.get("speed", 1.0)), lang=spk.get("lang", "en-us"))
+def say_names(k, text, lang, say):
+    """The text as phonemes with each name in `say` (Names.SAY) spoken our
+    way, or None when the text has none of them."""
+    words = [w for w in say if w in text]
+    if not words:
+        return None
+    ph = k.tokenizer.phonemize(text, lang)
+    for w in words:
+        ph = ph.replace(k.tokenizer.phonemize(w, lang).strip(" .,!?"), say[w])
+    return ph
+
+
+def render(k, text, spk, say=None):
+    lang = spk.get("lang", "en-us")
+    ph = say_names(k, text, lang, say or {})
+    audio, sr = k.create(ph if ph else text, voice=spk["voice"], speed=float(spk.get("speed", 1.0)), lang=lang,
+                         is_phonemes=bool(ph))
     x = np.asarray(audio, dtype=np.float64)
     x = signal.resample_poly(x, RATE, sr)
     x = trim(x, RATE)
@@ -198,7 +213,7 @@ def main(argv):
     if "--sample" in argv:
         i = argv.index("--sample")
         voice, text = argv[i + 1], argv[i + 2]
-        x = render(kokoro(), text, {"voice": voice})
+        x = render(kokoro(), text, {"voice": voice}, read_lines().get("say", {}))
         out = os.path.join(tempfile.gettempdir(), "sf_voice_sample_%s.wav" % voice)
         sf.write(out, x.astype(np.float32), RATE)
         print(out)
@@ -216,7 +231,7 @@ def main(argv):
             spk = dict(speakers[line["speaker"]])
             if line.get("fx"):
                 spk["fx"] = line["fx"]
-            write_ogg(render(k, line["text"], spk), path)
+            write_ogg(render(k, line["text"], spk, data.get("say", {})), path)
         if os.path.exists(path):
             x, sr = sf.read(path)
             words = len(line["text"].split())

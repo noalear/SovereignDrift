@@ -70,7 +70,7 @@ func setup() -> void:
 	ai.state = AIPilot.State.ESCORT
 	brandt.died.connect(_on_brandt_died)
 	say("fw_start")
-	objective("meet", "Meet the Cormorant and Lt. Brandt by the Terran starbase", cormorant, "TSS Cormorant")
+	objective("meet", Names.fill("Meet the Cormorant and Lt. Brandt by the {terran} starbase"), cormorant, "TSS Cormorant")
 	go("meet")
 
 
@@ -140,7 +140,7 @@ func step(delta: float) -> void:
 				cormorant.autopilot = false
 				say("fw_arrived")
 				say("fw_home")
-				objective("home", "Return to the Terran starbase", home_base, "Terran starbase")
+				objective("home", Names.fill("Return to the {terran} starbase"), home_base, Names.fill("{terran} starbase"))
 				go("home")
 		"home":
 			_scout_away(delta)
@@ -268,14 +268,14 @@ func _bring_scout() -> void:
 		return
 	var fwd := Vector2.RIGHT.rotated((port.global_position - cormorant.global_position).angle())
 	var at := cormorant.global_position + fwd.orthogonal() * (SHADOW_OFF + 500.0) + fwd * 900.0
-	scout = spawn("Drengin watcher", 2, "Scout", "Vigil of Mars", at, cormorant.velocity, 4)
+	scout = spawn(Names.fill("{drengin} watcher"), 2, "Scout", "Vigil of Mars", at, cormorant.velocity, 4)
 	scout.rotation = (cormorant.global_position - at).angle()
 	scout.reset_physics_interpolation()
 	scout.can_jam = true
 	var ai: AIPilot = scout.get_node_or_null("AI")
 	if ai != null:
 		ai.set_physics_process(false)     # the operation flies it
-	objective("crowd", "Crowd the Drengin scout off the Cormorant. Do not fire", scout, "Drengin scout", true)
+	objective("crowd", Names.fill("Crowd the {drengin} scout off the Cormorant. Do not fire"), scout, Names.fill("{drengin} scout"), true)
 
 
 ## Shadow off her flank, then a run in at her side to read her hold; a
@@ -312,7 +312,7 @@ func _scout_runs(delta: float) -> void:
 					say_once("fw_jam")
 			if close and not crowded:
 				scan = minf(scan + delta / SCAN_TIME, 1.0)
-			set_text("crowd", "Crowd the Drengin scout off the Cormorant. Do not fire (hold read %d%%)" % roundi(scan * 100.0))
+			set_text("crowd", Names.fill("Crowd the {drengin} scout off the Cormorant. Do not fire (hold read %d%%)") % roundi(scan * 100.0))
 			if scan >= 1.0:
 				_scout_leaves(true)
 			elif crowded or scout_t > RUN_TIME:
