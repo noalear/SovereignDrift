@@ -407,6 +407,7 @@ func _open_pause() -> void:
 		world.set_paused(true)   # online the round goes on behind the menu
 	world.menu_open = true       # either way the ship ignores the keys and clicks meant for the menu
 	pause_panel = PausePanel.new()
+	pause_panel.theme = MainMenu.make_theme()   # the title screen's fonts and glass buttons
 	pause_panel.process_mode = Node.PROCESS_MODE_ALWAYS
 	pause_panel.resume.connect(_close_pause)
 	ui_layer.add_child(pause_panel)
