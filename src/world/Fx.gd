@@ -14,7 +14,9 @@ var shards: Array = []       # pieces of a wrecked painting {tex, poly, uvs, pos
 var droplets: Array = []     # Arcean coolant {pos, vel, age, wet, life, size}
 var gravel: Array = []       # bits of a broken asteroid {pos, vel, age, life, size, color}
 var ripples: Array = []      # time ripples from quantum jumps and sensor pings {pos, age, life, size, kind, color}
-var muzzles: Array = []      # mass driver discharges {pos, vel, ang, age, life, size, color}
+var muzzles: Array = []      # gun discharges {pos, vel, ang, age, life, size, color, kind}
+var puffs: Array = []        # exhaust and gun smoke {pos, vel, age, life, size, color, hot, shade}
+var crackles: Array = []     # ion discharges after a disruptor hit {pos, age, life, size, color, seed}
 var glow: Node2D             # additive layer
 const WRECK_LIFE := 3.2
 
@@ -196,11 +198,132 @@ func beam(a: Vector2, b: Vector2, color: Color) -> void:
 	beams.append({"a": a, "b": b, "color": color, "age": 0.0})
 
 
-## A mass driver fires: a white flash at the muzzle, a blue jet of
-## ionised gas thrown forward with the slug, a faint puff venting off the
-## rails to each side.  It rides along with the shooter.
-func muzzle_flash(pos: Vector2, ang: float, vel: Vector2, color: Color, size: float = 10.0) -> void:
-	muzzles.append({"pos": pos, "vel": vel, "ang": ang, "age": 0.0, "life": 0.16, "size": size, "color": color})
+## A gun fires.  `kind` picks the look: "rail" (mass driver and rapid
+## tube: a white flash, a jet of ionised gas thrown forward with the shot,
+## puffs venting off the rails), "cannon" (a fireball and a cloud of
+## smoke), "pdc" (a quick flicker), "energy" (disruptor and plasma: a
+## bloom of the shot's light) or "launch" (missiles, torpedoes and drones
+## leave the tube in a puff of smoke).  It rides along with the shooter.
+func muzzle_flash(pos: Vector2, ang: float, vel: Vector2, color: Color, size: float = 10.0, kind: String = "rail") -> void:
+	var life: float = {"rail": 0.16, "cannon": 0.22, "pdc": 0.06, "energy": 0.18, "launch": 0.14}.get(kind, 0.16)
+	muzzles.append({"pos": pos, "vel": vel, "ang": ang, "age": 0.0, "life": life, "size": size, "color": color, "kind": kind})
+	var fwd := Vector2.RIGHT.rotated(ang)
+	match kind:
+		"cannon":
+			for i in 6:
+				var d := fwd.rotated(randf_range(-0.6, 0.6)) * randf_range(20.0, 90.0)
+				puffs.append({"pos": pos + fwd * size * randf_range(0.2, 1.2), "vel": vel + d, "age": -randf() * 0.04, "life": randf_range(0.6, 1.1),
+					"size": size * randf_range(0.5, 0.9), "color": Color(1.0, 0.6, 0.25), "hot": 0.25, "shade": randf_range(0.3, 0.45)})
+			for i in 8:
+				var d := fwd.rotated(randf_range(-0.35, 0.35)) * randf_range(150.0, 380.0)
+				sparks.append({"pos": pos, "vel": vel + d, "age": 0.0, "life": randf_range(0.15, 0.35), "color": Color(1.0, randf_range(0.55, 0.85), 0.3)})
+		"launch":
+			# the motor lights as the round clears the tube: smoke blown back
+			for i in 4:
+				var d := (-fwd).rotated(randf_range(-0.9, 0.9)) * randf_range(10.0, 50.0)
+				puffs.append({"pos": pos - fwd * size * randf_range(0.0, 0.8), "vel": vel + d, "age": 0.0, "life": randf_range(0.5, 0.9),
+					"size": size * randf_range(0.45, 0.7), "color": color, "hot": 0.12, "shade": randf_range(0.42, 0.55)})
+		"energy":
+			for i in 5:
+				var d := fwd.rotated(randf_range(-0.8, 0.8)) * randf_range(80.0, 220.0)
+				sparks.append({"pos": pos, "vel": vel + d, "age": 0.0, "life": randf_range(0.1, 0.25), "color": color.lerp(Color.WHITE, 0.4)})
+
+
+## A burning motor leaves a puff of exhaust: hot for a moment in the
+## engine's colour, then a pale wisp that spreads and fades.  Drones run
+## on a cleaner ion drive: no smoke, only a short glowing wake.
+func exhaust(pos: Vector2, vel: Vector2, color: Color, size: float, look: String) -> void:
+	var drift := Vector2.RIGHT.rotated(randf() * TAU) * randf_range(3.0, 12.0)
+	if look == "drone":
+		puffs.append({"pos": pos, "vel": vel + drift, "age": 0.0, "life": 0.35, "size": size * 0.8, "color": color, "hot": 0.35, "shade": 0.0})
+		return
+	var big := 1.4 if look == "torpedo" else 1.0
+	puffs.append({"pos": pos, "vel": vel + drift, "age": 0.0, "life": randf_range(0.55, 0.9) * big, "size": size * 0.9 * big,
+		"color": color, "hot": 0.12, "shade": randf_range(0.45, 0.6)})
+
+
+## A munition goes off.  How it looks goes by what it is and what it did:
+## `how` is "hit" (struck something), "blast" (a warhead going off with a
+## blast radius `splash`) or "down" (shot out of the sky, or a shot that
+## popped on nothing).  `normal` is the struck surface's, if known.
+func munition_burst(look: String, dtype: String, pos: Vector2, vel: Vector2, normal: Vector2, color: Color, radius: float, splash: float, how: String, sound: String = "") -> void:
+	var back := -vel.normalized() if vel.length_squared() > 1.0 else Vector2.RIGHT.rotated(randf() * TAU)
+	var away := normal if normal.length_squared() > 0.5 else back
+	if splash > 0.0:
+		# a torpedo or mine: a fireball, a ring of light, smoke and debris
+		var fire := Color(1.0, 0.5, 0.18)
+		explosion(pos, splash * 0.5, fire, look == "mine", sound)
+		_flash(pos, splash * 1.2, Color(1.0, 0.7, 0.4), 0.15)
+		for i in 6:
+			var a := randf() * TAU
+			puffs.append({"pos": pos + Vector2(cos(a), sin(a)) * splash * randf() * 0.3, "vel": vel * 0.3 + Vector2(cos(a), sin(a)) * randf_range(10.0, 40.0),
+				"age": -randf_range(0.05, 0.25), "life": randf_range(1.0, 1.8), "size": splash * randf_range(0.25, 0.4), "color": fire, "hot": 0.2, "shade": randf_range(0.18, 0.3)})
+		_debris(pos, vel * 0.3, 10, splash * 2.5, Color(0.55, 0.52, 0.5))
+		return
+	if how == "down":
+		# shot down: a small pop, a puff of smoke, a few broken pieces
+		var guided := look in ["missile", "seeker", "torpedo", "drone"]
+		explosions.append({"pos": pos, "vel": vel * 0.2, "age": 0.0, "life": 0.35, "size": radius * (3.0 if guided else 1.6),
+			"hot": Color(1.0, 0.9, 0.7), "cool": Color(1.0, 0.55, 0.2) if guided else color})
+		if guided or look == "mine":
+			puffs.append({"pos": pos, "vel": vel * 0.2, "age": 0.0, "life": 0.9, "size": radius * 2.2, "color": Color(1.0, 0.5, 0.2), "hot": 0.15, "shade": 0.35})
+			_debris(pos, vel * 0.25, 5, 120.0, Color(0.6, 0.6, 0.62))
+			Sfx.play(sound if sound != "" else "impact", pos, 0.6, 1.3)
+		else:
+			spark(pos, 2, color)
+		return
+	match look:
+		"missile", "seeker", "drone":
+			var fire := Color(1.0, 0.5, 0.2)
+			explosion(pos, 8.0 + radius * 3.0, fire, false, sound)
+			for i in 3:
+				puffs.append({"pos": pos + away * radius * randf(), "vel": vel * 0.1 + away.rotated(randf_range(-1.0, 1.0)) * randf_range(15.0, 45.0),
+					"age": -randf() * 0.1, "life": randf_range(0.8, 1.3), "size": radius * randf_range(2.0, 3.0), "color": fire, "hot": 0.2, "shade": 0.25})
+		"tracer":
+			_flash(pos, radius * 3.0, color, 0.08)
+			_spray(pos, away, 3, 0.9, 80.0, 220.0, color, 0.15)
+		"disruptor":
+			_flash(pos, radius * 4.0, color, 0.2)
+			crackles.append({"pos": pos, "age": 0.0, "life": 0.45, "size": radius * 6.0, "color": color, "seed": randi()})
+			_spray(pos, away, 8, 1.6, 60.0, 200.0, Color(0.8, 0.7, 1.0), 0.3)
+			Sfx.play(sound if sound != "" else "impact", pos, 0.8, 1.2)
+		"plasma":
+			_flash(pos, radius * 4.5, color, 0.25)
+			_spray(pos, away, 10, 1.3, 50.0, 180.0, color.lerp(Color.WHITE, 0.3), 0.5)
+			Sfx.play(sound if sound != "" else "impact", pos, 0.8)
+		_:
+			# kinetic: a white-hot flash where the round strikes, sparks
+			# thrown off the struck plate, and bits of hull
+			var heavy := look == "shell"
+			_flash(pos, radius * (5.0 if heavy else 3.5), color.lerp(Color(1.0, 0.95, 0.85), 0.6), 0.18 if heavy else 0.12)
+			_spray(pos, away, 14 if heavy else 7, 1.1, 90.0, 320.0 if heavy else 240.0, Color(1.0, 0.75, 0.4), 0.35)
+			if heavy:
+				explosion(pos, radius * 2.5, Color(1.0, 0.55, 0.2), false, sound)
+				_debris(pos, Vector2.ZERO, 6, 160.0, Color(0.6, 0.6, 0.62))
+				puffs.append({"pos": pos + away * radius, "vel": away * 25.0, "age": 0.0, "life": 1.1, "size": radius * 2.5, "color": Color(1.0, 0.55, 0.2), "hot": 0.15, "shade": 0.3})
+			else:
+				Sfx.play(sound if sound != "" else "impact", pos, 0.75, randf_range(0.95, 1.1))
+
+
+## A quick bloom of light that does not travel.
+func _flash(pos: Vector2, size: float, color: Color, life: float) -> void:
+	explosions.append({"pos": pos, "vel": Vector2.ZERO, "age": 0.0, "life": life, "size": size * 0.6, "hot": Color(1, 1, 0.95), "cool": color})
+
+
+## Sparks thrown off a surface, in a cone `spread` radians either side of `dir`.
+func _spray(pos: Vector2, dir: Vector2, n: int, spread: float, lo: float, hi: float, color: Color, life: float) -> void:
+	for i in n:
+		var d := dir.rotated(randf_range(-spread, spread)) * randf_range(lo, hi)
+		sparks.append({"pos": pos, "vel": d, "age": 0.0, "life": randf_range(life * 0.5, life * 1.3), "color": color.lerp(Color(1, 0.9, 0.6), randf() * 0.5)})
+
+
+## Bits of metal: dark grains that tumble off, lit on the Sun side.
+func _debris(pos: Vector2, vel: Vector2, n: int, speed: float, color: Color) -> void:
+	for i in n:
+		var a := randf() * TAU
+		var shade := randf_range(0.6, 1.2)
+		gravel.append({"pos": pos, "vel": vel + Vector2(cos(a), sin(a)) * randf_range(speed * 0.2, speed), "age": 0.0,
+			"life": randf_range(0.6, 1.4), "size": randf_range(0.6, 1.6), "color": Color(color.r * shade, color.g * shade, color.b * shade)})
 
 
 ## A quantum jump tears time: rings of warped light race out from the
@@ -256,6 +379,14 @@ func _process(delta: float) -> void:
 		m["age"] += delta
 		m["pos"] += m["vel"] * delta
 	muzzles = muzzles.filter(func(m): return m["age"] < m["life"])
+	for p in puffs:
+		p["age"] += delta
+		p["pos"] += p["vel"] * delta
+		p["vel"] *= 1.0 - 1.2 * delta
+	puffs = puffs.filter(func(p): return p["age"] < p["life"])
+	for c in crackles:
+		c["age"] += delta
+	crackles = crackles.filter(func(c): return c["age"] < c["life"])
 	for r in ripples:
 		r["age"] += delta
 	ripples = ripples.filter(func(r): return r["age"] < r["life"])
@@ -273,6 +404,13 @@ func _draw() -> void:
 		var r: float = s["size"] * (0.6 + 1.2 * t)
 		var sh: float = s["shade"]
 		draw_texture_rect(soft, Rect2(s["pos"] - Vector2(r, r), Vector2(r, r) * 2.0), false, Color(sh, sh * 0.95, sh * 0.9, 0.55 * (1.0 - t)))
+	for p in puffs:
+		if p["age"] < 0.0 or p["shade"] <= 0.0:
+			continue
+		var t: float = p["age"] / p["life"]
+		var r: float = p["size"] * (0.6 + 1.8 * sqrt(t))
+		var sh: float = p["shade"]
+		draw_texture_rect(soft, Rect2(p["pos"] - Vector2(r, r), Vector2(r, r) * 2.0), false, Color(sh, sh * 0.97, sh * 0.95, 0.4 * (1.0 - t) * (1.0 - t)))
 	for d in droplets:
 		var vt: float = d["age"] - d["wet"]
 		if vt <= 0.0:
@@ -364,16 +502,86 @@ func _draw_glow() -> void:
 		var tail: Vector2 = d["vel"] * 0.03
 		glow.draw_line(d["pos"] - tail, d["pos"], Color(0.4, 1.0, 0.6, 0.5), r)
 		glow.draw_texture_rect(soft, Rect2(d["pos"] - Vector2(r, r) * 2.0, Vector2(r, r) * 4.0), false, Color(0.55, 1.0, 0.65, 0.9))
+	for p in puffs:
+		if p["age"] < 0.0 or p["age"] > p["hot"]:
+			continue
+		var t: float = p["age"] / p["hot"]
+		var r: float = p["size"] * (0.7 + 0.6 * t)
+		var c: Color = p["color"]
+		glow.draw_texture_rect(soft, Rect2(p["pos"] - Vector2(r, r), Vector2(r, r) * 2.0), false, Color(c, 0.55 * (1.0 - t)))
+	for c in crackles:
+		_draw_crackle(soft, c)
 	for m in muzzles:
 		_draw_muzzle(soft, m)
 	for s in sparks:
+		# an ember: a soft streak along its flight, not a hard stick
 		var t: float = s["age"] / s["life"]
 		var c: Color = s["color"]
 		c.a = 1.0 - t
-		glow.draw_line(s["pos"], s["pos"] - s["vel"] * 0.04, c, 2.0)
+		var v: Vector2 = s["vel"]
+		var len := clampf(v.length() * 0.04, 2.0, 16.0)
+		glow.draw_set_transform(s["pos"], v.angle())
+		glow.draw_texture_rect(soft, Rect2(-len, -1.6, len + 1.6, 3.2), false, c)
+		glow.draw_texture_rect(soft, Rect2(-1.4, -1.4, 2.8, 2.8), false, Color(1, 1, 0.9, c.a))
+	glow.draw_set_transform(Vector2.ZERO)
+
+
+## The charge a disruptor leaves on a hull: forks of light that flicker
+## out from the hit, drawn as chains of soft sparks (no hard lines).
+func _draw_crackle(soft: Texture2D, c: Dictionary) -> void:
+	var t: float = c["age"] / c["life"]
+	var col: Color = c["color"]
+	var rng := RandomNumberGenerator.new()
+	# a new pattern every 50 ms, so the forks dance
+	rng.seed = int(c["seed"]) + int(c["age"] * 20.0)
+	var size: float = c["size"]
+	glow.draw_texture_rect(soft, Rect2(c["pos"] - Vector2(size, size) * 0.6, Vector2(size, size) * 1.2), false, Color(col, 0.25 * (1.0 - t)))
+	for f in 4:
+		var p: Vector2 = c["pos"]
+		var a := rng.randf() * TAU
+		var step := size * 0.12
+		for k in 7:
+			a += rng.randf_range(-0.9, 0.9)
+			p += Vector2(cos(a), sin(a)) * step
+			var w := size * 0.07 * (1.0 - k / 8.0)
+			glow.draw_texture_rect(soft, Rect2(p - Vector2(w, w) * 1.5, Vector2(w, w) * 3.0), false, Color(col.lerp(Color.WHITE, 0.4), 0.8 * (1.0 - t)))
 
 
 func _draw_muzzle(soft: Texture2D, m: Dictionary) -> void:
+	match m["kind"]:
+		"rail":
+			_draw_rail_muzzle(soft, m)
+			return
+	var t: float = m["age"] / m["life"]
+	var k := (1.0 - t) * (1.0 - t)
+	var sz: float = m["size"]
+	var c: Color = m["color"]
+	glow.draw_set_transform(m["pos"], m["ang"])
+	match m["kind"]:
+		"cannon":
+			# a fireball out of the barrel, a forward tongue of flame
+			var tongue := sz * (2.0 + 3.0 * t)
+			glow.draw_texture_rect(soft, Rect2(-sz * 0.3, -sz * 0.9, tongue, sz * 1.8), false, Color(1.0, 0.55, 0.2, 0.8 * k))
+			glow.draw_texture_rect(soft, Rect2(-sz * 0.2, -sz * 0.45, tongue * 0.6, sz * 0.9), false, Color(1.0, 0.9, 0.6, k))
+			var f := sz * (1.6 - 0.5 * t)
+			glow.draw_texture_rect(soft, Rect2(-f, -f, f * 2.0, f * 2.0), false, Color(1.0, 0.85, 0.6, k))
+		"pdc":
+			var f := sz * 1.2
+			glow.draw_texture_rect(soft, Rect2(-f * 0.5, -f * 0.4, f * 2.2, f * 0.8), false, Color(1.0, 0.85, 0.5, k))
+			glow.draw_texture_rect(soft, Rect2(-f * 0.5, -f * 0.5, f, f), false, Color(1, 1, 0.9, k))
+		"energy":
+			var f := sz * (1.2 + 1.2 * t)
+			glow.draw_texture_rect(soft, Rect2(-f, -f, f * 2.0, f * 2.0), false, Color(c, 0.7 * k))
+			glow.draw_texture_rect(soft, Rect2(-f * 0.4, -f * 0.4, f * 0.8, f * 0.8), false, Color(1, 1, 1, k))
+		"launch":
+			# the tube's hatch flash and the motor catching
+			var f := sz * (1.0 - 0.4 * t)
+			glow.draw_texture_rect(soft, Rect2(-f * 1.6, -f * 0.6, f * 2.0, f * 1.2), false, Color(c, 0.8 * k))
+			glow.draw_texture_rect(soft, Rect2(-f * 0.6, -f * 0.6, f * 1.2, f * 1.2), false, Color(1, 1, 0.95, 0.8 * k))
+	glow.draw_set_transform(Vector2.ZERO)
+
+
+func _draw_rail_muzzle(soft: Texture2D, m: Dictionary) -> void:
 	var t: float = m["age"] / m["life"]
 	var k := (1.0 - t) * (1.0 - t)
 	var sz: float = m["size"]
