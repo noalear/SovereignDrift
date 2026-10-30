@@ -110,7 +110,7 @@ func _start() -> void:
 	var st1: Dictionary = with_boost.call(["9201"])
 	var st3: Dictionary = with_boost.call(["9203"])
 	var st2x: Dictionary = with_boost.call(["9201", "9201"])
-	_check(is_equal_approx(st1["boost_speed"], 1.5) and is_equal_approx(st1["boost_accel"], 1.0 + 1000.0 / 833.0), "Booster I boosts x1.5 speed as before (%.2f, %.2f)" % [st1["boost_speed"], st1["boost_accel"]])
+	_check(is_equal_approx(st1["boost_speed"], 1.5) and is_equal_approx(st1["boost_accel"], 1.0 + 1200.0 / 1000.0), "Booster I boosts x1.5 speed as before (%.2f, %.2f)" % [st1["boost_speed"], st1["boost_accel"]])
 	_check(st3["boost_speed"] > st1["boost_speed"] and st3["boost_accel"] > st1["boost_accel"], "Booster III boosts more than Booster I")
 	_check(st2x["boost_speed"] > st1["boost_speed"] and st2x["boost_speed"] < 2.0 * st1["boost_speed"], "a second booster adds, at half")
 	await _hold_and_controls(b, gd)

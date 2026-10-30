@@ -32,7 +32,7 @@ var mass := 1.0
 var radius := 40.0
 var look := "Mercury"
 var temperature := 300
-var habitable := 0              # hydrosphere, percent (the original's hydpc): 100 is a gas giant
+var habitable := 0              # hydrosphere, percent: 100 is a gas giant
 var velocity := Vector2.ZERO    # orbital velocity, for leading shots
 var accel := Vector2.ZERO       # the rail's acceleration (centripetal, plus the parent's)
 var body: PhysicsBody = null    # the world's solid, kinematic circle for this body
@@ -194,13 +194,14 @@ func has_surface() -> bool:
 	return look != "Sun" and habitable < 100
 
 
-## How many of a race this world can support: the original's size and
-## hydrosphere formula, times how well the race takes the climate.
+## How many of a race this world can support: its size, less what is
+## ocean (wet worlds feed far more), times how well the race takes the
+## climate.
 func optimal_population(race_id: int) -> float:
 	if not has_surface():
 		return 0.0
-	var size := radius * radius * radius * (100.0 - habitable) * (4.0 if habitable > 0 else 1.0)
-	return size * 134.0 * GameData.climate(race_id, temperature)
+	var size := radius * radius * radius * (100.0 - habitable * 0.9) * (3.5 if habitable > 0 else 1.0)
+	return size * 140.0 * GameData.climate(race_id, temperature)
 
 
 static func design_for(pop: float) -> String:

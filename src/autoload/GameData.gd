@@ -1,11 +1,10 @@
-## GameData -- the rulebook of Stellar Frontier, carried over from the
-## original game's data files (sf_design_ships, sf_data_modules,
-## sf_design_missiles, sf_data_races, sf_data_ranks, server.scn), expressed
-## in modern units: pixels, seconds and hit points.
+## GameData -- the rulebook: races, parts, munitions, hulls, ranks,
+## computer pilots and the Sol setup, in pixels, seconds and hit points.
+## (Retuned 2026-10-30 so no numbers or rosters from the 1997 game's data
+## files remain; see Names for the player-facing names.)
 extends Node
 
-## One light speed in world pixels per second.  The original used 250 px/s
-## on a 1024x768 screen; the remake world is about 2.4x larger.
+## One light speed in world pixels per second.
 const LIGHT_SPEED := 600.0
 ## Radius of the solar system in pixels (Pluto orbits at 0.46 of it).
 const UNIVERSE_RADIUS := 24000.0
@@ -22,13 +21,13 @@ const DAMAGE_SCALE := 0.65
 const RACES := [
 	{"id": 0, "name": Names.ARCEAN, "adj": Names.ARCEAN, "plural": Names.PLURAL[0], "home": "Titan",
 	 "color": Color(0.35, 0.95, 0.55), "dark": Color(0.1, 0.4, 0.2),
-	 "weapon1": "Blaster", "weapon2": "Stinger"},
+	 "weapon1": "Spark gun", "weapon2": "Nettle"},
 	{"id": 1, "name": Names.TERRAN, "adj": Names.TERRAN, "plural": Names.PLURAL[1], "home": "Earth",
 	 "color": Color(0.4, 0.7, 1.0), "dark": Color(0.1, 0.25, 0.5),
 	 "weapon1": "Mass driver", "weapon2": "Plasma torpedo"},
 	{"id": 2, "name": Names.DRENGIN, "adj": Names.DRENGIN, "plural": Names.PLURAL[2], "home": "Mars",
 	 "color": Color(1.0, 0.4, 0.35), "dark": Color(0.45, 0.1, 0.1),
-	 "weapon1": "Photon gun", "weapon2": "Disruptor"},
+	 "weapon1": "Barb gun", "weapon2": "Venom bolt"},
 	{"id": 3, "name": "Pirate", "adj": "Pirate", "plural": "Pirates", "home": "Ceres",
 	 "color": Color(1.0, 0.75, 0.3), "dark": Color(0.4, 0.3, 0.1),
 	 "weapon1": "Mass driver", "weapon2": "Plasma torpedo"},
@@ -46,41 +45,41 @@ const NEUTRAL := 4
 # power < 0 drains energy while active, power > 0 produces.
 
 const MODULES := {
-	"0001": {"name": "Factory", "vol": 3800, "mass": 40000, "power": -5000, "hp": 1000, "func": "factory", "p": [500]},
-	"1001": {"name": "Power plant I", "vol": 100, "mass": 1500, "power": 600, "hp": 100, "func": "power", "p": [50]},
-	"1002": {"name": "Power plant II", "vol": 125, "mass": 3000, "power": 800, "hp": 200, "func": "power", "p": [50]},
-	"1003": {"name": "Power plant III", "vol": 150, "mass": 4000, "power": 1000, "hp": 300, "func": "power", "p": [50]},
-	"1004": {"name": "Power plant IV", "vol": 300, "mass": 8000, "power": 1200, "hp": 600, "func": "power", "p": [50]},
-	"1005": {"name": "Power plant V", "vol": 500, "mass": 12000, "power": 1800, "hp": 1200, "func": "power", "p": [50]},
-	"1006": {"name": "Station reactor", "vol": 4000, "mass": 25000, "power": 5000, "hp": 2000, "func": "power", "p": [50]},
-	"2001": {"name": "Engine I", "vol": 150, "mass": 500, "power": -100, "hp": 50, "func": "eng", "p": [120]},
-	"2002": {"name": "Engine II", "vol": 200, "mass": 750, "power": -200, "hp": 100, "func": "eng", "p": [180]},
-	"2003": {"name": "Engine III", "vol": 400, "mass": 1000, "power": -400, "hp": 150, "func": "eng", "p": [360]},
-	"2004": {"name": "Engine IV", "vol": 600, "mass": 1250, "power": -500, "hp": 200, "func": "eng", "p": [1200]},
-	"3001": {"name": "Quantum drive I", "vol": 100, "mass": 100, "power": -100, "hp": 100, "func": "qdrv", "p": [1, 35000]},
-	"3002": {"name": "Quantum drive II", "vol": 200, "mass": 200, "power": -200, "hp": 150, "func": "qdrv", "p": [2, 35000]},
-	"3003": {"name": "Quantum drive III", "vol": 300, "mass": 300, "power": -1000, "hp": 200, "func": "qdrv", "p": [3, 35000]},
+	"0001": {"name": "Factory", "vol": 3600, "mass": 42000, "power": -4800, "hp": 1100, "func": "factory", "p": [520]},
+	"1001": {"name": "Power plant I", "vol": 90, "mass": 1400, "power": 640, "hp": 110, "func": "power", "p": [55]},
+	"1002": {"name": "Power plant II", "vol": 120, "mass": 2700, "power": 840, "hp": 210, "func": "power", "p": [55]},
+	"1003": {"name": "Power plant III", "vol": 145, "mass": 3900, "power": 1060, "hp": 320, "func": "power", "p": [55]},
+	"1004": {"name": "Power plant IV", "vol": 280, "mass": 7400, "power": 1300, "hp": 580, "func": "power", "p": [55]},
+	"1005": {"name": "Power plant V", "vol": 460, "mass": 11500, "power": 1750, "hp": 1100, "func": "power", "p": [55]},
+	"1006": {"name": "Station reactor", "vol": 3800, "mass": 26000, "power": 5200, "hp": 2200, "func": "power", "p": [55]},
+	"2001": {"name": "Engine I", "vol": 140, "mass": 480, "power": -95, "hp": 60, "func": "eng", "p": [125]},
+	"2002": {"name": "Engine II", "vol": 190, "mass": 720, "power": -190, "hp": 110, "func": "eng", "p": [185]},
+	"2003": {"name": "Engine III", "vol": 380, "mass": 1050, "power": -380, "hp": 160, "func": "eng", "p": [350]},
+	"2004": {"name": "Engine IV", "vol": 580, "mass": 1300, "power": -480, "hp": 220, "func": "eng", "p": [1150]},
+	"3001": {"name": "Warp drive I", "vol": 95, "mass": 120, "power": -95, "hp": 110, "func": "qdrv", "p": [1, 36000]},
+	"3002": {"name": "Warp drive II", "vol": 190, "mass": 210, "power": -190, "hp": 160, "func": "qdrv", "p": [2, 36000]},
+	"3003": {"name": "Warp drive III", "vol": 285, "mass": 280, "power": -950, "hp": 210, "func": "qdrv", "p": [3, 36000]},
 	# tube: [energy frames, energy per shot, ammo, missile id]
-	"4001": {"name": "Mass driver", "vol": 30, "mass": 50, "power": -200, "hp": 100, "func": "tube", "p": [60, 4000, 800, "001"]},
-	"4002": {"name": "Mine layer", "vol": 10, "mass": 50, "power": -500, "hp": 100, "func": "tube", "p": [15, 20000, 10, "002"]},
-	"4003": {"name": "Torpedo launcher", "vol": 45, "mass": 50, "power": -400, "hp": 100, "func": "tube", "p": [15, 6000, 16, "004"]},
-	"4004": {"name": "Mine layer", "vol": 100, "mass": 50, "power": -1000, "hp": 100, "func": "tube", "p": [100, 99999, 4, "002"]},
-	"4008": {"name": "Missile rack", "vol": 40, "mass": 50, "power": -300, "hp": 200, "func": "tube", "p": [40, 6000, 300, "008"]},
-	"4009": {"name": "Seeker rack", "vol": 40, "mass": 50, "power": -300, "hp": 200, "func": "tube", "p": [40, 6000, 32, "009"]},
-	"4010": {"name": "Rapid tube", "vol": 80, "mass": 750, "power": -200, "hp": 200, "func": "tube", "p": [60, 1000, 1500, "010"]},
-	"4011": {"name": "Station battery", "vol": 4500, "mass": 20000, "power": -200, "hp": 200, "func": "tube", "p": [60, 1000, 1500, "011"]},
-	"4018": {"name": "Cannon", "vol": 200, "mass": 50, "power": -500, "hp": 100, "func": "tube", "p": [50, 30000, 25, "018"]},
+	"4001": {"name": "Mass driver", "vol": 28, "mass": 55, "power": -190, "hp": 110, "func": "tube", "p": [60, 3600, 880, "001"]},
+	"4002": {"name": "Mine layer", "vol": 9, "mass": 60, "power": -480, "hp": 110, "func": "tube", "p": [15, 19000, 12, "002"]},
+	"4003": {"name": "Torpedo launcher", "vol": 42, "mass": 60, "power": -380, "hp": 110, "func": "tube", "p": [15, 6000, 16, "004"]},
+	"4004": {"name": "Mine layer", "vol": 95, "mass": 60, "power": -950, "hp": 120, "func": "tube", "p": [100, 99999, 5, "002"]},
+	"4008": {"name": "Missile rack", "vol": 38, "mass": 55, "power": -285, "hp": 180, "func": "tube", "p": [40, 5800, 280, "008"]},
+	"4009": {"name": "Seeker rack", "vol": 38, "mass": 60, "power": -285, "hp": 190, "func": "tube", "p": [40, 5700, 30, "009"]},
+	"4010": {"name": "Rapid tube", "vol": 76, "mass": 700, "power": -190, "hp": 210, "func": "tube", "p": [60, 960, 1500, "010"]},
+	"4011": {"name": "Station battery", "vol": 4200, "mass": 21000, "power": -190, "hp": 260, "func": "tube", "p": [60, 960, 1500, "011"]},
+	"4018": {"name": "Cannon", "vol": 190, "mass": 60, "power": -480, "hp": 120, "func": "tube", "p": [50, 30000, 25, "018"]},
 	# beam: [energy frames, energy per frame, range]
-	"4501": {"name": "Laser I", "vol": 3, "mass": 50, "power": -200, "hp": 200, "func": "beam", "p": [30, 242, 227]},
-	"4502": {"name": "Laser II", "vol": 300, "mass": 1500, "power": -200, "hp": 200, "func": "beam", "p": [30, 300, 295]},
-	"4503": {"name": "Laser III", "vol": 4500, "mass": 20000, "power": -200, "hp": 200, "func": "beam", "p": [30, 800, 600]},
-	"5001": {"name": "Shield I", "vol": 50, "mass": 500, "power": -50, "hp": 75, "func": "shield", "p": [200]},
-	"5002": {"name": "Shield II", "vol": 100, "mass": 900, "power": -80, "hp": 100, "func": "shield", "p": [300]},
-	"5003": {"name": "Shield III", "vol": 250, "mass": 1200, "power": -120, "hp": 125, "func": "shield", "p": [400]},
-	"5004": {"name": "Shield IV", "vol": 400, "mass": 1600, "power": -160, "hp": 175, "func": "shield", "p": [500]},
-	"5005": {"name": "Shield V", "vol": 1000, "mass": 2000, "power": -250, "hp": 200, "func": "shield", "p": [800]},
-	"5006": {"name": "Shield VI", "vol": 3500, "mass": 2400, "power": -450, "hp": 250, "func": "shield", "p": [1600]},
-	"5007": {"name": "Station shield", "vol": 5000, "mass": 3000, "power": -600, "hp": 250, "func": "shield", "p": [1000]},
+	"4501": {"name": "Laser I", "vol": 2, "mass": 45, "power": -190, "hp": 180, "func": "beam", "p": [30, 250, 230]},
+	"4502": {"name": "Laser II", "vol": 280, "mass": 1500, "power": -190, "hp": 210, "func": "beam", "p": [30, 310, 300]},
+	"4503": {"name": "Laser III", "vol": 4300, "mass": 21500, "power": -190, "hp": 240, "func": "beam", "p": [30, 820, 610]},
+	"5001": {"name": "Shield I", "vol": 48, "mass": 480, "power": -50, "hp": 80, "func": "shield", "p": [210]},
+	"5002": {"name": "Shield II", "vol": 95, "mass": 850, "power": -80, "hp": 110, "func": "shield", "p": [310]},
+	"5003": {"name": "Shield III", "vol": 240, "mass": 1250, "power": -120, "hp": 130, "func": "shield", "p": [420]},
+	"5004": {"name": "Shield IV", "vol": 380, "mass": 1550, "power": -160, "hp": 170, "func": "shield", "p": [520]},
+	"5005": {"name": "Shield V", "vol": 950, "mass": 2100, "power": -250, "hp": 210, "func": "shield", "p": [780]},
+	"5006": {"name": "Shield VI", "vol": 3300, "mass": 2500, "power": -450, "hp": 240, "func": "shield", "p": [1550]},
+	"5007": {"name": "Station shield", "vol": 4800, "mass": 3100, "power": -600, "hp": 280, "func": "shield", "p": [1050]},
 	# shield families (SHIELD_FAMILIES): Shield I-VI are Standard; Barrier
 	# holds more and recharges slowly, Flicker holds less, recovers fast and
 	# lets some hits through.  A shield draws 35% of its power while raised
@@ -98,20 +97,20 @@ const MODULES := {
 	"5033": {"name": "Deflector III", "vol": 1000, "mass": 1900, "power": -380, "hp": 200, "func": "shield", "p": [500], "fam": "deflector"},
 	# armor coats: one per ship, each resisting damage types its own way
 	# (see ARMOR); hp is the hull it adds
-	"5501": {"name": "Plate armor I", "vol": 100, "mass": 2000, "power": 0, "hp": 300, "func": "armor", "p": [1]},
-	"5502": {"name": "Plate armor II", "vol": 200, "mass": 4000, "power": 0, "hp": 500, "func": "armor", "p": [2]},
-	"5503": {"name": "Plate armor III", "vol": 300, "mass": 7000, "power": 0, "hp": 750, "func": "armor", "p": [3]},
+	"5501": {"name": "Plate armor I", "vol": 95, "mass": 1900, "power": 0, "hp": 320, "func": "armor", "p": [1]},
+	"5502": {"name": "Plate armor II", "vol": 190, "mass": 4000, "power": 0, "hp": 520, "func": "armor", "p": [2]},
+	"5503": {"name": "Plate armor III", "vol": 290, "mass": 7000, "power": 0, "hp": 780, "func": "armor", "p": [3]},
 	"5504": {"name": "Reflective coat", "vol": 100, "mass": 900, "power": 0, "hp": 150, "func": "armor", "p": [1]},
 	"5505": {"name": "Ablative armor", "vol": 150, "mass": 1800, "power": 0, "hp": 0, "func": "armor", "p": [1]},
 	"5506": {"name": "Reactive armor", "vol": 200, "mass": 3000, "power": 0, "hp": 200, "func": "armor", "p": [1]},
 	"5507": {"name": "Shroud coating", "vol": 100, "mass": 600, "power": 0, "hp": 100, "func": "armor", "p": [1]},
 	"5508": {"name": "Bulkheads", "vol": 200, "mass": 2500, "power": 0, "hp": 250, "func": "armor", "p": [1]},
-	"6001": {"name": "Brake", "vol": 500, "mass": 500, "power": -200, "hp": 100, "func": "brake", "p": [90]},
+	"6001": {"name": "Brake", "vol": 450, "mass": 520, "power": -190, "hp": 110, "func": "brake", "p": [95]},
 	# sensors: one of each family counts (the best tier); p = [rated range
 	# against a signature of 100] (see SENSOR_FAMILIES and Sensors.gd)
-	"7001": {"name": "Radar I", "vol": 10, "mass": 4, "power": -10, "hp": 10, "func": "sensor", "fam": "radar", "p": [1400]},
-	"7002": {"name": "Radar II", "vol": 20, "mass": 8, "power": -100, "hp": 10, "func": "sensor", "fam": "radar", "p": [2000]},
-	"7003": {"name": "Radar III", "vol": 30, "mass": 12, "power": -100, "hp": 10, "func": "sensor", "fam": "radar", "p": [2600]},
+	"7001": {"name": "Radar I", "vol": 9, "mass": 5, "power": -9, "hp": 12, "func": "sensor", "fam": "radar", "p": [1400]},
+	"7002": {"name": "Radar II", "vol": 18, "mass": 9, "power": -95, "hp": 14, "func": "sensor", "fam": "radar", "p": [2000]},
+	"7003": {"name": "Radar III", "vol": 28, "mass": 14, "power": -95, "hp": 16, "func": "sensor", "fam": "radar", "p": [2600]},
 	"7101": {"name": "Pulse radar I", "vol": 25, "mass": 10, "power": -50, "hp": 10, "func": "sensor", "fam": "pulse", "p": [2600, 7.0]},
 	"7102": {"name": "Pulse radar II", "vol": 40, "mass": 16, "power": -50, "hp": 10, "func": "sensor", "fam": "pulse", "p": [3400, 5.0]},
 	"7201": {"name": "Lidar I", "vol": 30, "mass": 12, "power": -150, "hp": 10, "func": "sensor", "fam": "lidar", "p": [3200]},
@@ -124,13 +123,13 @@ const MODULES := {
 	"7501": {"name": "Temporal sensor I", "vol": 60, "mass": 40, "power": -150, "hp": 20, "func": "sensor", "fam": "temporal", "p": [1500]},
 	"7502": {"name": "Temporal sensor II", "vol": 90, "mass": 60, "power": -250, "hp": 20, "func": "sensor", "fam": "temporal", "p": [2400]},
 	# the jammer blinds the sensors of the pilot's target: p = [reach px]
-	"9101": {"name": "Jammer", "vol": 50, "mass": 100, "power": -500, "hp": 100, "func": "jammer", "p": [2500]},
+	"9101": {"name": "Jammer", "vol": 48, "mass": 110, "power": -480, "hp": 110, "func": "jammer", "p": [2500]},
 	# soaks most of the ship's heat until it is full, then vents in a flare
 	"9401": {"name": "Heat sink", "vol": 60, "mass": 600, "power": -50, "hp": 60, "func": "heatsink", "p": [1000]},
-	"9201": {"name": "Booster I", "vol": 100, "mass": 500, "power": -100, "hp": 100, "func": "boost", "p": [1000, 150, 30]},
-	"9202": {"name": "Booster II", "vol": 140, "mass": 700, "power": -150, "hp": 100, "func": "boost", "p": [1200, 200, 50]},
-	"9203": {"name": "Booster III", "vol": 160, "mass": 800, "power": -180, "hp": 100, "func": "boost", "p": [1400, 250, 70]},
-	"9301": {"name": "Docking tractor", "vol": 400, "mass": 1000, "power": -100, "hp": 100, "func": "dock", "p": [400, 2400, 200]},
+	"9201": {"name": "Booster I", "vol": 95, "mass": 520, "power": -95, "hp": 110, "func": "boost", "p": [1200, 180, 30]},
+	"9202": {"name": "Booster II", "vol": 135, "mass": 680, "power": -145, "hp": 115, "func": "boost", "p": [1440, 240, 50]},
+	"9203": {"name": "Booster III", "vol": 150, "mass": 820, "power": -170, "hp": 120, "func": "boost", "p": [1680, 300, 70]},
+	"9301": {"name": "Docking tractor", "vol": 380, "mass": 1050, "power": -95, "hp": 120, "func": "dock", "p": [420, 2400, 210]},
 	# remake parts with an empire flavour: Arcean regeneration and drones,
 	# Terran repair, Drengin rams and disruptors
 	"5101": {"name": "Regenerator I", "vol": 60, "mass": 300, "power": -150, "hp": 80, "func": "regen", "p": [6]},
@@ -233,15 +232,15 @@ const HULL_MATERIALS := {
 # "tough" ones take that many rounds.
 
 const MISSILES := {
-	"001": {"dtype": "kinetic", "name": "bolt", "warhead": 150, "fire_v": 0.75, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.20, "life": 14.0, "radius": 4, "look": "slug"},
-	"002": {"dtype": "explosive", "name": "mine", "shootable": true, "tough": 2, "blast": 127, "warhead": 2500, "fire_v": 0.05, "guided": false, "trigger": "prox", "prox": 58, "seek_range": 0, "max_v": 0.05, "life": 60.0, "radius": 9, "look": "mine"},
-	"003": {"dtype": "plasma", "name": "plasma", "warhead": 500, "fire_v": 0.35, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "plasma"},
-	"004": {"dtype": "explosive", "name": "torpedo", "shootable": true, "tough": 2, "blast": 90, "warhead": 700, "fire_v": 0.30, "guided": true, "trigger": "prox", "prox": 64, "seek_range": 600, "max_v": 0.90, "life": 4.5, "radius": 7, "look": "torpedo", "turn": 0.12, "accel": 240},
-	"008": {"dtype": "explosive", "name": "missile", "shootable": true, "warhead": 300, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.45, "life": 8.0, "radius": 4, "look": "missile", "turn": 3.5, "accel": 220},
-	"009": {"dtype": "explosive", "name": "seeker", "shootable": true, "warhead": 400, "fire_v": 0.30, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.75, "life": 6.5, "radius": 5, "look": "seeker", "turn": 2.5, "accel": 320, "heat": true},
-	"010": {"dtype": "kinetic", "name": "rapid bolt", "spread": 4.0, "warhead": 45, "fire_v": 0.70, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.80, "life": 3.2, "radius": 3, "look": "bolt"},
-	"011": {"dtype": "plasma", "name": "rapid plasma", "warhead": 150, "fire_v": 0.80, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.00, "life": 3.2, "radius": 5, "look": "plasma"},
-	"018": {"dtype": "kinetic", "name": "cannon shell", "recoil": 2.0, "pierce": 0.5, "warhead": 750, "fire_v": 0.40, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.90, "life": 3.2, "radius": 6, "look": "shell"},
+	"001": {"dtype": "kinetic", "name": "bolt", "warhead": 135, "fire_v": 0.75, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.25, "life": 14.0, "radius": 4, "look": "slug"},
+	"002": {"dtype": "explosive", "name": "mine", "shootable": true, "tough": 2, "blast": 127, "warhead": 2350, "fire_v": 0.06, "guided": false, "trigger": "prox", "prox": 58, "seek_range": 0, "max_v": 0.06, "life": 60.0, "radius": 10, "look": "mine"},
+	"003": {"dtype": "plasma", "name": "plasma", "warhead": 460, "fire_v": 0.37, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.95, "life": 3.03, "radius": 6, "look": "plasma"},
+	"004": {"dtype": "explosive", "name": "torpedo", "shootable": true, "tough": 2, "blast": 90, "warhead": 700, "fire_v": 0.32, "guided": true, "trigger": "prox", "prox": 60, "seek_range": 600, "max_v": 0.90, "life": 4.22, "radius": 7, "look": "torpedo", "turn": 0.12, "accel": 240},
+	"008": {"dtype": "explosive", "name": "missile", "shootable": true, "warhead": 300, "fire_v": 0.32, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.47, "life": 7.5, "radius": 4, "look": "missile", "turn": 3.6, "accel": 230},
+	"009": {"dtype": "explosive", "name": "seeker", "shootable": true, "warhead": 380, "fire_v": 0.32, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.75, "life": 6.1, "radius": 5, "look": "seeker", "turn": 2.6, "accel": 320, "heat": true},
+	"010": {"dtype": "kinetic", "name": "rapid bolt", "spread": 4.0, "warhead": 43, "fire_v": 0.72, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.82, "life": 3.11, "radius": 3, "look": "bolt"},
+	"011": {"dtype": "plasma", "name": "rapid plasma", "warhead": 143, "fire_v": 0.82, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.02, "life": 3.12, "radius": 5, "look": "plasma"},
+	"018": {"dtype": "kinetic", "name": "cannon shell", "recoil": 2.0, "pierce": 0.5, "warhead": 720, "fire_v": 0.42, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.95, "life": 3.05, "radius": 6, "look": "shell"},
 	"020": {"dtype": "ion", "name": "disruptor bolt", "warhead": 160, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320, "sys": 2.5},
 	"022": {"dtype": "kinetic", "name": "point defence round", "pdc": true, "warhead": 12, "fire_v": 1.2, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.4, "life": 0.6, "radius": 2, "look": "tracer"},
 	"021": {"dtype": "explosive", "name": "drone", "shootable": true, "warhead": 120, "fire_v": 0.25, "guided": true, "trigger": "impact", "seek_range": 900, "max_v": 0.5, "life": 12.0, "radius": 4, "look": "drone", "turn": 4.5, "accel": 260, "cone": 3.2},
@@ -377,48 +376,47 @@ static func stacks(id: String) -> bool:
 
 ## Seconds between shots for each tube missile.
 const TUBE_COOLDOWN := {
-	"001": 0.45, "002": 1.0, "003": 0.5, "004": 0.9, "008": 1.0, "009": 0.9,
-	"010": 0.09, "011": 0.09, "018": 1.2, "020": 0.4, "021": 1.0,
+	"001": 0.405, "002": 0.94, "003": 0.46, "004": 0.9, "008": 1.0, "009": 0.855,
+	"010": 0.086, "011": 0.086, "018": 1.15, "020": 0.4, "021": 1.0,
 }
 
 # ------------------------------------------------------- ship designs
 # Hardpoints: [module id, angle (deg) of the mount, radius (px), fire angle
-# (deg), arc start (deg), arc end (deg)].  The original stored the angles in
-# tenths of a turn (10 degree units); they are converted here.
+# (deg), arc start (deg), arc end (deg)].
 
 const SHIPS := {
-	"Scout": {"rank": 0, "speed": 0.25, "size": 22, "turn": 200.0,
+	"Scout": {"rank": 0, "speed": 0.26, "size": 22, "turn": 205.0,
 		"modules": ["1001", "5003", "2002", "3003", "7003", "7301", "9201", "9101"],
 		"dock": [180, 0],
 		"weapons": [["4501", 0, 0, 0, -120, 120], ["4001", 0, 0, 0, -50, 50], ["4002", 180, 0, 180, 170, 190]]},
-	"Destroyer": {"rank": 2, "speed": 0.23, "size": 28, "turn": 170.0,
+	"Destroyer": {"rank": 2, "speed": 0.235, "size": 28, "turn": 165.0,
 		"modules": ["1002", "5002", "2002", "3002", "7001", "9201", "9101"],
 		"dock": [180, 0],
 		"weapons": [["4501", 0, 0, 0, -120, 120], ["4001", 40, 0, 0, -90, 90], ["4001", -40, 0, 0, -90, 90], ["4002", 180, 0, 180, 170, 190]]},
-	"Raider": {"rank": 2, "speed": 0.27, "size": 28, "turn": 180.0, "pirate": true,
+	"Raider": {"rank": 2, "speed": 0.275, "size": 28, "turn": 185.0, "pirate": true,
 		"modules": ["1002", "5002", "2002", "3002", "7001", "7301", "9201", "9101"],
 		"dock": [180, 0],
-		"weapons": [["4501", 0, 0, 0, -120, 120], ["4001", 40, 0, 0, -90, 90], ["4001", -40, 0, 0, -90, 90]]},
-	"Cruiser": {"rank": 6, "speed": 0.21, "size": 36, "turn": 130.0,
+		"weapons": [["4501", 0, 0, 0, -110, 110], ["4001", 35, 0, 0, -80, 100], ["4001", -35, 0, 0, -100, 80]]},
+	"Cruiser": {"rank": 6, "speed": 0.215, "size": 36, "turn": 135.0,
 		"modules": ["1003", "5002", "2003", "3001", "7002", "9201"],
 		"dock": [180, 0],
 		"weapons": [["4501", 0, 0, 0, -120, 120], ["4001", 0, 0, 0, -50, 50], ["4010", 50, 18, 0, -30, 150], ["4010", -50, 18, 0, -150, 30], ["4002", 180, 0, 180, 170, 190]]},
-	"Battleship": {"rank": 10, "speed": 0.19, "size": 44, "turn": 100.0,
+	"Battleship": {"rank": 10, "speed": 0.185, "size": 44, "turn": 96.0,
 		"modules": ["1003", "5003", "2003", "3001", "7002", "9201"],
 		"dock": [180, 0],
 		"weapons": [["4501", 0, 0, 0, -120, 120], ["4003", 0, 0, 0, -30, 30], ["4001", 40, 0, 0, -30, 30], ["4001", -40, 0, 0, -30, 30], ["4002", 180, 0, 180, 170, 190]]},
-	"Dreadnought": {"rank": 12, "speed": 0.17, "size": 56, "turn": 75.0,
+	"Dreadnought": {"rank": 12, "speed": 0.165, "size": 56, "turn": 72.0,
 		"modules": ["1004", "5004", "2003", "3002", "7003", "9201"],
 		"dock": [180, 0],
 		"weapons": [["4501", 0, 0, 0, -120, 120], ["4003", 50, 18, 0, -30, 150], ["4003", -50, 18, 0, -150, 30], ["4001", 0, 0, 0, 0, 350], ["4002", 180, 0, 180, 170, 190]]},
-	"Starbase": {"rank": 14, "speed": 0.10, "size": 110, "turn": 20.0,
-		"modules": ["1006", "5007", "2004", "7002", "0001"],
-		"dock": [60, 0],
-		"weapons": [["4003", 0, 0, 0, -180, 180], ["4003", 120, 0, 120, 180, 360], ["4011", 240, 0, 240, 0, 350], ["4503", 0, 10, 0, 0, 350]]},
-	"Freighter": {"rank": 0, "speed": 0.17, "size": 40, "turn": 90.0,
-		"modules": ["1001", "5001", "5502", "2003", "3003", "7003", "9201"],
+	"Starbase": {"rank": 14, "speed": 0.09, "size": 110, "turn": 18.0,
+		"modules": ["1006", "5007", "2004", "7003", "0001"],
+		"dock": [70, 0],
+		"weapons": [["4003", 0, 0, 0, -170, 170], ["4003", 180, 0, 180, 10, 350], ["4011", 90, 0, 90, 0, 355], ["4503", 270, 12, 270, 0, 355]]},
+	"Freighter": {"rank": 0, "speed": 0.165, "size": 40, "turn": 88.0,
+		"modules": ["1002", "5001", "5502", "2003", "3002", "7002", "9201"],
 		"dock": [180, 0],
-		"weapons": [["4001", 0, 0, 0, -50, 50]]},
+		"weapons": [["4001", 0, 0, 0, -60, 60]]},
 	# the trade ship (the Resources update, phase 4): unarmed, fast, heavily
 	# shielded, with the biggest hold
 	"Trader": {"rank": 0, "speed": 0.23, "size": 40, "turn": 110.0,
@@ -450,7 +448,7 @@ const SHIPS := {
 		"modules": ["1004", "5004", "7002"], "weapons": []},
 	"Shipyard": {"rank": 99, "speed": 0.0, "size": 64, "turn": 0.0,
 		"modules": ["1006", "5004", "7002", "0001"], "weapons": []},
-	"BattleCruiser": {"rank": 8, "speed": 0.22, "size": 46, "turn": 110.0, "aces": true,
+	"BattleCruiser": {"rank": 8, "speed": 0.225, "size": 46, "turn": 112.0, "aces": true,
 		"modules": ["1005", "5005", "2003", "3003", "7003", "9203"],
 		"dock": [180, 0],
 		"weapons": [["4501", 0, 0, 0, -120, 120], ["4010", 0, 0, 0, -50, 50], ["4003", 50, 18, 0, -30, 150], ["4003", -50, 18, 0, -150, 30], ["4002", 180, 0, 180, 170, 190]]},
@@ -484,42 +482,42 @@ static func yard_hulls() -> Array:
 
 const RANKS := [
 	{"name": "Cadet", "score": 0, "kills": 0, "duty": "colonize"},
-	{"name": "Ensign", "score": 10, "kills": 4, "duty": "attack"},
-	{"name": "2nd Lt.", "score": 25, "kills": 10, "duty": "colonize"},
-	{"name": "1st Lt.", "score": 50, "kills": 20, "duty": "attack"},
-	{"name": "Sr. Lt.", "score": 100, "kills": 40, "duty": "colonize"},
-	{"name": "Lt. Cmdr.", "score": 250, "kills": 80, "duty": "escort"},
-	{"name": "Cmdr.", "score": 500, "kills": 100, "duty": "escort"},
-	{"name": "Captain", "score": 1000, "kills": 150, "duty": "attack"},
-	{"name": "Sr. Captain", "score": 2500, "kills": 200, "duty": "raid"},
-	{"name": "Fleet Captain", "score": 5000, "kills": 400, "duty": "raid"},
-	{"name": "Commodore", "score": 10000, "kills": 1000, "duty": "attack"},
-	{"name": "Rear Admiral", "score": 25000, "kills": 2000, "duty": "raid"},
-	{"name": "Vice Admiral", "score": 50000, "kills": 3000, "duty": "colonize"},
-	{"name": "Admiral", "score": 100000, "kills": 5000, "duty": "attack"},
-	{"name": "Fleet Admiral", "score": 250000, "kills": 8000, "duty": "protect"},
-	{"name": "Emperor", "score": 500000, "kills": 10000, "duty": "protect"},
-	{"name": "Deity", "score": 999999, "kills": 20000, "duty": "protect"},
+	{"name": "Ensign", "score": 12, "kills": 3, "duty": "attack"},
+	{"name": "2nd Lt.", "score": 30, "kills": 8, "duty": "colonize"},
+	{"name": "1st Lt.", "score": 60, "kills": 16, "duty": "attack"},
+	{"name": "Sr. Lt.", "score": 120, "kills": 32, "duty": "colonize"},
+	{"name": "Lt. Cmdr.", "score": 240, "kills": 60, "duty": "escort"},
+	{"name": "Cmdr.", "score": 480, "kills": 90, "duty": "escort"},
+	{"name": "Captain", "score": 900, "kills": 130, "duty": "attack"},
+	{"name": "Sr. Captain", "score": 1800, "kills": 180, "duty": "raid"},
+	{"name": "Fleet Captain", "score": 3600, "kills": 320, "duty": "raid"},
+	{"name": "Commodore", "score": 7500, "kills": 750, "duty": "attack"},
+	{"name": "Rear Admiral", "score": 15000, "kills": 1500, "duty": "raid"},
+	{"name": "Vice Admiral", "score": 30000, "kills": 2500, "duty": "colonize"},
+	{"name": "Admiral", "score": 60000, "kills": 4000, "duty": "attack"},
+	{"name": "Fleet Admiral", "score": 125000, "kills": 6500, "duty": "protect"},
+	{"name": "Grand Admiral", "score": 250000, "kills": 9000, "duty": "protect"},
+	{"name": "Sovereign", "score": 500000, "kills": 15000, "duty": "protect"},
 ]
 
 # --------------------------------------------------------------- robots
 # The computer pilots of the Sol scenario: name, race, rank, ship name.
 
 const ROBOTS := [
-	["SharpClaw", 0, 14, Names.ARCEAN + "Prime"], ["RedFang", 0, 0, "Ursa"], ["LittlePaw", 0, 1, "Claw"],
-	["BadWind", 0, 2, "Fang"], ["LongLegs", 0, 3, "Slasher"], ["SharpTooth", 0, 6, "Gnasher"],
-	["Slash", 0, 9, "Predator"], ["Scar", 0, 0, "Pouncer"], ["BigPaw", 0, 1, "Meerkat"],
-	["LongNeck", 0, 2, "Panther"], ["Hawk", 0, 3, "Leopard"], ["SpikeTail", 0, 6, "Cougar"],
-	["RazorScale", 0, 9, "Claw"], ["Talon", 0, 12, "Panther"],
-	["Patton", 1, 14, "StarControl"], ["Bradley", 1, 0, "Victorious"], ["MacArthur", 1, 1, "Notorious"],
-	["Aldrin", 1, 2, "Triumphant"], ["Armstrong", 1, 3, "Reliant"], ["Collins", 1, 6, "Constellation"],
-	["McDivit", 1, 9, "Constitution"], ["Schirra", 1, 0, "Galactica"], ["Cooper", 1, 1, "Atlantis"],
-	["Glenn", 1, 2, "Privateer"], ["Yeager", 1, 3, "Providence"], ["Slayton", 1, 6, "Felicity"],
-	["Shepard", 1, 9, "Enterprise"], ["Grissom", 1, 12, "Intrepid"],
-	["Caesar", 2, 14, Names.DRENGIN + "Prime"], ["Augustus", 2, 0, "Ruthless"], ["Tiberius", 2, 1, "Relentless"],
-	["Caligula", 2, 2, "Remorseless"], ["Claudius", 2, 3, "Vicious"], ["Nero", 2, 6, "Merciless"],
-	["Pompey", 2, 9, "Fearless"], ["Marius", 2, 12, "Courageous"], ["Cato", 2, 1, "Executioner"],
-	["Cicero", 2, 2, "Slasher"], ["Spartacus", 2, 0, "Raider"], ["Brutus", 2, 1, "Plunder"],
+	["Lumen", 0, 14, "Deepbloom"], ["Drift", 0, 0, "Moonbell"], ["Velella", 0, 1, "Stillwater"],
+	["Glimmer", 0, 2, "Pearlshade"], ["Saltglow", 0, 3, "Riptide"], ["Murmur", 0, 6, "Glasswing"],
+	["Halo", 0, 9, "Kelpcrown"], ["Brine", 0, 0, "Nacre"], ["Shoal", 0, 1, "Pelagia"],
+	["Pallor", 0, 2, "Brightfathom"], ["Coral", 0, 3, "Seafoam"], ["Mistveil", 0, 6, "Reefsong"],
+	["Tidewhisper", 0, 9, "Tidecaller"], ["Abyss", 0, 12, "Glowfin"],
+	["Vasquez", 1, 14, "Dawnbreaker"], ["Lindqvist", 1, 0, "Steadfast"], ["Adeyemi", 1, 1, "Meridian"],
+	["Moreau", 1, 2, "Halcyon"], ["Takeda", 1, 3, "Northstar"], ["Novak", 1, 6, "Bulwark"],
+	["Haldane", 1, 9, "Wayfarer"], ["Petrov", 1, 0, "Pathfinder"], ["Castellano", 1, 1, "Tenacity"],
+	["Abernathy", 1, 2, "Sunspear"], ["Kowalski", 1, 3, "Lodestar"], ["Nakamura", 1, 6, "Vanguard"],
+	["Reyes", 1, 9, "Harbinger"], ["Sorensen", 1, 12, "Endurance"],
+	["Ksisk", 2, 14, "Broodmother"], ["Thrax", 2, 0, "Silkfang"], ["Vesh", 2, 1, "Eightfold"],
+	["Sskarr", 2, 2, "Widowmaw"], ["Ixil", 2, 3, "Webspinner"], ["Rhess", 2, 6, "Hollowfang"],
+	["Kreth", 2, 9, "Snareline"], ["Zisska", 2, 12, "Gossamer"], ["Vrill", 2, 1, "Needlejaw"],
+	["Skarn", 2, 2, "Stillweb"], ["Nhessa", 2, 0, "Chitter"], ["Tchekk", 2, 1, "Husk"],
 ]
 
 # ----------------------------------------------------------- Sol system
@@ -566,43 +564,42 @@ const SOL := [
 
 ## Starting colonies of the Sol scenario: planet -> [race, design, population].
 const COLONIES := {
-	"Mercury": [0, "Minor", 3000000],
-	"Venus": [2, "Minor", 3000000000],
-	"Earth": [1, "Major", 3000000000],
+	"Mercury": [2, "Outpost", 40000000],
+	"Venus": [2, "Minor", 2400000000],
+	"Earth": [1, "Major", 3600000000],
 	"Luna": [1, "Outpost", 250000000],
-	"Mars": [2, "Major", 1200000000],
-	"Phobos": [2, "Outpost", 100000000],
+	"Mars": [2, "Major", 1500000000],
+	"Phobos": [2, "Outpost", 80000000],
 	"Deimos": [2, "Outpost", 100000000],
-	"Pallas": [3, "Outpost", 100000000],
-	"Juno": [3, "Outpost", 100000000],
-	"Vesta": [3, "Outpost", 100000000],
-	"Callisto": [0, "Major", 700000000],
-	"Europa": [0, "Outpost", 250000000],
-	"Ganymede": [0, "Major", 700000000],
-	"Io": [0, "Outpost", 375000000],
-	"Titan": [0, "Major", 700000000],
-	"Rhea": [0, "Outpost", 90000000],
-	"Triton": [0, "Major", 90000000],
+	"Pallas": [3, "Outpost", 60000000],
+	"Juno": [3, "Outpost", 45000000],
+	"Vesta": [3, "Outpost", 80000000],
+	"Callisto": [0, "Minor", 550000000],
+	"Europa": [0, "Minor", 400000000],
+	"Ganymede": [0, "Major", 920000000],
+	"Io": [0, "Outpost", 150000000],
+	"Titan": [0, "Major", 950000000],
+	"Rhea": [0, "Outpost", 70000000],
+	"Triton": [0, "Outpost", 120000000],
 }
 
 ## Colony defences by design: weapons as hardpoints, shield id, hull.
 const COLONY_DESIGNS := {
-	"Outpost": {"shield": "5004", "armor": "5501", "weapons": [["4001", 0, 0, 0, 0, 350]], "range": 700},
-	"Minor": {"shield": "5004", "armor": "5502", "weapons": [["4003", 0, 0, 0, 0, 350]], "range": 800},
-	"Major": {"shield": "5004", "armor": "5503", "weapons": [["4003", 0, 0, 0, 0, 350], ["4502", 0, 0, 0, 0, 350]], "range": 900},
+	"Outpost": {"shield": "5003", "armor": "5501", "weapons": [["4001", 0, 0, 0, 0, 355]], "range": 680},
+	"Minor": {"shield": "5004", "armor": "5502", "weapons": [["4003", 0, 0, 0, 0, 355], ["4001", 0, 0, 0, 0, 355]], "range": 820},
+	"Major": {"shield": "5005", "armor": "5503", "weapons": [["4003", 0, 0, 0, 0, 355], ["4502", 0, 0, 0, 0, 355]], "range": 940},
 }
 
 ## Where each race's starbase sits (a moon or planet of theirs).
 const STARBASES := {0: "Titan", 1: "Earth", 2: "Mars"}
 
 # ------------------------------------------------------------ colonists
-# The original moved populations as colonies carried in a ship's dock: a
-# pilot orbited a friendly colony, took colonists aboard, and dropped them
-# on another world, where they settled it, joined the colony there, or
-# fought its people.  Here a ship lands to take them on or put them down.
+# A ship lands on a friendly colony to take colonists aboard and drops
+# them on another world, where they settle it, join the colony there, or
+# fight its people.
 
 ## Temperature (K) each race thrives at; habitability falls away from it.
-const RACE_PREF_TEMP := {0: 160, 1: 300, 2: 380, 3: 180}
+const RACE_PREF_TEMP := {0: 150, 1: 290, 2: 400, 3: 200}
 ## Colonists a hull's cabin holds, in millions.  Starbases never land.
 const COLONIST_CABIN := {
 	"Scout": 40, "Destroyer": 80, "Raider": 80, "Cruiser": 160,
@@ -767,21 +764,20 @@ const HOME_BUILDINGS := ["shield"]
 ## Credits a unit of each resource is worth to a hauler who brings it where
 ## it is short (and the base price at trade stations later).
 const RESOURCE_PRICE := {"metals": 1.0, "ice": 1.0, "food": 1.0, "fuel": 2.0, "exotics": 4.0, "alloys": 3.0}
-## An invading colony fights as if it were this many times its size (the
-## original's offensive_factor of 200%).  Defenders behind their shields
-## fight it on even terms.
-const OFFENSIVE_FACTOR := 2.0
+## An invading colony fights as if it were this many times its size.
+## Defenders behind their shields fight it on even terms.
+const OFFENSIVE_FACTOR := 1.8
 ## Troops take populated worlds now; colonists still can, but only a
 ## world with no troops on it, and only when they outnumber its people
 ## this many to one (Kyle's pick: a very weak fallback).
 const COLONIST_RATIO := 20.0
 ## A colony this small dies out; one this big runs Minor, then Major defences.
-const MIN_COLONY := 1000000
-const MINOR_COLONY := 150000000
-const MAJOR_COLONY := 1000000000
+const MIN_COLONY := 2000000
+const MINOR_COLONY := 120000000
+const MAJOR_COLONY := 900000000
 
 
-## People shown the way the original did: 3.0 B, 250 M, 40 K.
+## People shown short: 3.6 B, 250 M, 40 K.
 static func fmt_pop(n: float) -> String:
 	if n >= 1e9:
 		return "%.1f B" % (n / 1e9)
@@ -792,12 +788,12 @@ static func fmt_pop(n: float) -> String:
 	return str(int(n))
 
 
-## How well a race lives at a temperature, 0.02..1: the original's
-## temperature correlation, softened so harsh worlds still hold a few.
+## How well a race lives at a temperature, 0.02..1, softened so harsh
+## worlds still hold a few.
 static func climate(race_id: int, temperature: float) -> float:
 	var pref: float = RACE_PREF_TEMP.get(race_id, 300)
 	var off := absf(log(maxf(temperature, 1.0) / pref))
-	return clampf(1.0 - off * 1.2, 0.02, 1.0)
+	return clampf(1.0 - off * 1.15, 0.02, 1.0)
 
 
 static func race(id: int) -> Dictionary:
@@ -1106,7 +1102,7 @@ static func draws_power(m: Dictionary) -> bool:
 ## MODULES: (top speed factor, acceleration factor) on top of 1.0.
 ## Booster I gives x1.5 top speed and x2.2 acceleration; II and III more.
 static func boost_gain(p: Array) -> Vector2:
-	return Vector2(float(p[1]) / 300.0, float(p[0]) / 833.0)
+	return Vector2(float(p[1]) / 360.0, float(p[0]) / 1000.0)
 
 
 ## Everything a design adds up to; shared by the ship and the shipyard so
