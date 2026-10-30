@@ -8,7 +8,7 @@
 # --new-base.  Without it the script stops (exit 2) when Updater.gd, the
 # autoload list, the display or rendering settings or the engine changed
 # (they load before any patch), or when the patch grows past 60 MB.  BASES keeps the base pack the patches are made against.
-# Prints NEW_INSTALLER=build/StellarFrontierRemake-Setup.exe when the
+# Prints NEW_INSTALLER=build/SovereignDrift-Setup.exe when the
 # installer has to be handed out again.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -56,7 +56,7 @@ if [[ $NEW_BASE == 1 ]]; then
 	"$GODOT" --headless --path . --export-release "Windows Desktop" build/windows/StellarFrontier.exe >/dev/null 2>&1
 	"$GODOT" --headless --path . --export-pack "Windows Desktop" "$BASES/$BUILD.pck" >/dev/null 2>&1
 	makensis -V2 -DVERSION="$VERSION" -DBUILD="$BUILD" -DEXE="$PWD/build/windows/StellarFrontier.exe" \
-		-DOUT="$PWD/build/StellarFrontierRemake-Setup.exe" tools/installer/StellarFrontier.nsi
+		-DOUT="$PWD/build/SovereignDrift-Setup.exe" tools/installer/StellarFrontier.nsi
 	[[ -n "$BASE" && "$BASE" != "$BUILD" ]] && rm -f "$BASES/$BASE.pck" "$BASES/$BASE.fp"
 	echo "$FP" > "$BASES/$BUILD.fp"
 	echo "$BUILD" > "$BASES/current"
@@ -74,5 +74,5 @@ cat > "$UPDATES/updates.json" <<EOF
  "published": "$(date -u +%Y-%m-%dT%H:%M:%SZ)", "patches": $PATCHES}
 EOF
 cat "$UPDATES/updates.json"
-[[ $NEW_BASE == 1 ]] && echo "NEW_INSTALLER=build/StellarFrontierRemake-Setup.exe"
+[[ $NEW_BASE == 1 ]] && echo "NEW_INSTALLER=build/SovereignDrift-Setup.exe"
 exit 0

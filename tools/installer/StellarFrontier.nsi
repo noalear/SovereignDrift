@@ -1,8 +1,8 @@
-; Windows installer for the Stellar Frontier remake.  Built on Linux by
+; Windows installer for Sovereign Drift (the Stellar Frontier remake).  Built on Linux by
 ; tools/publish_update.sh when it cuts a new base, which passes VERSION,
 ; BUILD, EXE and OUT:
 ;   makensis -DVERSION=0.1.0 -DBUILD=e94d84c -DEXE=build/windows/StellarFrontier.exe \
-;            -DOUT=build/StellarFrontierRemake-Setup.exe tools/installer/StellarFrontier.nsi
+;            -DOUT=build/SovereignDrift-Setup.exe tools/installer/StellarFrontier.nsi
 ; Installs for the current user only (no admin prompt), with Start menu
 ; and desktop shortcuts and an entry in Windows' installed apps list.
 ; Settings, careers and saves live in %APPDATA%\Godot and are never touched.
@@ -13,8 +13,11 @@ RequestExecutionLevel user
 
 !include "MUI2.nsh"
 
-!define APP "Stellar Frontier Remake"
-!define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\StellarFrontierRemake"
+!define APP "Sovereign Drift"
+!define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\SovereignDrift"
+; the install under the game's old name, cleared out on the way in
+!define OLD_APP "Stellar Frontier Remake"
+!define OLD_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\StellarFrontierRemake"
 
 Name "${APP}"
 OutFile "${OUT}"
@@ -45,6 +48,15 @@ ShowUninstDetails show
 !insertmacro MUI_LANGUAGE "English"
 
 Section "Install"
+	Delete "$LOCALAPPDATA\Programs\${OLD_APP}\StellarFrontier.exe"
+	Delete "$LOCALAPPDATA\Programs\${OLD_APP}\icon.ico"
+	Delete "$LOCALAPPDATA\Programs\${OLD_APP}\Uninstall.exe"
+	RMDir "$LOCALAPPDATA\Programs\${OLD_APP}"
+	Delete "$SMPROGRAMS\${OLD_APP}\${OLD_APP}.lnk"
+	Delete "$SMPROGRAMS\${OLD_APP}\Uninstall ${OLD_APP}.lnk"
+	RMDir "$SMPROGRAMS\${OLD_APP}"
+	Delete "$DESKTOP\${OLD_APP}.lnk"
+	DeleteRegKey HKCU "${OLD_KEY}"
 	SetOutPath "$INSTDIR"
 	File "/oname=StellarFrontier.exe" "${EXE}"
 	File "icon.ico"
