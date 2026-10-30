@@ -1330,12 +1330,20 @@ func _draw_help(vp: Vector2) -> void:
 ## the HUD because a material belongs to a whole canvas item.
 class PlanetPicture extends Node2D:
 	var planet: Planet = null
+	var rings: Planet.RingsFx = null
 
 	func show_planet(pl: Planet, box: Rect2) -> void:
+		if pl != planet and rings != null:
+			rings.queue_free()
+			rings = null
+		if pl != planet and pl.rings_fx != null:
+			rings = Planet.RingsFx.new()
+			rings.planet = pl
+			add_child(rings)
 		planet = pl
 		material = pl.material_
 		# room for the corona or the atmosphere
-		var reach := 1.4 if pl.look == "Sun" else 1.3
+		var reach := 1.4 if pl.look == "Sun" else (1.175 * pl.rings_fx.outer if pl.rings_fx != null else 1.3)
 		var px := minf(box.size.x, box.size.y) * 0.5 / reach
 		position = box.get_center()
 		scale = Vector2.ONE * px / maxf(pl.radius, 1.0)
@@ -1346,9 +1354,7 @@ class PlanetPicture extends Node2D:
 		if planet == null or not is_instance_valid(planet):
 			return
 		var r := planet.radius
-		if planet.look == "Saturn" or planet.look == "Uranus":
-			var rc := Color(0.85, 0.8, 0.65, 0.45) if planet.look == "Saturn" else Color(0.7, 0.85, 0.9, 0.3)
-			for i in 5:
-				draw_arc(Vector2.ZERO, r * (1.35 + i * 0.09), 0, TAU, 96, rc, r * 0.06, true)
+		if rings != null:
+			rings.queue_redraw()
 		var ext := planet.quad_extent()
 		draw_texture_rect(Planet.white_tex, Rect2(-r * ext, -r * ext, r * ext * 2.0, r * ext * 2.0), false)

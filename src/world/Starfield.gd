@@ -1,5 +1,5 @@
-## Starfield -- three parallax layers of tiled star textures plus a few
-## faint nebulae, drawn relative to the camera.
+## Starfield -- a painted nebula far behind everything, then three
+## parallax layers of tiled star textures, drawn relative to the camera.
 class_name Starfield
 extends Node2D
 
@@ -7,7 +7,13 @@ const TILE := 1024
 var layers: Array = []      # [texture, parallax, tint]
 var camera: Camera2D = null
 var world: Node = null          # when set, follows its camera between physics ticks
-var nebulae: Array = []
+var nebula: Texture2D = null
+
+## The nebula is a sky: it keeps its size on screen whatever the zoom and
+## drifts only a little as the camera travels.
+const NEBULA_SCREEN := 2600.0       # one tile's width on screen, pixels
+const NEBULA_PARALLAX := 0.025      # screen pixels per world unit moved
+const NEBULA_TINT := Color(1, 1, 1, 0.85)
 
 
 func _ready() -> void:
@@ -21,10 +27,7 @@ func _ready() -> void:
 		[_make_tile(rng, 140, 1.4, 2.4), 0.2, Color(1, 1, 1, 0.8)],
 		[_make_tile(rng, 50, 2.0, 3.2), 0.42, Color(1, 1, 1, 1.0)],
 	]
-	for i in 14:
-		nebulae.append([Vector2(rng.randf_range(-30000, 30000), rng.randf_range(-30000, 30000)),
-			rng.randf_range(1400, 4200),
-			Color(rng.randf_range(0.2, 0.9), rng.randf_range(0.1, 0.6), rng.randf_range(0.4, 1.0), rng.randf_range(0.025, 0.06))])
+	nebula = load("res://assets/backdrop/nebula.jpg") as Texture2D
 
 
 func _make_tile(rng: RandomNumberGenerator, count: int, min_r: float, max_r: float) -> ImageTexture:
@@ -72,11 +75,14 @@ func _draw() -> void:
 	var zoom := camera.zoom.x
 	var view := get_viewport_rect().size / zoom
 	var cam := _centre()
-	for nb in nebulae:
-		var p: Vector2 = (nb[0] - cam * 0.05) - cam
-		if (p + cam).distance_to(cam) < view.length() + nb[1]:
-			draw_circle(p, nb[1], nb[2])
-			draw_circle(p * 1.01, nb[1] * 0.5, nb[2])
+	if nebula != null:
+		var screen := view * zoom
+		var off := cam * NEBULA_PARALLAX
+		var start := Vector2(fposmod(-off.x, NEBULA_SCREEN), fposmod(-off.y, NEBULA_SCREEN)) - Vector2(NEBULA_SCREEN, NEBULA_SCREEN) - screen * 0.5
+		var tile := Vector2(NEBULA_SCREEN, NEBULA_SCREEN) / zoom
+		for i in int(ceil(screen.x / NEBULA_SCREEN)) + 2:
+			for j in int(ceil(screen.y / NEBULA_SCREEN)) + 2:
+				draw_texture_rect(nebula, Rect2((start + Vector2(i, j) * NEBULA_SCREEN) / zoom, tile), false, NEBULA_TINT)
 	for layer in layers:
 		var tex: ImageTexture = layer[0]
 		var par: float = layer[1]

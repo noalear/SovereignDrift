@@ -47,7 +47,14 @@ static func draw_call(c: CanvasItem, r: Rect2, speaker_id: String, place: String
 		var dst := Rect2(r.position.x + (r.size.x - w) * 0.5, r.end.y - h * 0.97 + bob, w, h)
 		var keep := clampf((r.end.y - dst.position.y) / h, 0.0, 1.0)
 		dst.size.y = h * keep
-		c.draw_texture_rect_region(frame, dst, Rect2(0, 0, frame.get_width(), frame.get_height() * keep))
+		# a caller wider than the window (Kesh's legs) is cut at its sides
+		var x0 := maxf(dst.position.x, r.position.x)
+		var x1 := minf(dst.end.x, r.end.x)
+		var fw := float(frame.get_width())
+		var src := Rect2((x0 - dst.position.x) / w * fw, 0, (x1 - x0) / w * fw, frame.get_height() * keep)
+		dst.position.x = x0
+		dst.size.x = x1 - x0
+		c.draw_texture_rect_region(frame, dst, src)
 	else:
 		_draw_person(c, r, spk, talk, blink, t)
 	_draw_signal(c, r, noise, t)

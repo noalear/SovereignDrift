@@ -924,7 +924,7 @@ static func _nozzle_points(m: Dictionary, hull_name: String, size: float, n: int
 ## Add a part overlay, kept on the hull and clear of other parts unless
 ## `free` (parts that hang off an edge on purpose, like the ram prow).
 static func _overlay(m: Dictionary, icon: String, pos: Vector2, width: float, rot: float = 0.0, alpha: float = 1.0, anchor: float = 0.5, free: bool = false) -> void:
-	var t := part_texture(icon)
+	var t := part_texture(race_part_icon(icon, m["race"]))
 	if t == null:
 		return
 	if not free:
@@ -994,7 +994,8 @@ static func _pdc_mounts(m: Dictionary, size: float, n: int, picks: Array = []) -
 	var spots := [Vector2(s * 0.05, -hw * 0.55), Vector2(s * 0.05, hw * 0.55), Vector2(s * 0.5, 0),
 		Vector2(-s * 0.55, 0), Vector2(-s * 0.3, -hw * 0.5), Vector2(-s * 0.3, hw * 0.5)]
 	var sockets := system_sockets(m["hull"], m["race"], size, "ext") if not picks.is_empty() else []
-	var t := part_texture("rapid")
+	var pic := race_part_icon("rapid", m["race"])
+	var t := part_texture(pic)
 	# a small gatling, well under the lightest gun turret (Kyle: PDCs were
 	# drawn bigger than the main guns)
 	var w := seat_radius(m, 0) * 1.4
@@ -1008,7 +1009,7 @@ static func _pdc_mounts(m: Dictionary, size: float, n: int, picks: Array = []) -
 			p = _snap(m["mask"], m["rect"], p, w * 0.3, m["taken"], w * 0.8)
 		m["taken"].append(p)
 		m["pdc"].append({"tex": t, "pos": p, "w": w, "h": w * (t.get_height() / float(t.get_width()) if t != null else 0.5),
-			"rest": p.angle() if p.length() > 0.5 else 0.0})
+			"rest": p.angle() if p.length() > 0.5 else 0.0, "anchor": TURRET_PIVOT.get(pic, 0.36)})
 
 
 ## The PDC turrets' places on a model (local to the ship).
@@ -1043,8 +1044,19 @@ static func _sockets(m: Dictionary, size: float) -> void:
 ## Long-barrelled turrets: drawn length in turret radii, and where the
 ## ring's centre (the pivot) sits along the picture (per empire painting
 ## where they differ).
-const TURRET_LENGTH := {"massdriver": 3.2, "massdriver_arcean": 2.65, "massdriver_drengin": 2.35, "massdriver_pirate": 2.85}
-const TURRET_PIVOT := {"massdriver": 0.223, "massdriver_arcean": 0.366, "massdriver_drengin": 0.318, "massdriver_pirate": 0.305}
+## Lengths are 1.44 x the picture's width over its height, so every
+## turret's ring comes out the size of the mass driver's (cut_turrets.py
+## prints both numbers for a new sheet).
+const TURRET_LENGTH := {"massdriver": 3.2, "massdriver_arcean": 2.65, "massdriver_drengin": 2.35, "massdriver_pirate": 2.85,
+	"laser": 2.11, "rapid": 1.97, "cannon": 2.77, "grenade": 1.92, "missile": 1.86, "drone": 1.49, "disruptor": 2.24, "mine": 2.0,
+	"laser_arcean": 1.77, "rapid_arcean": 1.73, "cannon_arcean": 2.14, "grenade_arcean": 1.65, "missile_arcean": 1.52, "drone_arcean": 1.55, "disruptor_arcean": 1.93, "mine_arcean": 1.69,
+	"laser_drengin": 1.64, "rapid_drengin": 1.58, "cannon_drengin": 1.91, "grenade_drengin": 1.63, "missile_drengin": 1.47, "drone_drengin": 1.31, "disruptor_drengin": 1.6, "mine_drengin": 1.53,
+	"laser_pirate": 1.87, "rapid_pirate": 1.76, "cannon_pirate": 2.32, "grenade_pirate": 1.78, "missile_pirate": 1.65, "drone_pirate": 1.5, "disruptor_pirate": 2.0, "mine_pirate": 1.74}
+const TURRET_PIVOT := {"massdriver": 0.223, "massdriver_arcean": 0.366, "massdriver_drengin": 0.318, "massdriver_pirate": 0.305,
+	"laser": 0.332, "rapid": 0.36, "cannon": 0.261, "grenade": 0.38, "missile": 0.432, "drone": 0.498, "disruptor": 0.268, "mine": 0.35,
+	"laser_arcean": 0.405, "rapid_arcean": 0.43, "cannon_arcean": 0.262, "grenade_arcean": 0.395, "missile_arcean": 0.431, "drone_arcean": 0.506, "disruptor_arcean": 0.293, "mine_arcean": 0.403,
+	"laser_drengin": 0.372, "rapid_drengin": 0.408, "cannon_drengin": 0.28, "grenade_drengin": 0.378, "missile_drengin": 0.414, "drone_drengin": 0.495, "disruptor_drengin": 0.253, "mine_drengin": 0.404,
+	"laser_pirate": 0.361, "rapid_pirate": 0.368, "cannon_pirate": 0.237, "grenade_pirate": 0.396, "missile_pirate": 0.417, "drone_pirate": 0.534, "disruptor_pirate": 0.25, "mine_pirate": 0.318}
 
 
 static func _turret_overlay(m: Dictionary, w: Array, index: int, mount: Vector2) -> void:
@@ -1074,14 +1086,19 @@ static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: flo
 	c.draw_set_transform_matrix(xform)
 	# engine flames under everything
 	if thrusting > 0.01 and a > 0.05:
+		# soft plumes: a wide glow in the empire's colour, a hotter plume
+		# inside it and a short white core, each fading out along its length
 		var glow: Color = m["glow"]
+		var plume := plume_texture()
+		var hot := glow.lerp(Color.WHITE, 0.45)
 		for nz in m["nozzles"]:
 			var p: Vector2 = nz["pos"]
 			var r: float = nz["r"]
-			var l := r * (2.6 + 4.2 * thrusting) * randf_range(0.85, 1.15)
-			c.draw_colored_polygon(PackedVector2Array([p + Vector2(r * 0.5, -r * 1.3), p + Vector2(-l * 1.3, 0), p + Vector2(r * 0.5, r * 1.3)]), Color(glow.r, glow.g, glow.b, 0.3 * a))
-			c.draw_colored_polygon(PackedVector2Array([p + Vector2(r * 0.5, -r * 0.9), p + Vector2(-l, 0), p + Vector2(r * 0.5, r * 0.9)]), Color(glow.r, glow.g, glow.b, 0.75 * a))
-			c.draw_colored_polygon(PackedVector2Array([p + Vector2(r * 0.5, -r * 0.45), p + Vector2(-l * 0.55, 0), p + Vector2(r * 0.5, r * 0.45)]), Color(1, 1, 1, 0.9 * a))
+			var l := r * (3.0 + 5.5 * thrusting) * randf_range(0.9, 1.1)
+			var root := p.x + r * 0.7
+			c.draw_texture_rect(plume, Rect2(root - l * 1.3, p.y - r * 1.6, l * 1.3, r * 3.2), false, Color(glow.r, glow.g, glow.b, 0.5 * a))
+			c.draw_texture_rect(plume, Rect2(root - l * 0.85, p.y - r * 1.0, l * 0.85, r * 2.0), false, Color(hot.r, hot.g, hot.b, 0.85 * a))
+			c.draw_texture_rect(plume, Rect2(root - l * 0.42, p.y - r * 0.55, l * 0.42, r * 1.1), false, Color(1, 1, 1, 0.9 * a))
 	# the hull painting
 	var bright := 1.0 + flash * 2.0
 	var dark := 1.0 - 0.3 * clampf(damage, 0.0, 1.0)
@@ -1116,32 +1133,93 @@ static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: flo
 	var kp := 1.0 - 0.6 * float(broken.get("pdc", 0.0))
 	for i in m["pdc"].size():
 		var p: Dictionary = m["pdc"][i]
-		c.draw_set_transform_matrix(xform)
-		c.draw_circle(p["pos"], p["w"] * 0.36, Color(0.06, 0.07, 0.09, 0.9 * a))
-		c.draw_arc(p["pos"], p["w"] * 0.36, 0.0, TAU, 14, Color(tint.r, tint.g, tint.b, 0.7 * a * kp), 1.0, true)
+		# seated in the ring of the empire's own socket picture
+		var ring := socket_texture(m["race"])
+		if ring != null:
+			var rh := float(ring.get_height())
+			var d: float = p["w"] * 0.8
+			c.draw_set_transform_matrix(xform)
+			c.draw_texture_rect_region(ring, Rect2(p["pos"] - Vector2(d, d) * 0.5, Vector2(d, d)), Rect2(ring.get_width() - rh, 0.0, rh, rh), mod)
 		if p["tex"] != null:
 			var ang: float = pdc_aims[i] if i < pdc_aims.size() else p["rest"]
-			_draw_icon(c, xform, p["tex"], p["pos"], p["w"], p["h"], ang, Color(pm.r * kp, pm.g * kp, pm.b * kp, pm.a), 0.3)
+			_draw_icon(c, xform, p["tex"], p["pos"], p["w"], p["h"], ang, Color(pm.r * kp, pm.g * kp, pm.b * kp, pm.a), p["anchor"])
 	c.draw_set_transform_matrix(xform)
 	# idle nozzle glow
 	if a > 0.05 and not m["station"]:
 		var glow: Color = m["glow"]
 		var live := 1.0 - float(broken.get("engines", 0.0))
+		var soft := Fx.soft_texture()
 		for nz in m["nozzles"]:
-			c.draw_circle(nz["pos"], nz["r"] * 0.6, Color(glow.r, glow.g, glow.b, (0.3 + 0.6 * thrusting) * a * live))
+			var gr: float = nz["r"] * (1.1 + 0.4 * thrusting)
+			c.draw_texture_rect(soft, Rect2(nz["pos"] - Vector2(gr, gr), Vector2(gr, gr) * 2.0), false, Color(glow.r, glow.g, glow.b, (0.35 + 0.55 * thrusting) * a * live))
 	# damage: scorch marks and sparks of exposed frame
 	if damage > 0.25:
 		var rng := RandomNumberGenerator.new()
 		rng.seed = m["seed"]
 		var marks := int(damage * 9.0)
+		var scorch := scorch_texture()
+		var soft := Fx.soft_texture()
 		for i in marks:
 			var p := Vector2(rng.randf_range(rect.position.x * 0.8, rect.end.x * 0.8), rng.randf_range(rect.position.y * 0.6, rect.end.y * 0.6))
-			c.draw_circle(p, size * rng.randf_range(0.07, 0.16), Color(0.03, 0.02, 0.02, 0.85 * a))
+			# only where there is hull under the mark
+			if not m["mask"].is_empty() and _depth_at(m["mask"], rect, p) <= 0.0:
+				continue
+			var sr := size * rng.randf_range(0.1, 0.22)
+			c.draw_set_transform_matrix(xform * Transform2D(rng.randf() * TAU, p))
+			c.draw_texture_rect(scorch, Rect2(-sr, -sr * 0.8, sr * 2.0, sr * 1.6), false, Color(1, 1, 1, 0.9 * a))
 			if damage > 0.6 and i % 2 == 0:
-				c.draw_line(p + Vector2(-size * 0.06, 0), p + Vector2(size * 0.06, 0), Color(1.0, 0.5, 0.2, 0.5 * a * randf()), 1.0)
+				# embers glowing in the burnt plating
+				var er := sr * 0.35 * randf_range(0.6, 1.0)
+				c.draw_texture_rect(soft, Rect2(-er, -er, er * 2.0, er * 2.0), false, Color(1.0, 0.5, 0.18, 0.75 * a * randf_range(0.4, 1.0)))
 	c.draw_set_transform_matrix(Transform2D.IDENTITY)
 
 
 static func _draw_icon(c: CanvasItem, xform: Transform2D, tex: Texture2D, pos: Vector2, w: float, h: float, rot: float, mod: Color, anchor: float) -> void:
 	c.draw_set_transform_matrix(xform * Transform2D(rot, pos))
 	c.draw_texture_rect(tex, Rect2(-w * anchor, -h * 0.5, w, h), false, mod)
+
+
+static var _plume: Texture2D = null
+static var _scorch: Texture2D = null
+
+
+## An engine plume: hot at the right edge (the nozzle), widening a little
+## and then thinning to nothing at the left, soft across, with no edge
+## anywhere, so flames read as light rather than shapes.
+static func plume_texture() -> Texture2D:
+	if _plume == null:
+		var w := 128
+		var h := 48
+		var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+		for y in h:
+			var v := (y + 0.5) / h * 2.0 - 1.0
+			for x in w:
+				var u := 1.0 - (x + 0.5) / w          # 0 at the nozzle, 1 at the tip
+				var width := (0.6 + 0.4 * sin(minf(u * 4.0, 1.0) * PI * 0.5)) * pow(1.0 - u, 0.5)
+				var across := exp(-pow(v / maxf(width, 0.02), 2.0) * 3.5)
+				var along := pow(1.0 - u, 1.5) * smoothstep(0.0, 0.08, u)
+				img.set_pixel(x, y, Color(1, 1, 1, clampf(across * along, 0.0, 1.0)))
+		_plume = ImageTexture.create_from_image(img)
+	return _plume
+
+
+## A burn mark on the plating: a blotchy dark stain with a ragged, soft
+## edge and a brown rim.
+static func scorch_texture() -> Texture2D:
+	if _scorch == null:
+		var n := 64
+		var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+		var noise := FastNoiseLite.new()
+		noise.seed = 7
+		noise.frequency = 0.09
+		for y in n:
+			for x in n:
+				var d := Vector2(x + 0.5 - n * 0.5, y + 0.5 - n * 0.5).length() / (n * 0.5)
+				var ragged := d + noise.get_noise_2d(x, y) * 0.35
+				var a := clampf(1.0 - ragged, 0.0, 1.0)
+				a = a * a * (3.0 - 2.0 * a)
+				var core := clampf(1.0 - ragged * 1.6, 0.0, 1.0)
+				var col := Color(0.16, 0.1, 0.07).lerp(Color(0.02, 0.018, 0.016), core)
+				img.set_pixel(x, y, Color(col.r, col.g, col.b, a * 0.92))
+		_scorch = ImageTexture.create_from_image(img)
+	return _scorch

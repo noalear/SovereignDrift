@@ -12,6 +12,7 @@ var font: Font
 var time := 0.0
 var hover_planet: Planet = null
 var station_rects: Array[Rect2] = []   # starbase squares, kept clear of labels
+var globes := {}                      # Planet -> MapGlobe, each world drawn by its own shader
 
 const PANEL := Color(0.01, 0.02, 0.06, 0.9)
 const TEXT := Color(0.9, 0.95, 1.0)
@@ -47,6 +48,32 @@ func _scale() -> float:
 
 func to_map(pos: Vector2) -> Vector2:
 	return _map_rect().get_center() + pos * _scale()
+
+
+## A world on the map: a small globe drawn by the planet's own shader (a
+## child node, since a material belongs to a whole canvas item), its
+## visible disc `r` pixels across the middle.
+func _globe(p: Planet, pos: Vector2, r: float) -> void:
+	var g: MapGlobe = globes.get(p)
+	if g == null:
+		g = MapGlobe.new()
+		g.planet = p
+		g.material = p.material_
+		add_child(g)
+		globes[p] = g
+	g.position = pos
+	var body := 1.0 if p.look == "Sun" else 1.175
+	g.scale = Vector2.ONE * r / (body * maxf(p.radius, 1.0))
+	g.queue_redraw()
+
+
+class MapGlobe extends Node2D:
+	var planet: Planet
+
+	func _draw() -> void:
+		var r := planet.radius
+		var ext := planet.quad_extent()
+		draw_texture_rect(Planet.white_tex, Rect2(-r * ext, -r * ext, r * ext * 2.0, r * ext * 2.0), false)
 
 
 ## Planets and the Sun win a click over their moons: a moon is picked
@@ -117,14 +144,14 @@ func _draw() -> void:
 		var pos := to_map(p.global_position)
 		var r := clampf(p.radius * s * 2.2, 2.0, 13.0)
 		if p.look == "Sun":
-			draw_circle(pos, 9.0, Color(1.0, 0.85, 0.4))
-			draw_circle(pos, 14.0, Color(1.0, 0.7, 0.3, 0.25))
+			_globe(p, pos, 9.0)
 			continue
-		var col := Color(0.45, 0.45, 0.5)
+		_globe(p, pos, r)
 		if p.is_colonised():
-			col = world.colony_color(player.race_id if player != null else -1, p.owner_race)
-			draw_circle(pos, r + 3.0, Color(col.r, col.g, col.b, 0.25))
-		draw_circle(pos, r, col)
+			# the owner's colour as a ring round the little globe
+			var col := world.colony_color(player.race_id if player != null else -1, p.owner_race)
+			draw_circle(pos, r + 4.0, Color(col.r, col.g, col.b, 0.22))
+			draw_arc(pos, r + 2.5, 0, TAU, 32, Color(col.r, col.g, col.b, 0.95), 2.0, true)
 		if p.under_attack > 0.0:
 			draw_arc(pos, r + 6.0 + 2.0 * sin(time * 8.0), 0, TAU, 24, Color(1.0, 0.4, 0.2, 0.9), 1.5, true)
 		if p.is_defenceless():
