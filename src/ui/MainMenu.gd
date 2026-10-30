@@ -809,10 +809,12 @@ func _profile_line(which: String) -> String:
 
 func _draw_online(vp: Vector2) -> void:
 	var x := vp.x * 0.5 - 300.0
-	var y := vp.y * 0.36
 	var games: Array = Net.lan.list()
 	var list_h := 40.0 if games.is_empty() else 48.0 * mini(games.size(), 5)
-	_panel(Rect2(Vector2(x - 40.0, y - 110.0), Vector2(680.0, 420.0 + list_h + (34.0 if not online_status.is_empty() else 0.0))), "Play online")
+	var status_h := 34.0 if not online_status.is_empty() else 0.0
+	var below := 428.0 + list_h + status_h          # from y down to the bottom of Back
+	var y := minf(vp.y * 0.36, vp.y - 56.0 - 24.0 - below)
+	_panel(Rect2(Vector2(x - 40.0, y - 110.0), Vector2(680.0, 110.0 + below + 24.0)), "Play online")
 	_text(Vector2(x, y - 36), _profile_line("online"), 17, AMBER, HORIZONTAL_ALIGNMENT_LEFT, -1, label_font)
 	_text(Vector2(x, y - 16), "Your online pilot.  Change it on the Pilot page.", 14, MUTE, HORIZONTAL_ALIGNMENT_LEFT, -1, font)
 	_text(Vector2(x, y + 6), "Co-op: friends drop in as %s pilots.  Duel: a free-for-all, everyone against everyone." % GameData.race(int(Settings.profile_info("online")["race"]))["name"],
@@ -927,18 +929,14 @@ func _set_camera_zoom(v: float) -> void:
 ## Every action with two keyboard / mouse slots and a gamepad slot.  Click
 ## (or press Enter on) a slot, then press what should do it.
 func _draw_controls(vp: Vector2) -> void:
-	var top := vp.y * 0.265
 	var rows: Array = Keybinds.actions()
 	var cols := [["Flight", "Ship", "Wing"], ["Weapons", "Interface"]]
-	var label_w := 220.0
+	var label_w := 236.0
 	var slot_w := 132.0
 	var col_w := label_w + 3.0 * (slot_w + 6.0)
 	var x0 := (vp.x - (col_w * 2.0 + 60.0)) * 0.5
-	_panel(Rect2(Vector2(x0 - 30.0, top - 84.0), Vector2(col_w * 2.0 + 120.0, vp.y - 60.0 - (top - 84.0))), "Controls and keys")
-	_text(Vector2(0, top - 14), "Click a slot, then press a key, mouse button or gamepad control.   Backspace clears it,  Esc cancels.",
-		15, DIM, HORIZONTAL_ALIGNMENT_CENTER, vp.x, font)
-	# rows shrink a little when the longer column would push the buttons
-	# under the bottom of the screen
+	# the longer column sets the row height: everything, the Alt-fire row and
+	# the buttons included, has to end above the bar along the bottom
 	var most := 0
 	for col in cols:
 		var n: int = col.size()
@@ -946,7 +944,16 @@ func _draw_controls(vp: Vector2) -> void:
 			if row[2] in col:
 				n += 1
 		most = maxi(most, n)
-	var row_h := clampf((vp.y - top - 26.0 - 130.0) / maxf(most, 1.0), 21.0, 25.0)
+	var limit := vp.y - 56.0                   # the bar along the bottom
+	var footer := 12.0 + 40.0 + 14.0 + 46.0 + 24.0   # gap, Alt-fire row, gap, buttons, the panel's padding
+	var top := minf(vp.y * 0.265, limit - footer - 26.0 - most * 16.0)
+	top = maxf(top, 110.0)
+	var row_h := clampf((limit - footer - top - 26.0) / maxf(most, 1.0), 16.0, 25.0)
+	var small := row_h < 20.0
+	var panel_h := 26.0 + most * row_h + footer + 84.0
+	_panel(Rect2(Vector2(x0 - 30.0, top - 84.0), Vector2(col_w * 2.0 + 120.0, panel_h)), "Controls and keys")
+	_text(Vector2(0, top - 14), "Click a slot, then press a key, mouse button or gamepad control.   Backspace clears it,  Esc cancels.",
+		15, DIM, HORIZONTAL_ALIGNMENT_CENTER, vp.x, font)
 	var bottom := top
 	for c in 2:
 		var x := x0 + c * (col_w + 60.0)
@@ -962,14 +969,14 @@ func _draw_controls(vp: Vector2) -> void:
 			for row in rows:
 				if row[2] != section:
 					continue
-				_text(Vector2(x + 8, y + 16), row[1], 16, INK, HORIZONTAL_ALIGNMENT_LEFT, label_w - 12, font)
+				_text(Vector2(x + 8, y + (14 if small else 16)), row[1], 14 if small else 16, INK, HORIZONTAL_ALIGNMENT_LEFT, label_w - 12, font)
 				var sx := x + label_w
 				for slot in ["kb0", "kb1", "pad"]:
 					var waiting: bool = capture_action == row[0] and capture_slot == slot
 					var text := "press..." if waiting else Keybinds.slot_text(row[0], slot)
 					if waiting and capture_mod != null:
 						text = Keybinds.describe({"k": capture_mod.physical_keycode}) + "+..."
-					_slot_button(Rect2(sx, y + 1, slot_w, row_h - 3), text, _start_capture.bind(row[0], slot), waiting)
+					_slot_button(Rect2(sx, y + 1, slot_w, row_h - 3), text, _start_capture.bind(row[0], slot), waiting, 12 if small else 14)
 					sx += slot_w + 6.0
 				y += row_h
 		bottom = maxf(bottom, y)
@@ -992,7 +999,7 @@ func _start_capture(action: String, slot: String) -> void:
 	controls_status = "Press the new control for %s..." % _action_label(action)
 
 
-func _slot_button(rect: Rect2, text: String, cb: Callable, waiting: bool) -> void:
+func _slot_button(rect: Rect2, text: String, cb: Callable, waiting: bool, size := 14) -> void:
 	buttons.append([rect, text, cb, true])
 	var idx := buttons.size() - 1
 	var lit := 1.0 if hover == idx or focus == idx else 0.0
@@ -1003,7 +1010,7 @@ func _slot_button(rect: Rect2, text: String, cb: Callable, waiting: bool) -> voi
 	draw_rect(rect, _ink(EDGE.lerp(EDGE_LIT, lit) if not waiting else AMBER), false, 1.0)
 	if focus == idx:
 		draw_rect(rect.grow(2), _ink(Color(1.0, 0.95, 0.75, 0.45 + 0.3 * sin(time * 6.0))), false, 1.0)
-	_text(rect.position + Vector2(0, rect.size.y * 0.5 + 5), text if not text.is_empty() else "-", 14,
+	_text(rect.position + Vector2(0, rect.size.y * 0.5 + 5), text if not text.is_empty() else "-", size,
 		INK if not text.is_empty() else Color(0.4, 0.45, 0.55), HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, label_font)
 
 
