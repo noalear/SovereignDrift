@@ -917,7 +917,7 @@ func _draw_ground_panel(p: Ship, vp: Vector2) -> void:
 		line = "%s colony, %s people (the world supports %s)%s" % [GameData.race(b.owner_race)["adj"], GameData.fmt_pop(b.population),
 			GameData.fmt_pop(b.optimal_population(b.owner_race)), "   DEFENCES DOWN" if b.is_defenceless() else ""]
 	else:
-		line = "Uninhabited: supports %s %s" % [GameData.fmt_pop(b.optimal_population(p.race_id)), GameData.race(p.race_id)["name"] + "s"]
+		line = "Uninhabited: supports %s %s" % [GameData.fmt_pop(b.optimal_population(p.race_id)), GameData.race(p.race_id).get("plural", GameData.race(p.race_id)["name"])]
 	_text(Vector2(x + 16, y + 48), line, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.85, 0.9, 1.0))
 	# the cabin
 	var frac := p.colonists / maxf(p.cabin, 1.0)
@@ -965,7 +965,7 @@ func _draw_round(vp: Vector2) -> void:
 	if rd.hold_race >= 0 and not rd.over:
 		var hc: Color = GameData.race(rd.hold_race)["color"]
 		var left := maxf(Round.HOLD_SECONDS - rd.hold_timer, 0.0)
-		var txt := "The %s hold every colony: %d s to victory" % [GameData.race(rd.hold_race)["name"], int(ceil(left))]
+		var txt := "The %s hold every colony: %d s to victory" % [GameData.race(rd.hold_race).get("plural", GameData.race(rd.hold_race)["name"]), int(ceil(left))]
 		_text(Vector2(cx - 300, 76), txt, HORIZONTAL_ALIGNMENT_CENTER, 600, 16, hc)
 		var bw := 320.0
 		draw_rect(Rect2(cx - bw * 0.5, 84, bw, 5), Color(0, 0, 0, 0.5))

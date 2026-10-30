@@ -76,7 +76,7 @@ func step(_delta: float) -> void:
 				complete("guard")
 				complete("raiders")
 				say("pk_built")
-				objective("home", "Return to the Terran starbase", home_base, "Terran starbase")
+				objective("home", Names.fill("Return to the {terran} starbase"), home_base, Names.fill("{terran} starbase"))
 				go("home")
 		"home":
 			if pilot_near(home_base().global_position, HOME_REACH) != null:

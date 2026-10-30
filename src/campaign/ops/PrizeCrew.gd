@@ -51,7 +51,7 @@ func setup() -> void:
 	var oai: AIPilot = oath.get_node("AI")
 	oai.patrol_point = at
 	for k in scaled(ESCORTS.size()):
-		var e := spawn("Drengin %s" % ESCORTS[k % ESCORTS.size()], 2, ESCORTS[k % ESCORTS.size()], "Oath Guard %d" % (k + 1),
+		var e := spawn(Names.fill("{drengin} %s") % ESCORTS[k % ESCORTS.size()], 2, ESCORTS[k % ESCORTS.size()], "Oath Guard %d" % (k + 1),
 			clear_spot(at, k * 1.3, 300.0), mars.velocity, 6)
 		e.get_node("AI").guard(oath)
 		escorts.append(e)
@@ -132,7 +132,7 @@ func step(delta: float) -> void:
 				go("choice")
 		"choice":
 			if stage_time > 1.0 and not story.speaking() and story.choice.is_empty():
-				ask("codes", "What do we do with the Drengin fleet codes?", [
+				ask("codes", Names.fill("What do we do with the {drengin} fleet codes?"), [
 					["spoof", "Send false orders", "Order half the Mars fleet away to Venus. The siege of Mars is easier, but Kesh learns his codes are blown and the Hammer leaves early."],
 					["listen", "Listen quietly", "Say nothing and keep the codes secret. The siege is at full strength, but we learn the Hammer's course and can ambush it."],
 				])
@@ -216,7 +216,7 @@ func _send_wave(i: int) -> void:
 		designs.append(RESPONSE[i][1][k % RESPONSE[i][1].size()])
 	for k in designs.size():
 		var at := clear_spot(from + Vector2(0, (k - designs.size() * 0.5) * 180.0).rotated(dir), dir, 1.0)
-		var s := spawn("Drengin %s" % designs[k], 2, designs[k], "Claw of Varr %d-%d" % [i + 1, k + 1], at, mars.velocity, 5 + i)
+		var s := spawn(Names.fill("{drengin} %s") % designs[k], 2, designs[k], "Claw of Varr %d-%d" % [i + 1, k + 1], at, mars.velocity, 5 + i)
 		s.rotation = dir + PI
 		s.reset_physics_interpolation()
 		var ai: AIPilot = s.get_node("AI")

@@ -29,7 +29,7 @@ func setup() -> void:
 	var dir := (mars.global_position - venus.global_position).angle()
 	var at := clear_spot(venus.global_position, dir, venus.radius + START_OFF)
 	for i in FREIGHTERS.size():
-		var f := spawn("Drengin hauler", 2, "Freighter", FREIGHTERS[i], at + Vector2(-260.0 * i, (i - 1) * 220.0).rotated(dir), venus.velocity)
+		var f := spawn(Names.fill("{drengin} hauler"), 2, "Freighter", FREIGHTERS[i], at + Vector2(-260.0 * i, (i - 1) * 220.0).rotated(dir), venus.velocity)
 		f.rotation = dir
 		f.reset_physics_interpolation()
 		f.support = true
@@ -43,7 +43,7 @@ func setup() -> void:
 	for k in range(list.size(), scaled(list.size())):
 		list.append(ESCORTS[k % ESCORTS.size()])
 	for k in list.size():
-		var e := spawn("Drengin escort", 2, list[k], "Varr Guard %d" % (k + 1), at + Vector2(200, (k - 1) * 300.0).rotated(dir), venus.velocity, 5)
+		var e := spawn(Names.fill("{drengin} escort"), 2, list[k], "Varr Guard %d" % (k + 1), at + Vector2(200, (k - 1) * 300.0).rotated(dir), venus.velocity, 5)
 		var ai: AIPilot = e.get_node("AI")
 		ai.guard(freighters[k % freighters.size()])
 		escorts.append(e)
@@ -65,7 +65,7 @@ func setup() -> void:
 		wingmen.append(w)
 	world.wing.dirty = true
 	say("wp_start")
-	objective("intercept", "Intercept the Drengin supply convoy on the Venus to Mars lane", freighters[0], "Drengin convoy")
+	objective("intercept", Names.fill("Intercept the {drengin} supply convoy on the Venus to Mars lane"), freighters[0], Names.fill("{drengin} convoy"))
 	objective("wing", "Bring your wing home: %s sends them at your target, %s for every order" % [Keybinds.short_text("wing_attack"), Keybinds.short_text("wing_menu")], null, "", true)
 	go("intercept")
 

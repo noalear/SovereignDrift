@@ -71,7 +71,7 @@ func setup() -> void:
 	var rows: Array = FLEET.duplicate()
 	if story.flags.get("arceans", "") == "allied":
 		for a in ARCEANS:
-			rows.append([a[0], a[1], "Arcean Captain", true])
+			rows.append([a[0], a[1], Names.fill("{arcean} Captain"), true])
 	for k in rows.size():
 		var arcean: bool = rows[k].size() > 3
 		var at: Vector2 = p.global_position + Vector2(-420 - 220 * (k / 3), ((k % 3) - 1) * 280.0).rotated(p.rotation)
@@ -144,7 +144,7 @@ func step(_delta: float) -> void:
 				say("sm_contact" if story.flags.get("codes", "") != "spoof" else "sm_contact_few")
 				say("sm_targets")
 				if alive(base):
-					objective("base", "Break the Drengin starbase", base, "Drengin starbase")
+					objective("base", Names.fill("Break the {drengin} starbase"), base, Names.fill("{drengin} starbase"))
 				objective("shield", _shield_text(), mars, "Mars shield")
 				if not called:
 					objective("call", "Call the drop ships in when the way is clear (%s)" % Keybinds.short_text("briefing"), _first_dropper, "Drop ships")
@@ -337,7 +337,7 @@ func _defend() -> void:
 	var a := randf() * TAU
 	for k in list.size():
 		var at := clear_spot(mars.global_position, a + k * 0.6, mars.radius + 1300.0)
-		var s := spawn("Drengin %s" % list[k], 2, list[k], "Varr Home Guard %d" % (k + 1), at, mars.velocity, 6)
+		var s := spawn(Names.fill("{drengin} %s") % list[k], 2, list[k], "Varr Home Guard %d" % (k + 1), at, mars.velocity, 6)
 		s.get_node("AI").patrol_point = mars.global_position
 		enemies.append(s)
 
@@ -348,7 +348,7 @@ func _reinforce() -> void:
 	for k in scaled(REINFORCE.size()):
 		var design: String = REINFORCE[k % REINFORCE.size()]
 		var at := clear_spot(mars.global_position, dir + k * 0.3, mars.radius + 3500.0)
-		var s := spawn("Drengin %s" % design, 2, design, "Claw of Varr %d" % (k + 1), at, mars.velocity, 7)
+		var s := spawn(Names.fill("{drengin} %s") % design, 2, design, "Claw of Varr %d" % (k + 1), at, mars.velocity, 7)
 		s.get_node("AI").patrol_point = mars.global_position
 		enemies.append(s)
 	say("sm_reinforce")

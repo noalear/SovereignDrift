@@ -20,16 +20,16 @@ const DAMAGE_SCALE := 0.65
 # ---------------------------------------------------------------- races
 
 const RACES := [
-	{"id": 0, "name": "Arcean", "adj": "Arcean", "home": "Titan",
+	{"id": 0, "name": Names.ARCEAN, "adj": Names.ARCEAN, "plural": Names.PLURAL[0], "home": "Titan",
 	 "color": Color(0.35, 0.95, 0.55), "dark": Color(0.1, 0.4, 0.2),
 	 "weapon1": "Blaster", "weapon2": "Stinger"},
-	{"id": 1, "name": "Terran", "adj": "Terran", "home": "Earth",
+	{"id": 1, "name": Names.TERRAN, "adj": Names.TERRAN, "plural": Names.PLURAL[1], "home": "Earth",
 	 "color": Color(0.4, 0.7, 1.0), "dark": Color(0.1, 0.25, 0.5),
 	 "weapon1": "Mass driver", "weapon2": "Plasma torpedo"},
-	{"id": 2, "name": "Drengin", "adj": "Drengin", "home": "Mars",
+	{"id": 2, "name": Names.DRENGIN, "adj": Names.DRENGIN, "plural": Names.PLURAL[2], "home": "Mars",
 	 "color": Color(1.0, 0.4, 0.35), "dark": Color(0.45, 0.1, 0.1),
 	 "weapon1": "Photon gun", "weapon2": "Disruptor"},
-	{"id": 3, "name": "Pirate", "adj": "Pirate", "home": "Ceres",
+	{"id": 3, "name": "Pirate", "adj": "Pirate", "plural": "Pirates", "home": "Ceres",
 	 "color": Color(1.0, 0.75, 0.3), "dark": Color(0.4, 0.3, 0.1),
 	 "weapon1": "Mass driver", "weapon2": "Plasma torpedo"},
 	# nobody's: the free port at Jupiter's Trojan point (the Resources update)
@@ -506,7 +506,7 @@ const RANKS := [
 # The computer pilots of the Sol scenario: name, race, rank, ship name.
 
 const ROBOTS := [
-	["SharpClaw", 0, 14, "ArceusPrime"], ["RedFang", 0, 0, "Ursa"], ["LittlePaw", 0, 1, "Claw"],
+	["SharpClaw", 0, 14, Names.ARCEAN + "Prime"], ["RedFang", 0, 0, "Ursa"], ["LittlePaw", 0, 1, "Claw"],
 	["BadWind", 0, 2, "Fang"], ["LongLegs", 0, 3, "Slasher"], ["SharpTooth", 0, 6, "Gnasher"],
 	["Slash", 0, 9, "Predator"], ["Scar", 0, 0, "Pouncer"], ["BigPaw", 0, 1, "Meerkat"],
 	["LongNeck", 0, 2, "Panther"], ["Hawk", 0, 3, "Leopard"], ["SpikeTail", 0, 6, "Cougar"],
@@ -516,7 +516,7 @@ const ROBOTS := [
 	["McDivit", 1, 9, "Constitution"], ["Schirra", 1, 0, "Galactica"], ["Cooper", 1, 1, "Atlantis"],
 	["Glenn", 1, 2, "Privateer"], ["Yeager", 1, 3, "Providence"], ["Slayton", 1, 6, "Felicity"],
 	["Shepard", 1, 9, "Enterprise"], ["Grissom", 1, 12, "Intrepid"],
-	["Caesar", 2, 14, "DrenginPrime"], ["Augustus", 2, 0, "Ruthless"], ["Tiberius", 2, 1, "Relentless"],
+	["Caesar", 2, 14, Names.DRENGIN + "Prime"], ["Augustus", 2, 0, "Ruthless"], ["Tiberius", 2, 1, "Relentless"],
 	["Caligula", 2, 2, "Remorseless"], ["Claudius", 2, 3, "Vicious"], ["Nero", 2, 6, "Merciless"],
 	["Pompey", 2, 9, "Fearless"], ["Marius", 2, 12, "Courageous"], ["Cato", 2, 1, "Executioner"],
 	["Cicero", 2, 2, "Slasher"], ["Spartacus", 2, 0, "Raider"], ["Brutus", 2, 1, "Plunder"],

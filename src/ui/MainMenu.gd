@@ -317,9 +317,8 @@ func _draw() -> void:
 		ShipArt.draw_ship(self, d["design"], d["race"], d["size"], GameData.race(d["race"])["color"], 0.6, 0.35, 0.0, Transform2D(0.0, d["pos"]))
 	# title
 	var ty := vp.y * 0.18
-	draw_string(font, Vector2(3, ty + 3), "STELLAR FRONTIER", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 84, Color(0, 0, 0, 0.6))
-	draw_string(font, Vector2(0, ty), "STELLAR FRONTIER", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 84, Color(0.85, 0.92, 1.0))
-	draw_string(font, Vector2(0, ty + 40), "R E M A K E", HORIZONTAL_ALIGNMENT_CENTER, vp.x, 24, Color(0.6, 0.75, 1.0, 0.8 + 0.2 * sin(time * 2.0)))
+	draw_string(font, Vector2(3, ty + 3), Names.GAME.to_upper(), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 84, Color(0, 0, 0, 0.6))
+	draw_string(font, Vector2(0, ty), Names.GAME.to_upper(), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 84, Color(0.85, 0.92, 1.0))
 	match page:
 		"main":
 			_draw_main(vp)
@@ -337,7 +336,7 @@ func _draw() -> void:
 	var np := Music.now_playing()
 	if not np.is_empty():
 		draw_string(font, Vector2(24, vp.y - 20), "Now playing: %s     (F9: next song)" % np, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.8, 0.8, 0.95, 0.8))
-	draw_string(font, Vector2(vp.x - 420, vp.y - 20), "Based on Stellar Frontier (c) Stardock. Non-commercial remake.", HORIZONTAL_ALIGNMENT_RIGHT, 400, 13, Color(1, 1, 1, 0.4))
+	draw_string(font, Vector2(vp.x - 420, vp.y - 20), "Based on %s (c) Stardock. Non-commercial remake." % Names.ORIGINAL, HORIZONTAL_ALIGNMENT_RIGHT, 400, 13, Color(1, 1, 1, 0.4))
 
 
 func _draw_main(vp: Vector2) -> void:
@@ -364,7 +363,7 @@ func _draw_main(vp: Vector2) -> void:
 		draw_string(font, Vector2(x + w + 16, y + 96), campaign_note, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1.0, 0.85, 0.55))
 	elif has_save:
 		draw_string(font, Vector2(x + w + 16, y + 96), _save_line(), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.7, 0.8, 0.95))
-	_button(Rect2(x, y + 128, w, 52), "Tutorial (voiced, Terran)", func(): tutorial_pressed.emit())
+	_button(Rect2(x, y + 128, w, 52), "Tutorial (voiced, %s)" % Names.TERRAN, func(): tutorial_pressed.emit())
 	_button(Rect2(x, y + 192, w * 0.5 - 4, 52), "Practice duel", func(): practice_pressed.emit())
 	_button(Rect2(x + w * 0.5 + 4, y + 192, w * 0.5 - 4, 52), "Free flight", func(): free_flight_pressed.emit())
 	_button(Rect2(x, y + 256, w * 0.5 - 4, 52), "Survival", func(): mode_pressed.emit("survival", false))
@@ -494,9 +493,9 @@ func _draw_pilot(vp: Vector2) -> void:
 		races.append([r, GameData.race(r)["name"]])
 	_choice(y + 40, "Empire", races, Settings.race_id, func(v): Settings.race_id = v, vp)
 	var desc := {
-		0: "The Arcean Empire: swept hulls, home on Saturn's moon Titan and the moons of Jupiter.",
-		1: "The Terran Alliance: plated hulls, home on Earth and Luna.",
-		2: "The Drengin Empire: bladed hulls, home on Mars, Venus and the Martian moons.",
+		0: "The %s Empire: swept hulls, home on Saturn's moon Titan and the moons of Jupiter." % Names.ARCEAN,
+		1: "The %s Alliance: plated hulls, home on Earth and Luna." % Names.TERRAN,
+		2: "The %s Empire: bladed hulls, home on Mars, Venus and the Martian moons." % Names.DRENGIN,
 	}
 	draw_string(font, Vector2(vp.x * 0.5 - 300, y + 115), desc[Settings.race_id], HORIZONTAL_ALIGNMENT_LEFT, 600, 15, Color(0.8, 0.85, 0.95))
 	ShipArt.draw_ship(self, "Scout", Settings.race_id, 40.0, GameData.race(Settings.race_id)["color"], 0.4, 1.0, 0.0, Transform2D(-PI * 0.5, Vector2(vp.x * 0.5 + 220, y + 200)))
@@ -631,9 +630,9 @@ func _slot_button(rect: Rect2, text: String, cb: Callable, waiting: bool) -> voi
 
 func _draw_about(vp: Vector2) -> void:
 	var lines := [
-		"Stellar Frontier was made by Stardock in 1997: a real-time 2-D space combat game where",
-		"three empires fight for the planets of a solar system, and every ship, from scout to",
-		"starbase, is flown by a player or a computer pilot with a rank and a name.",
+		"%s is a remake of %s, made by Stardock in 1997: a real-time 2-D" % [Names.GAME, Names.ORIGINAL],
+		"space combat game where three empires fight for the planets of a solar system, and every",
+		"ship, from scout to starbase, is flown by a player or a computer pilot with a rank and a name.",
 		"",
 		"This remake is built from scratch on Godot 4.  Its rules (ships, modules, weapons, ranks,",
 		"the Sol scenario) come from the original game's data files.  The art is new.",
@@ -641,7 +640,7 @@ func _draw_about(vp: Vector2) -> void:
 		"Soundtrack: genre remixes of the eight original songs, and eighteen new tracks built from",
 		"unused fragments of them.",
 		"",
-		"Non-commercial use only, under the Stardock Shared Source Stellar Frontier License.",
+		"Non-commercial use only, under the Stardock Shared Source %s License." % Names.ORIGINAL,
 	]
 	var y := vp.y * 0.38
 	for l in lines:

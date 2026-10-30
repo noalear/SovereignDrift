@@ -52,7 +52,7 @@ const STEPS := [
 	{"id": "wing_attack", "chapter": 3, "goal": "With the pirate as your target ({target_nearest}), press {wing_attack} to send your wing at it", "mark": "pirate"},
 	{"id": "spar", "chapter": 3, "goal": "Destroy or capture the pirate", "mark": "pirate"},
 	{"id": "loot", "chapter": 3, "goal": "Fly over a pickup to collect it", "mark": "loot"},
-	{"id": "dock", "chapter": 4, "goal": "Fly back to the Terran starbase at Earth", "mark": "starbase"},
+	{"id": "dock", "chapter": 4, "goal": "Fly back to the " + Names.TERRAN + " starbase at Earth", "mark": "starbase"},
 	{"id": "shipyard", "chapter": 4, "goal": "Brake ({brake}), then press {refit} for the shipyard", "mark": "starbase"},
 	{"id": "armor", "chapter": 4},
 	{"id": "shield_types", "chapter": 4},
@@ -801,7 +801,7 @@ func _mark() -> Array:
 			return [best.global_position, "Pickup", Color(0.5, 1.0, 0.6)] if best != null else []
 		"starbase":
 			var b := world.starbase_of(1)
-			return [b.global_position, "Terran starbase", Color(0.45, 1.0, 0.6)] if b != null else []
+			return [b.global_position, Names.fill("{terran} starbase"), Color(0.45, 1.0, 0.6)] if b != null else []
 		"freeport":
 			for s in world.ships:
 				if s.race_id == GameData.NEUTRAL and s.design_name == "TradeStation" and not s.dead:

@@ -53,7 +53,7 @@ func setup() -> void:
 	var dir := (p.global_position - yard.global_position).angle()
 	var form := clear_spot(yard.global_position, dir, STRIKE_FROM)
 	for k in STRIKE.size():
-		var s := spawn("Terran Captain", 1, STRIKE[k][0], STRIKE[k][1], form + Vector2(0, (k - 1) * 260.0).rotated(dir), mars.velocity, 8)
+		var s := spawn(Names.fill("{terran} Captain"), 1, STRIKE[k][0], STRIKE[k][1], form + Vector2(0, (k - 1) * 260.0).rotated(dir), mars.velocity, 8)
 		s.rotation = dir + PI
 		s.reset_physics_interpolation()
 		var ai: AIPilot = s.get_node("AI")
@@ -127,7 +127,7 @@ func _send_wave(i: int) -> void:
 		designs.append(WAVES[i][1][k % WAVES[i][1].size()])
 	for k in designs.size():
 		var at := clear_spot(from + Vector2(0, (k - designs.size() * 0.5) * 180.0).rotated(dir), dir, 1.0)
-		var s := spawn("Drengin %s" % designs[k], 2, designs[k], "Yard Guard %d-%d" % [i + 1, k + 1], at, mars.velocity, 5 + i)
+		var s := spawn(Names.fill("{drengin} %s") % designs[k], 2, designs[k], "Yard Guard %d-%d" % [i + 1, k + 1], at, mars.velocity, 5 + i)
 		var ai: AIPilot = s.get_node("AI")
 		ai.patrol_point = yard.global_position
 		fleet.append(s)

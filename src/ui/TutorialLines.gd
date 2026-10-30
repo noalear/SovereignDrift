@@ -1,6 +1,7 @@
 ## TutorialLines -- what the tutorial's instructor says, word for word.
 ##
-## Each line is voiced: tools/voice/generate.py reads this file (through
+## A people or the game is named by a token ({terran}, {drengin}, ...),
+## filled in from Names.  Each line is voiced: tools/voice/generate.py reads this file (through
 ## tools/voice/export_lines.gd) and renders assets/voice/<set>/<id>.ogg with
 ## the speaker's voice.  The subtitles show the same words, so the spoken
 ## text never names a key: the objective line under it shows the live keys.
@@ -11,17 +12,17 @@ extends RefCounted
 ## Who speaks.  voice: a Kokoro voice; speed: its pace; fx: "clean" or
 ## "radio" (a comm-channel band-pass).  New campaign voices go here too.
 const SPEAKERS := {
-	"hale": {"name": "Commander Hale", "title": "Terran Naval Academy", "voice": "af_heart", "speed": 0.96, "fx": "clean",
+	"hale": {"name": "Commander Hale", "title": Names.TERRAN + " Naval Academy", "voice": "af_heart", "speed": 0.96, "fx": "clean",
 		"color": Color(0.55, 0.8, 1.0)},
 }
 
 ## [id, speaker, text]
 const LINES := [
 	# --- welcome and the cockpit
-	["intro", "hale", "Welcome to the Terran Naval Academy, cadet. I'm Commander Hale, and I'll be with you on comms for this flight. Nobody out here is shooting at us today, so take your time."],
+	["intro", "hale", "Welcome to the {terran} Naval Academy, cadet. I'm Commander Hale, and I'll be with you on comms for this flight. Nobody out here is shooting at us today, so take your time."],
 	["intro2", "hale", "By the end of this flight you'll know how to fly, fight, capture ships, command a wing, move colonists and cargo, and run a war for the Sol system. Let's start with your cockpit."],
 	["hud_status", "hale", "Bottom left are your shields, hull, energy and fuel. Shields soak up hits and recharge on their own. The hull does not, so protect it. The row of lights above shows your ship's systems."],
-	["hud_weapons", "hale", "Beside them is your weapons panel, with your four weapon groups. Bottom right is the radar. Ships show as little darts pointing the way they're flying, in their empire's colour. Terran blue is us, and enemies get a red ring."],
+	["hud_weapons", "hale", "Beside them is your weapons panel, with your four weapon groups. Bottom right is the radar. Ships show as little darts pointing the way they're flying, in their empire's colour. {terran} blue is us, and enemies get a red ring."],
 	["hud_top", "hale", "Along the top are your rank, score and credits, and how many planets each empire holds. Planets are what this war is about."],
 	# --- flight school
 	["thrust", "hale", "Let's fly. Hold thrust to push forward, and turn to steer. There's no friction in space, so when you let go, you keep drifting. Take her out a little way from the starbase."],
@@ -60,8 +61,8 @@ const LINES := [
 	# --- the starbase
 	["dock", "hale", "Head back to the starbase at Earth. Near a friendly starbase or colony, your fuel, crew and hull are topped up, and your launchers and mine layer are reloaded. Follow the green arrow."],
 	["shipyard", "hale", "Slow down and open the shipyard. This is where you change hulls, fit engines, shields and weapons, and set your weapon groups. Better hulls open up as you rise in rank."],
-	["armor", "hale", "Your hull takes one coat of armour. Plate is solid all round, but heavy. Ablative burns away under fire, Reflective turns lasers, Reactive breaks the biggest hits, a Shroud hides you from radar, and Bulkheads shelter your crew and systems. Reflective is Arcean work and Reactive is Drengin, so those take a blueprint from their wrecks."],
-	["shield_types", "hale", "Shields come in families too. Standard shields are the steady all rounder. Barriers are big and slow to recharge. Flickers are small and recharge in a blink, but let some hits slip through. The Drengin fly Deflectors. They bounce gun rounds and laser beams off like a pool shot, and the shot is theirs from then on, so a careless burst can come right back at you. Missiles, torpedoes and mines still get through. Every shield draws on your reactor while it's up, and a Deflector draws the most."],
+	["armor", "hale", "Your hull takes one coat of armour. Plate is solid all round, but heavy. Ablative burns away under fire, Reflective turns lasers, Reactive breaks the biggest hits, a Shroud hides you from radar, and Bulkheads shelter your crew and systems. Reflective is {arcean} work and Reactive is {drengin}, so those take a blueprint from their wrecks."],
+	["shield_types", "hale", "Shields come in families too. Standard shields are the steady all rounder. Barriers are big and slow to recharge. Flickers are small and recharge in a blink, but let some hits slip through. The {drengin} fly Deflectors. They bounce gun rounds and laser beams off like a pool shot, and the shot is theirs from then on, so a careless burst can come right back at you. Missiles, torpedoes and mines still get through. Every shield draws on your reactor while it's up, and a Deflector draws the most."],
 	["shipyard_tour", "hale", "Pick a mount or a bay, choose a part type, then a part. Nothing is paid until you accept the order. Weapons can swap mounts, drag a turret or scroll over it to turn it, and boosters, shields and point defence can move around the hull, all for free. Anything you take off goes to your hold. Wingmen flying close to the yard get tabs along the top, so you can outfit their ships too. A pilot you called pays from their own purse first and your credits cover the rest, and a prize is yours to pay for."],
 	["base_cargo", "hale", "The starbase also sells station kits and takes orders for new ships. Open the cargo panel here to see them. Kits and orders unlock at Lieutenant Commander."],
 	# --- worlds, colonists and cargo
@@ -73,12 +74,12 @@ const LINES := [
 	["unload", "hale", "Put your colonists down to grow the colony, and unload your cargo. Goods delivered where they're short pay you credits."],
 	["ledger", "hale", "All of this feeds your empire. Open the empire ledger to see every world's stockpile, and the job board, where our governor posts paid hauling and escort work."],
 	# --- the empire, and how to win
-	["haulers", "hale", "You're not alone out here. Terran supply ships haul goods between our worlds, and trade ships sell our surplus. Escort ours, and hunt the enemy's. A starving colony can't build defences."],
+	["haulers", "hale", "You're not alone out here. {terran} supply ships haul goods between our worlds, and trade ships sell our surplus. Escort ours, and hunt the enemy's. A starving colony can't build defences."],
 	["stations", "hale", "As you rise in rank you can buy station kits: mining stations, gas skimmers, refineries, supply depots, sensor posts, defence platforms, trade stations and shipyards. Haul a kit to a site, deploy it, then deliver the materials to finish it."],
 	["station_capture", "hale", "Enemy stations can be taken, just like ships. Shoot their shields down and break the hull to under half, then come alongside and board. Station crews fight hard from behind their bulkheads, so bring a full crew, or marines. Take one and it works for us, hold and all. Home starbases and the free port can't be boarded. Destroy a starbase, though, and its empire needs a full minute to rebuild it."],
 	["freeport", "hale", "At Jupiter's leading Trojan point sits the free port, a neutral market every empire can use. Buy where it's cheap, and sell where it's dear."],
 	["invasion", "hale", "To take an enemy world, first silence its guns. Home worlds also sit under a planetary shield, and nothing lands until that shield is down. Then land troops. Armour breaks garrisons, and commandos sabotage from the ground."],
-	["invasion2", "hale", "Drop ships carry whole armies. Colonists alone can only take a world with no defenders, and only twenty to one. The Drengin hold Mars and Venus. The Arceans hold Titan and Jupiter's moons."],
+	["invasion2", "hale", "Drop ships carry whole armies. Colonists alone can only take a world with no defenders, and only twenty to one. The {drengin} hold Mars and Venus. The {arceans} hold Titan and Jupiter's moons."],
 	["strategy", "hale", "So here's how to win. Early on, carry colonists and goods to grow your worlds, and settle empty moons. Defend the worlds that matter. Pick off enemy supply ships to starve them, and disable rather than destroy, so you keep the prizes."],
 	["strategy2", "hale", "When an enemy world is weak, knock out its shield and guns and send in the troops. In a Conquest round, the empire holding the most planets when time runs out wins, or the first to hold every colony for forty five seconds."],
 	["modes", "hale", "From the main menu you can fly the story, The Frontier War, where you'll hear from me again. Host my story campaign lets friends fly it with you: the enemy brings more ships for each of you, and you all vote on the hard calls. You can fight a Conquest round, or start a campaign that saves as it goes. In Survival, you hold your starbase against waves of raiders, with a break between waves to repair and refit. In Skirmish, two empires fight four a side, and you pick a ready built ship each time you launch. Online, friends can join any of these or a free for all duel, everyone shares the round clock, and the host starts the next round for the whole crew. Pirates are rare, but take them seriously."],
@@ -98,7 +99,7 @@ const SET := "tutorial"
 static func text(id: String) -> String:
 	for row in LINES:
 		if row[0] == id:
-			return row[2]
+			return Names.fill(row[2])
 	return ""
 
 

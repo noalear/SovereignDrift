@@ -273,7 +273,7 @@ func _defend() -> void:
 		list.append(DEFENDERS[k % DEFENDERS.size()])
 	for k in list.size():
 		var at := clear_spot(deimos.global_position, a + k * 0.5, deimos.radius + 900.0)
-		var s := spawn("Drengin %s" % list[k], 2, list[k], "Deimos Guard %d" % (k + 1), at, deimos.velocity, 5)
+		var s := spawn(Names.fill("{drengin} %s") % list[k], 2, list[k], "Deimos Guard %d" % (k + 1), at, deimos.velocity, 5)
 		var ai: AIPilot = s.get_node("AI")
 		ai.patrol_point = deimos.global_position
 		fleet.append(s)
@@ -284,7 +284,7 @@ func _reinforce() -> void:
 	for k in scaled(REINFORCE.size()):
 		var design: String = REINFORCE[k % REINFORCE.size()]
 		var at := clear_spot(deimos.global_position, dir + k * 0.3, deimos.radius + 3500.0)
-		var s := spawn("Drengin %s" % design, 2, design, "Claw of Varr %d" % (k + 1), at, deimos.velocity, 6)
+		var s := spawn(Names.fill("{drengin} %s") % design, 2, design, "Claw of Varr %d" % (k + 1), at, deimos.velocity, 6)
 		var ai: AIPilot = s.get_node("AI")
 		ai.patrol_point = deimos.global_position
 		fleet.append(s)

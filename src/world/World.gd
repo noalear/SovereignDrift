@@ -453,7 +453,7 @@ func _spawn_tutorial() -> void:
 	player.rank = 0
 	player.credits = START_CREDITS * 2
 	var home: Planet = planet_by_name[GameData.STARBASES[1]]
-	var base := _make_ship("Terran Command", 1, "Starbase", "Terran Starbase", false)
+	var base := _make_ship(Names.fill("{terran} Command"), 1, "Starbase", Names.fill("{terran} Starbase"), false)
 	base.global_position = _station_spot(home)
 	base.velocity = space.circular_orbit_velocity(home.body, base.global_position)
 	base.reset_physics_interpolation()
