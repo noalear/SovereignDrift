@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://0mlvqp2s8tfj"
-path="res://.godot/imported/kesh_blink.png-64644d60c0aff2a2dc9e428cf1822556.ctex"
+uid="uid://bglbudply5k1o"
+path="res://.godot/imported/mine_drengin.png-bfdef8340767d9a92cb066d13453b74b.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/comms/people/kesh_blink.png"
-dest_files=["res://.godot/imported/kesh_blink.png-64644d60c0aff2a2dc9e428cf1822556.ctex"]
+source_file="res://assets/parts/mine_drengin.png"
+dest_files=["res://.godot/imported/mine_drengin.png-bfdef8340767d9a92cb066d13453b74b.ctex"]
 
 [params]
 

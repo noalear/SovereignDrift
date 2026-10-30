@@ -21,6 +21,7 @@ var glow: Node2D             # additive layer
 const WRECK_LIFE := 3.2
 
 static var _soft: Texture2D = null
+static var _beam: Texture2D = null
 
 
 func _ready() -> void:
@@ -45,6 +46,21 @@ static func soft_texture() -> Texture2D:
 				img.set_pixel(x, y, Color(1, 1, 1, a * a * (3.0 - 2.0 * a)))
 		_soft = ImageTexture.create_from_image(img)
 	return _soft
+
+
+## A strip of light, bright down the middle and fading to nothing at both
+## edges, stretched along a beam.
+static func beam_texture() -> Texture2D:
+	if _beam == null:
+		var n := 32
+		var img := Image.create(4, n, false, Image.FORMAT_RGBA8)
+		for y in n:
+			var v := (y + 0.5 - n * 0.5) / (n * 0.5)
+			var a := exp(-v * v * 4.5) * clampf((1.0 - absf(v)) * 4.0, 0.0, 1.0)
+			for x in 4:
+				img.set_pixel(x, y, Color(1, 1, 1, a))
+		_beam = ImageTexture.create_from_image(img)
+	return _beam
 
 
 func explosion(pos: Vector2, size: float, color: Color, big: bool = false, sound: String = "") -> void:
@@ -444,11 +460,30 @@ func _draw() -> void:
 	for r in ripples:
 		_draw_ripple(r)
 	for b in beams:
+		# the hot core, so a beam reads over bright worlds too; its glow is
+		# on the additive layer (_draw_glow)
 		var c: Color = b["color"]
-		draw_line(b["a"], b["b"], Color(c.r, c.g, c.b, 0.35), 7.0)
-		draw_line(b["a"], b["b"], c, 3.0)
-		draw_line(b["a"], b["b"], Color.WHITE, 1.2)
-		draw_circle(b["b"], 5.0, Color.WHITE)
+		draw_line(b["a"], b["b"], c.lerp(Color.WHITE, 0.6), 2.0, true)
+
+
+## Laser light: a wide soft halo, a bright body and a white-hot thread,
+## flickering a little, with a glow at the emitter and a splash where it
+## burns.
+func _draw_beams(soft: Texture2D) -> void:
+	var tex := beam_texture()
+	for b in beams:
+		var c: Color = b["color"]
+		var d: Vector2 = b["b"] - b["a"]
+		var flick := randf_range(0.85, 1.0)
+		glow.draw_set_transform(b["a"], d.angle())
+		glow.draw_texture_rect(tex, Rect2(0.0, -15.0 * flick, d.length(), 30.0 * flick), false, Color(c, 0.22))
+		glow.draw_texture_rect(tex, Rect2(0.0, -6.0 * flick, d.length(), 12.0 * flick), false, Color(c, 0.6))
+		glow.draw_texture_rect(tex, Rect2(0.0, -2.0, d.length(), 4.0), false, Color(c.lerp(Color.WHITE, 0.7), 1.0))
+		glow.draw_set_transform(Vector2.ZERO)
+		var r := 16.0 * flick
+		glow.draw_texture_rect(soft, Rect2(b["b"] - Vector2(r, r), Vector2(r, r) * 2.0), false, Color(c, 0.8))
+		glow.draw_texture_rect(soft, Rect2(b["b"] - Vector2(r, r) * 0.45, Vector2(r, r) * 0.9), false, Color(1, 1, 1, 0.9))
+		glow.draw_texture_rect(soft, Rect2(b["a"] - Vector2(8, 8), Vector2(16, 16)), false, Color(c, 0.6))
 
 
 func _draw_ripple(r: Dictionary) -> void:
@@ -511,6 +546,7 @@ func _draw_glow() -> void:
 		glow.draw_texture_rect(soft, Rect2(p["pos"] - Vector2(r, r), Vector2(r, r) * 2.0), false, Color(c, 0.55 * (1.0 - t)))
 	for c in crackles:
 		_draw_crackle(soft, c)
+	_draw_beams(soft)
 	for m in muzzles:
 		_draw_muzzle(soft, m)
 	for s in sparks:

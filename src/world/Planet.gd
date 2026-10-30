@@ -66,6 +66,7 @@ var short := {}                 # resource -> true: upkeep the stockpile could n
 var desert_t := 0.0             # seconds the troops have gone short
 var flak_t := 0.0
 var shield_fx: ShieldFx = null  # draws the planetary shield (the body's own drawing goes through its shader)
+var rings_fx: RingsFx = null    # Saturn's and Uranus's rings, drawn behind the body
 var material_: ShaderMaterial
 
 
@@ -117,6 +118,10 @@ func setup(p_world: Node, row: Array, parent: Planet, seed_value: int) -> void:
 	shield_fx = ShieldFx.new()
 	shield_fx.planet = self
 	add_child(shield_fx)
+	if RingsFx.BANDS.has(look):
+		rings_fx = RingsFx.new()
+		rings_fx.planet = self
+		add_child(rings_fx)
 	update_orbit(0.0)
 
 
@@ -173,6 +178,11 @@ func _style(rng: RandomNumberGenerator) -> void:
 	material_.set_shader_parameter("extent", quad_extent())
 	material_.set_shader_parameter("seed", rng.randf() * 50.0)
 	material_.set_shader_parameter("spin", rng.randf_range(0.01, 0.04) * (1.0 if rng.randf() < 0.7 else -1.0))
+	# a painted surface where there is one (tools/art/make_planet_map.py)
+	var map_path := "res://assets/planets/%s.jpg" % look.to_lower()
+	if ResourceLoader.exists(map_path):
+		material_.set_shader_parameter("surface_map", load(map_path))
+		material_.set_shader_parameter("has_map", true)
 
 
 ## Half the shader quad in body radii: the Sun's corona and planets'
@@ -356,6 +366,8 @@ func _process(delta: float) -> void:
 	if material_ != null:
 		var l := (-global_position).normalized() if look != "Sun" else Vector2.RIGHT
 		material_.set_shader_parameter("light_dir", Vector2(l.x, -l.y))
+		if rings_fx != null:
+			rings_fx.mat.set_shader_parameter("away", -l)
 	if is_colonised():
 		if silenced > 0.0:
 			silenced = maxf(silenced - delta, 0.0)
@@ -628,11 +640,6 @@ func stock_lines(viewer: int) -> Array:
 
 
 func _draw() -> void:
-	# planetary rings for Saturn and Uranus
-	if look == "Saturn" or look == "Uranus":
-		var rc := Color(0.85, 0.8, 0.65, 0.45) if look == "Saturn" else Color(0.7, 0.85, 0.9, 0.3)
-		for i in 5:
-			draw_arc(Vector2.ZERO, radius * (1.35 + i * 0.09), 0, TAU, 96, rc, radius * 0.06, true)
 	var ext := quad_extent()
 	draw_texture_rect(white_tex, Rect2(-radius * ext, -radius * ext, radius * ext * 2.0, radius * ext * 2.0), false)
 	if is_colonised():
@@ -675,3 +682,58 @@ class ShieldFx extends Node2D:
 		draw_circle(Vector2.ZERO, r, Color(rc.r, rc.g, rc.b, 0.05 + 0.12 * flash))
 		draw_arc(Vector2.ZERO, r, 0, TAU, 96, Color(rc.r, rc.g, rc.b, 0.25 + 0.3 * charge + 0.4 * flash), 2.5, true)
 		draw_arc(Vector2.ZERO, r - 5.0, 0, TAU, 96, Color(rc.r, rc.g, rc.b, 0.08 + 0.2 * flash), 6.0, true)
+
+
+## A ringed planet's rings: a radial profile of bands (BANDS, in the
+## body's drawn radii) swept round it behind the body, through
+## rings.gdshader so the planet's shadow falls across them.
+class RingsFx extends Node2D:
+	## [inner, outer, colour (alpha is how dense)] per band
+	const BANDS := {
+		"Saturn": [[1.24, 1.53, Color(0.62, 0.56, 0.48, 0.22)], [1.53, 1.95, Color(0.92, 0.85, 0.7, 0.85)],
+			[1.95, 2.03, Color(0.6, 0.55, 0.5, 0.06)], [2.03, 2.2, Color(0.85, 0.79, 0.68, 0.6)],
+			[2.2, 2.215, Color(0.6, 0.55, 0.5, 0.05)], [2.215, 2.27, Color(0.82, 0.76, 0.66, 0.5)],
+			[2.32, 2.335, Color(0.85, 0.8, 0.72, 0.45)]],
+		"Uranus": [[1.64, 1.655, Color(0.6, 0.68, 0.75, 0.4)], [1.68, 1.69, Color(0.6, 0.68, 0.75, 0.35)],
+			[1.72, 1.73, Color(0.6, 0.68, 0.75, 0.35)], [1.85, 1.86, Color(0.6, 0.68, 0.75, 0.4)],
+			[1.9, 1.91, Color(0.6, 0.68, 0.75, 0.35)], [1.98, 2.0, Color(0.75, 0.82, 0.88, 0.6)]],
+	}
+	const SHADER := preload("res://src/world/rings.gdshader")
+	var planet: Planet
+	var mat: ShaderMaterial
+	var outer := 1.0
+
+	func _ready() -> void:
+		show_behind_parent = true
+		if planet.rings_fx != null and planet.rings_fx != self:
+			# a picture of the planet (the HUD's info card) shares its rings'
+			# material, shadow and all
+			mat = planet.rings_fx.mat
+			outer = planet.rings_fx.outer
+			material = mat
+			return
+		var bands: Array = BANDS[planet.look]
+		var inner: float = bands[0][0]
+		outer = bands[-1][1] + 0.02
+		var n := 512
+		var img := Image.create(n, 1, false, Image.FORMAT_RGBA8)
+		for i in n:
+			var r := lerpf(inner, outer, (i + 0.5) / n)
+			var c := Color(0, 0, 0, 0)
+			for b in bands:
+				if r >= b[0] and r < b[1]:
+					c = b[2]
+					# denser towards a broad band's middle, uneven within it
+					var f: float = (r - b[0]) / (b[1] - b[0])
+					c.a *= (0.75 + 0.25 * sin(f * PI)) * (0.85 + 0.15 * sin(r * 97.0) * sin(r * 41.0))
+			img.set_pixel(i, 0, c)
+		mat = ShaderMaterial.new()
+		mat.shader = SHADER
+		mat.set_shader_parameter("profile", ImageTexture.create_from_image(img))
+		mat.set_shader_parameter("inner", inner / outer)
+		mat.set_shader_parameter("body", 1.0 / outer)
+		material = mat
+
+	func _draw() -> void:
+		var r := planet.radius * 1.175 * outer
+		draw_texture_rect(Planet.white_tex, Rect2(-r, -r, r * 2.0, r * 2.0), false)
