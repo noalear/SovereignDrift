@@ -169,6 +169,12 @@ func try_board(captor: Ship, victim: Node) -> bool:
 		cancel(captor, "Boarding called off.")
 		return false
 	var why := why_not(captor, victim)
+	if why == "far":
+		# on the way: the pilot's side leaves the prize to them
+		victim.claimed_by = captor
+		captor.target = victim
+		world.notify(captor, reason_text(why, captor, victim) + " Your side holds fire on it.")
+		return false
 	if why != "":
 		world.notify(captor, reason_text(why, captor, victim))
 		return false

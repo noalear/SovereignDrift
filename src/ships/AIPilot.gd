@@ -341,6 +341,9 @@ func _think() -> void:
 		tgt = null
 	if lead != null:
 		tgt = _wing_target(tgt, lead)
+		# ...whatever the order: the leader (or a friend) is taking that one alive
+		if tgt is Ship and tgt.boarded_by != ship and tgt.claimed_by != ship and tgt.spoken_for(ship.team()):
+			tgt = null if sent_home or lead.warping else world.nearest_enemy_ship(lead.global_position, ship.team(), ESCORT_LEASH * 0.8, ship)
 	elif in_wing:
 		tgt = _cornered()           # waiting at home for the leader
 	elif tgt == null or (randf() < 0.1 and state != State.BOARD):
