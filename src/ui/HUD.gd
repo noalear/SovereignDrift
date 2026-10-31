@@ -1214,9 +1214,9 @@ func _draw_heat(p: Ship, vp: Vector2) -> void:
 	draw_string(font, Vector2(0, vp.y * 0.32), text, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 26, tc)
 
 
-## Crosshair where the turrets are pointed (mouse or right stick).
+## Crosshair where the guns are pointed and meet (mouse or right stick).
 func _draw_aim(p: Ship, vp: Vector2) -> void:
-	if p.dead or p.aim_point == Vector2.INF or not p.has_turret:
+	if p.dead or p.aim_point == Vector2.INF or p.weapons.is_empty():
 		return
 	var cam := world.camera
 	var screen := (p.aim_point - world.camera_centre()) * cam.zoom + vp * 0.5

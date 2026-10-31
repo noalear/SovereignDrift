@@ -12,7 +12,7 @@ signal session_ended(reason: String)
 signal round_restarted()       # the host started the next Conquest round (client)
 
 const PORT := 7777
-const PROTOCOL := 29   # 29: Deflector shields turn shots (shield families renamed); 28: guided shots carry their target; 27: story signals (the story key calls in drop ships); 26: outfitting wingmen; 25: the story's stardate interludes; 24: story co-op
+const PROTOCOL := 30   # 30: guns meet on the cursor (aim distance in the input), retro jets in the snapshot; 29: Deflector shields turn shots (shield families renamed); 28: guided shots carry their target; 27: story signals (the story key calls in drop ships); 26: outfitting wingmen; 25: the story's stardate interludes; 24: story co-op
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -618,7 +618,7 @@ func _apply_remote_inputs() -> void:
 		if d["aim_angle"] == INF:
 			s.aim_point = Vector2.INF
 		else:
-			s.aim_point = s.global_position + Vector2.RIGHT.rotated(d["aim_angle"]) * 1000.0
+			s.aim_point = s.global_position + Vector2.RIGHT.rotated(d["aim_angle"]) * float(d.get("aim_dist", 1000.0))
 
 
 func _send_snapshots() -> void:
@@ -1054,6 +1054,7 @@ func _rpc_snapshot(data: PackedByteArray) -> void:
 			continue
 		client.push_state(e["net_id"], snap["elapsed"], e["pos"], e["vel"], e["rot"], (e["flags"] & NetCodec.FLAG_WARPING) != 0)
 		s.thrust_level = e["thrust"]
+		s.retro_level = e["retro"]
 		s.jamming = (e["flags"] & NetCodec.FLAG_JAMMING) != 0
 		s.sensors.net_sig = e["sig"]
 		s.warping = (e["flags"] & NetCodec.FLAG_WARPING) != 0

@@ -83,6 +83,7 @@ var fuel_max := 0.0
 var burn_rate := 0.0               # fuel/s at full thrust
 var fuel_use := 0.0                # fuel/s burned last physics step, for the HUD
 var thrust_level := 0.0            # for the engine glow, 0..1
+var retro_level := 0.0             # for the bow's retro jets (reversing, braking), 0..1
 var flight_assist := true          # RCS holds the turn rate and stops a tumble
 var orbit_guard := false           # the engines are busy steering clear of a planet
 var refuelling := false            # near a friendly base or colony this frame
@@ -439,10 +440,31 @@ func team() -> int:
 ## Is a pilot of side `race` (see team()) boarding us, or on the way to?
 ## Its friends hold their fire so it can take us alive.
 func spoken_for(race: int) -> bool:
+	return claim_holder(race) != null
+
+
+## How near a human pilot must be to a disabled ship they have targeted
+## for their side to leave it to them (Kyle, 2026-10-31: "ships I'm trying
+## to board shouldn't be fired on by my team").
+const CLAIM_RANGE := 3000.0
+
+## The pilot of side `race` who is boarding us or means to: the one with
+## the tractor on us, a computer pilot closing in to board, or a human
+## pilot who has us (dead in space) targeted nearby, unless they ordered
+## their wing to attack us (then the wing finishes us).  null if nobody.
+func claim_holder(race: int) -> Ship:
 	for c in [boarded_by, claimed_by]:
 		if c != null and is_instance_valid(c) and not c.dead and c.team() == race and (c.boarding == self or c.target == self):
-			return true
-	return false
+			return c
+	if world != null and boardable() and world.has_method("human_pilots"):
+		for h: Ship in world.human_pilots():
+			if not h.dead and h.target == self and h.team() == race and h.team() != team() \
+					and h.global_position.distance_to(global_position) < CLAIM_RANGE:
+				var o: Dictionary = world.wing.order_of(h) if world.get("wing") != null else {}
+				if o.get("order", "") == "attack" and o.get("target") == self:
+					continue
+				return h
+	return null
 
 
 func crew_fraction() -> float:
@@ -723,6 +745,7 @@ func pre_step(delta: float) -> void:
 	if dead:
 		return
 	if landing != Landing.NONE:
+		retro_level = 0.0
 		_landing_step(delta)
 		return
 	body.pos = global_position
@@ -747,7 +770,7 @@ func post_step(_delta: float) -> void:
 func _fly(delta: float) -> void:
 	var fwd := forward()
 	fuel_use = 0.0
-	boosting = inputs["boost"] and has_boost and inputs["thrust"] > 0.0 and fuel > 0.0
+	boosting = inputs["boost"] and has_boost and inputs["thrust"] > 0.0 and fuel > 0.0 and not engines_out()
 	var vmax := max_speed * (boost_speed if boosting else 1.0)
 	# the rating is the speed the drive holds in open space; inside a
 	# gravity well the cap is on the energy, so a ship can always climb out:
@@ -759,6 +782,7 @@ func _fly(delta: float) -> void:
 	warp_block = maxf(warp_block - delta, 0.0)
 
 	if warping:
+		retro_level = 0.0
 		_warp(delta)
 		body.vel = velocity
 		body.angle = rotation
@@ -821,6 +845,13 @@ func _fly(delta: float) -> void:
 	if dead_drive:
 		f = Vector2.ZERO
 		engine_level = 0.0
+	# the plumes show which way the drive pushes: the main engines for
+	# ahead (and the sideways jets), the bow's retro jets for astern and
+	# for a brake against forward way (Kyle, 2026-10-31)
+	var ahead := f.dot(fwd)
+	var aside := f.dot(fwd.orthogonal())
+	var main_push := Vector2(maxf(ahead, 0.0), aside).length() / maxf(thrust_force, 1.0)
+	var retro_push := maxf(-ahead, 0.0) / maxf(thrust_force, 1.0)
 	# over the rated speed the drive field drags the ship back toward it
 	if sp > vmax and not inputs["brake"] and not orbit_guard and not dead_drive:
 		var over := sp - vmax
@@ -836,9 +867,10 @@ func _fly(delta: float) -> void:
 		if fuel < burn * delta and world != null and is_player and fuel > 0.0 and not Net.is_client():   # a client replays inputs; the host says it
 			world.notify(self, "Fuel exhausted. Drift to a friendly base or colony to refuel.")
 		fuel = maxf(fuel - burn * delta, 0.0)
-	thrust_level = lerpf(thrust_level, clampf(minf(engine_level * 1.2, 1.0) + (0.5 if boosting else 0.0), 0.0, 1.0), 10.0 * delta)
+	thrust_level = lerpf(thrust_level, clampf(minf(main_push * 1.2, 1.0) + (0.5 if boosting else 0.0), 0.0, 1.0), 10.0 * delta)
+	retro_level = lerpf(retro_level, clampf(retro_push * 1.6, 0.0, 1.0), 10.0 * delta)
 	if engine_sound != null:
-		engine_sound.update(thrust_level, boosting, warping, delta)
+		engine_sound.update(maxf(thrust_level, retro_level), boosting, warping, delta)
 
 
 ## The pull of a well as the space really applies it at distance d: faded
@@ -1424,8 +1456,9 @@ func _weapons(delta: float) -> void:
 	for w in weapons:
 		if w["cooldown"] > 0.0:
 			w["cooldown"] -= delta
-		# turrets visibly swing toward where they would shoot
-		if is_turret(w) or is_free_aim(w):
+		# guns visibly swing toward where they would shoot (the mine rack
+		# only ever drops astern)
+		if w["missile"] != "002":
 			w["aim_vis"] = rotate_toward(w.get("aim_vis", w["fire_angle"]), _aim_angle(w), 5.0 * delta)
 		var want := false
 		if group_fire:
@@ -1543,12 +1576,14 @@ func _aim_angle(w: Dictionary) -> float:
 			return lock
 	if is_free_aim(w):
 		return _free_aim(w)
-	# a turret under a pilot's hand points where the pilot points
-	if aim_point != Vector2.INF and is_turret(w):
-		var rel := wrapf((aim_point - global_position).angle() - rotation, -PI, PI)
-		if w["arc1"] - w["arc0"] >= TAU - 0.2:
+	# under a pilot's hand every gun points where the pilot points: each
+	# from its own mount, so the shots meet on the cursor (Kyle, 2026-10-31)
+	# (a fixed gun that can't swing that far fires straight down its arc)
+	if aim_point != Vector2.INF:
+		var rel := converge_angle(w)
+		if w["arc1"] - w["arc0"] >= TAU - 0.2 or in_arc(w, rel):
 			return rel
-		return clamp_to_arc(w, rel)
+		return clamp_to_arc(w, rel) if is_turret(w) else centre
 	if target != null and is_instance_valid(target) and not (target is Ship and target.dead):
 		var rel := _lead_angle(w, target)
 		if in_arc(w, rel):
@@ -1563,7 +1598,7 @@ func _beam_lock(w: Dictionary) -> float:
 	var t := _locked_foe()
 	if t == null:
 		return INF
-	var to := t.global_position - global_position
+	var to := t.global_position - mount_point(w)
 	if to.length() > w["range"] + t.size:
 		return INF
 	var rel := wrapf(to.angle() - rotation, -PI, PI)
@@ -1582,9 +1617,30 @@ func _locked_foe() -> Ship:
 	return t
 
 
+## Where weapon `w` sits on the hull, in the world: its shots and beams
+## leave from here.
+func mount_point(w: Dictionary) -> Vector2:
+	return global_position + Vector2.RIGHT.rotated(rotation + w["mount_angle"]) * w["mount_radius"]
+
+
+## The pilot's guns never meet closer than this many ship sizes from the
+## centre (a cursor on the hull would cross them wildly).
+const CONVERGE_MIN := 2.5
+
+## Ship-relative angle from weapon `w`'s mount to the pilot's aim point,
+## so every gun's shots cross there.
+func converge_angle(w: Dictionary) -> float:
+	var at := aim_point
+	var off := at - global_position
+	var near := size * CONVERGE_MIN
+	if off.length() < near:
+		at = global_position + (off.normalized() if off.length() > 0.01 else forward()) * near
+	return wrapf((at - mount_point(w)).angle() - rotation, -PI, PI)
+
+
 ## Ship-relative angle to fire a shot from `w` at `t`, led for a tube.
 func _lead_angle(w: Dictionary, t: Node2D) -> float:
-	var to := t.global_position - global_position
+	var to := t.global_position - mount_point(w)
 	var lead := to
 	if t is Ship and w["kind"] == "tube":
 		var md: Dictionary = GameData.MISSILES[w["missile"]]
@@ -1604,7 +1660,7 @@ func _free_aim(w: Dictionary) -> float:
 	if foe != null:
 		rel = _lead_angle(w, foe)
 	elif aim_point != Vector2.INF:
-		rel = wrapf((aim_point - global_position).angle() - rotation, -PI, PI)
+		rel = converge_angle(w)
 	elif target != null and is_instance_valid(target) and not (target is Ship and target.dead):
 		rel = _lead_angle(w, target)
 	if in_arc(w, rel):
@@ -1633,7 +1689,7 @@ func _fire_tube(w: Dictionary) -> void:
 	if md.has("spread"):
 		rel += deg_to_rad(randf_range(-md["spread"], md["spread"]))   # a spray, not a rifle
 	var ang := rotation + rel
-	var mount: Vector2 = global_position + Vector2.RIGHT.rotated(rotation + w["mount_angle"]) * w["mount_radius"]
+	var mount := mount_point(w)
 	var dir := Vector2.RIGHT.rotated(ang)
 	var v: Vector2 = velocity + dir * md["fire_v"] * GameData.LIGHT_SPEED
 	if w["missile"] == "002":
@@ -1671,7 +1727,7 @@ func _fire_beam(w: Dictionary, delta: float) -> void:
 	add_signature("em", Sensors.BEAM_SIGNATURE[1], 0.25)
 	var rel := _aim_angle(w)
 	var ang := rotation + rel
-	var origin := global_position + Vector2.RIGHT.rotated(ang) * size * 0.6
+	var origin := mount_point(w) + Vector2.RIGHT.rotated(ang) * size * 0.3
 	# an enemy Deflector turns the beam, and it is that ship's beam from there
 	var hit: Dictionary = world.trace_beam(self, origin, Vector2.RIGHT.rotated(ang), w["range"])
 	var end: Vector2 = hit["point"]
@@ -1735,6 +1791,12 @@ func take_damage(amount: float, attacker: Node, at: Vector2 = Vector2.ZERO, sys_
 		return                         # (the free port is under every empire's protection)
 	if land_scale < 0.5:
 		return                         # down in the atmosphere, out of the fight
+	if attacker is Ship and attacker != self and attacker.team() != team():
+		# a friend of whoever is taking us alive holds fire, and a stray
+		# shot of theirs (fired at something else) does us no harm
+		var holder := claim_holder(attacker.team())
+		if holder != null and holder != attacker:
+			return
 	if attacker is Ship and attacker != self:
 		last_attacker = attacker
 		last_attacked_at = Time.get_ticks_msec() / 1000.0
@@ -2247,7 +2309,7 @@ func _draw() -> void:
 	if art_model.is_empty():
 		art_model = ShipArt.build_model(design, hull_race, size)
 	var broken := systems.broken_map()
-	ShipArt.draw_model(self, art_model, base, thrust_level, (0.4 if building else 1.0), dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0), broken, _coat_wear(), pdc.aims())
+	ShipArt.draw_model(self, art_model, base, thrust_level, (0.4 if building else 1.0), dmg, Transform2D.IDENTITY, aims, clampf(hit_flash * 5.0, 0.0, 1.0), broken, _coat_wear(), pdc.aims(), retro_level)
 	# PDC muzzle flashes
 	for mt in pdc.mounts:
 		if mt["flash"] > 0.0:

@@ -1940,6 +1940,20 @@ func radio(leader: Ship, speaker: Ship, line: String) -> void:
 		Net.relay_radio(leader, text, WingLines.audio_path(voice, line))
 
 
+## The human pilots in the game: ours, and on a host the seated online
+## pilots too (their friends leave a disabled ship they target to them).
+func human_pilots() -> Array:
+	var out := []
+	if player != null and is_instance_valid(player):
+		out.append(player)
+	if Net.is_host():
+		for peer_id in Net.seats:
+			var s: Node = Net.ships_by_id.get(Net.seats[peer_id], null)
+			if s != null and is_instance_valid(s) and s != player:
+				out.append(s)
+	return out
+
+
 ## The player (or a seated online pilot) asks to board its target.
 func try_board(s: Ship) -> void:
 	if Net.is_client():

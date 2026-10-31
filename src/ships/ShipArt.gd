@@ -623,7 +623,7 @@ static func build_model(design: Variant, race_id: int, size: float) -> Dictionar
 	var hull_name: String = design if design is String else design["name"]
 	var fit: Dictionary = {} if design is String else design
 	var m := {"hull": hull_name, "race": race_id, "size": size, "seed": hash(hull_name) + race_id * 31,
-		"tex": hull_texture(hull_name, race_id), "rect": Rect2(), "nozzles": [], "overlays": [], "turrets": [], "sockets": [], "pdc": [],
+		"tex": hull_texture(hull_name, race_id), "rect": Rect2(), "nozzles": [], "retro": [], "overlays": [], "turrets": [], "sockets": [], "pdc": [],
 		"glow": glow_color(race_id), "tint": part_tint(race_id), "station": GameData.is_station_hull(hull_name)}
 	var tex: Texture2D = m["tex"]
 	m["coat"] = _coat_of(fit)
@@ -636,6 +636,7 @@ static func build_model(design: Variant, race_id: int, size: float) -> Dictionar
 		var n_eng: int = counts.get("eng", 2 if hull_name != "Scout" else 1)
 		var eng_tier: int = counts.get("eng_tier", 2)
 		m["nozzles"] = _nozzle_points(m, hull_name, size, n_eng, eng_tier)
+		m["retro"] = _retro_points(m, size)
 		# systems in sockets first, so the rest keep clear of them
 		var choice := socket_choice(fit, hull_name, race_id, size)
 		_placed_systems(m, size, choice)
@@ -967,6 +968,40 @@ static func _nozzle_points(m: Dictionary, hull_name: String, size: float, n: int
 	return out
 
 
+## Where the retro jets fire from when the ship reverses or brakes: a pair
+## on the bow's shoulders, either side of the keel, each set on the hull's
+## forward edge and angled out so the flame clears the nose.
+const RETRO_SPLAY := 28.0
+
+static func _retro_points(m: Dictionary, size: float) -> Array:
+	var rect: Rect2 = m["rect"]
+	var mask: Dictionary = m["mask"]
+	var r := size * 0.09
+	var out := []
+	for side in [-1.0, 1.0]:
+		var y: float = side * rect.size.y * 0.2
+		var x := rect.end.x - r
+		if not mask.is_empty():
+			var gw: int = mask["gw"]
+			var gh: int = mask["gh"]
+			var row := clampi(int((y - rect.position.y) / rect.size.y * gh), 0, gh - 1)
+			# walk in from the bow to the first solid cell of this row,
+			# pulling the row toward the keel if it misses the hull
+			var found := false
+			for tries in gh:
+				for gx in range(gw - 1, -1, -1):
+					if mask["depth"][row * gw + gx] > 0.0:
+						x = rect.position.x + (gx + 0.5) * rect.size.x / gw - r * 0.3
+						y = rect.position.y + (row + 0.5) * rect.size.y / gh
+						found = true
+						break
+				if found:
+					break
+				row += 1 if row < gh / 2 else -1
+		out.append({"pos": Vector2(x, y), "r": r, "angle": deg_to_rad(RETRO_SPLAY) * signf(y if absf(y) > 0.01 else side)})
+	return out
+
+
 ## Add a part overlay, kept on the hull and clear of other parts unless
 ## `free` (parts that hang off an edge on purpose, like the ram prow).
 static func _overlay(m: Dictionary, icon: String, pos: Vector2, width: float, rot: float = 0.0, alpha: float = 1.0, anchor: float = 0.5, free: bool = false) -> void:
@@ -1145,7 +1180,7 @@ static func _turret_overlay(m: Dictionary, w: Array, index: int, mount: Vector2)
 ## `broken` maps a part icon, "engines" or "t<weapon index>" to how badly
 ## that system is damaged (0..1, 1 offline): those parts are drawn dark.
 static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: float, alpha: float, damage: float,
-		xform: Transform2D = Transform2D.IDENTITY, aims: Array = [], flash: float = 0.0, broken: Dictionary = {}, coat_wear: float = 1.0, pdc_aims: Array = []) -> void:
+		xform: Transform2D = Transform2D.IDENTITY, aims: Array = [], flash: float = 0.0, broken: Dictionary = {}, coat_wear: float = 1.0, pdc_aims: Array = [], retro: float = 0.0) -> void:
 	var a := alpha
 	var size: float = m["size"]
 	var rect: Rect2 = m["rect"]
@@ -1165,6 +1200,21 @@ static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: flo
 			c.draw_texture_rect(plume, Rect2(root - l * 1.3, p.y - r * 1.6, l * 1.3, r * 3.2), false, Color(glow.r, glow.g, glow.b, 0.5 * a))
 			c.draw_texture_rect(plume, Rect2(root - l * 0.85, p.y - r * 1.0, l * 0.85, r * 2.0), false, Color(hot.r, hot.g, hot.b, 0.85 * a))
 			c.draw_texture_rect(plume, Rect2(root - l * 0.42, p.y - r * 0.55, l * 0.42, r * 1.1), false, Color(1, 1, 1, 0.9 * a))
+	# reversing or braking: the retro jets on the bow fire forward
+	if retro > 0.01 and a > 0.05:
+		var glow: Color = m["glow"]
+		var plume := plume_texture()
+		var hot := glow.lerp(Color.WHITE, 0.45)
+		for nz in m.get("retro", []):
+			var r: float = nz["r"]
+			var l := r * (3.0 + 6.0 * retro) * randf_range(0.9, 1.1)
+			# turned to face forward: the plume picture runs out to its left
+			c.draw_set_transform_matrix(xform * Transform2D(PI + float(nz["angle"]), nz["pos"]))
+			var root := r * 0.3
+			c.draw_texture_rect(plume, Rect2(root - l * 1.3, -r * 1.6, l * 1.3, r * 3.2), false, Color(glow.r, glow.g, glow.b, 0.5 * a))
+			c.draw_texture_rect(plume, Rect2(root - l * 0.85, -r * 1.0, l * 0.85, r * 2.0), false, Color(hot.r, hot.g, hot.b, 0.85 * a))
+			c.draw_texture_rect(plume, Rect2(root - l * 0.42, -r * 0.55, l * 0.42, r * 1.1), false, Color(1, 1, 1, 0.9 * a))
+		c.draw_set_transform_matrix(xform)
 	# the hull painting
 	var bright := 1.0 + flash * 2.0
 	var dark := 1.0 - 0.3 * clampf(damage, 0.0, 1.0)
@@ -1195,7 +1245,7 @@ static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: flo
 	# weapons, turrets turned to their live aim
 	for t in m["turrets"]:
 		var ang: float = t["fire"]
-		if t["turret"] and t["index"] < aims.size():
+		if t["index"] < aims.size():
 			ang = aims[t["index"]]
 		var k := 1.0 - 0.6 * float(broken.get("t%d" % t["index"], 0.0))
 		_draw_icon(c, xform, t["tex"], t["pos"], t["w"], t["h"], ang, Color(pm.r * k, pm.g * k, pm.b * k, pm.a), t["anchor"])

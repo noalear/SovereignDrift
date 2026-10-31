@@ -47,15 +47,18 @@ static func pack_input(seq: int, inputs: Dictionary, aim_point: Vector2, pos: Ve
 	if inputs["fire_mine"]: btn |= BTN_MINE
 	if inputs["fire_beam"]: btn |= BTN_BEAM
 	var aim := 0.0
+	var reach := 0.0
 	if aim_point != Vector2.INF:
 		btn |= BTN_AIM
 		aim = (aim_point - pos).angle()
+		reach = (aim_point - pos).length()
 	b.put_u8(btn)
 	b.put_16(int(aim * 10000.0))
+	b.put_u16(int(clampf(reach, 0.0, 65535.0)))     # how far off: the guns meet there
 	return b.data_array
 
 
-## Returns {seq, inputs, aim_angle (or INF)}.
+## Returns {seq, inputs, aim_angle (or INF), aim_dist}.
 static func unpack_input(data: PackedByteArray) -> Dictionary:
 	var b := StreamPeerBuffer.new()
 	b.data_array = data
@@ -73,12 +76,13 @@ static func unpack_input(data: PackedByteArray) -> Dictionary:
 	i["fire_mine"] = (btn & BTN_MINE) != 0
 	i["fire_beam"] = (btn & BTN_BEAM) != 0
 	var aim := b.get_16() / 10000.0
+	out["aim_dist"] = float(b.get_u16())
 	if (btn & BTN_AIM) != 0:
 		out["aim_angle"] = aim
 	return out
 
 
-## The state of every ship, 31 bytes each, after a 12-byte header: heat,
+## The state of every ship, 32 bytes each, after a 12-byte header: heat,
 ## EM and temporal signatures ride along so clients can work out their
 ## own contacts (radar return they work out themselves).
 static func pack_snapshot(elapsed: float, ack_seq: int, ships: Array) -> PackedByteArray:
@@ -99,6 +103,7 @@ static func pack_snapshot(elapsed: float, ack_seq: int, ships: Array) -> PackedB
 		b.put_u8(_gauge(s.shield_front, s.shield))
 		b.put_u8(_gauge(s.energy, s.energy_max))
 		b.put_u8(int(clampf(s.thrust_level, 0.0, 1.0) * 255.0))
+		b.put_u8(int(clampf(s.retro_level, 0.0, 1.0) * 255.0))
 		var flags := 0
 		if s.dead: flags |= FLAG_DEAD
 		if s.jamming: flags |= FLAG_JAMMING
@@ -113,7 +118,7 @@ static func pack_snapshot(elapsed: float, ack_seq: int, ships: Array) -> PackedB
 	return b.data_array
 
 
-## Returns {elapsed, ack_seq, ships: [{net_id, pos, vel, rot, hull, shield, front, energy, thrust, flags, sig}]}.
+## Returns {elapsed, ack_seq, ships: [{net_id, pos, vel, rot, hull, shield, front, energy, thrust, retro, flags, sig}]}.
 static func unpack_snapshot(data: PackedByteArray) -> Dictionary:
 	var b := StreamPeerBuffer.new()
 	b.data_array = data
@@ -131,6 +136,7 @@ static func unpack_snapshot(data: PackedByteArray) -> Dictionary:
 		e["front"] = b.get_u8() / 255.0
 		e["energy"] = b.get_u8() / 255.0
 		e["thrust"] = b.get_u8() / 255.0
+		e["retro"] = b.get_u8() / 255.0
 		e["flags"] = b.get_u8()
 		e["sig"] = [0.0, b.get_u8() * SIG_STEP, b.get_u8() * SIG_STEP, b.get_u8() * SIG_STEP]
 		out["ships"].append(e)
