@@ -1246,9 +1246,14 @@ func _draw_dead(vp: Vector2) -> void:
 		line = "The starbase has fallen.  A new run starts in %s." % world.mode_rules.clock_text()
 	elif world.mode == "survival" and world.mode_rules != null and world.mode_rules.is_hunter(world.player):
 		line = "You launch with the next wave (%s)." % world.mode_rules.clock_text() if world.mode_rules.break_left > 0.0 else "You launch with the next wave."
-	elif world.starbase_back_in(world.player.race_id) >= 0.0:
-		line += "   (the starbase is down: you launch over %s)" % world._home_planet(world.player.race_id).body_name
+	elif world.waits_for_starbase(world.player):
+		# no starbase, no launch: wait for the rebuild
+		var back: float = world.starbase_back_in(world.player.race_id)
+		line = "Your starbase is down: you launch when it is rebuilt%s." % (" in %d s" % int(ceil(back)) if back > 0.0 else "")
 	draw_string(font, Vector2(0, vp.y * 0.4 + 40), line, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, Color(1, 1, 1, a))
+	var lost: int = world.player.get_meta("purse_lost", 0)
+	if lost > 0:
+		draw_string(font, Vector2(0, vp.y * 0.4 + 70), "Lost %d credits, half your purse: they float in the wreck." % lost, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 18, Color(1.0, 0.85, 0.45, a))
 
 
 ## A help row for an action as it is bound right now: "W / Up  (RT)".

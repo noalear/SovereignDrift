@@ -41,6 +41,12 @@ const MOUNTS := {
 	"stations/DefenseStation_terran": [[0.5, 0.45], [0.27, 0.64], [0.744, 0.245]],
 	"stations/DefenseStation_arcean": [[0.504, 0.49], [0.297, 0.645], [0.718, 0.319]],
 	"stations/DefenseStation_drengin": [[0.5, 0.5], [0.29, 0.655], [0.709, 0.333]],
+	# Starbase: the two torpedo tubes, battery and laser by the hub, then the
+	# four defence turrets in the painted gun emplacements between the arms
+	# (down-right, down-left, up-left, up-right)
+	"stations/terran@Starbase": [[0.644, 0.5], [0.356, 0.5], [0.5, 0.64], [0.5, 0.272], [0.775, 0.76], [0.225, 0.76], [0.225, 0.215], [0.775, 0.215]],
+	"stations/arcean@Starbase": [[0.644, 0.5], [0.356, 0.5], [0.5, 0.643], [0.5, 0.268], [0.775, 0.73], [0.225, 0.73], [0.225, 0.215], [0.775, 0.215]],
+	"stations/drengin@Starbase": [[0.644, 0.5], [0.356, 0.5], [0.5, 0.64], [0.5, 0.272], [0.765, 0.76], [0.235, 0.76], [0.235, 0.245], [0.765, 0.245]],
 }
 
 static var _textures := {}

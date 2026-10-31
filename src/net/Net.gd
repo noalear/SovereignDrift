@@ -12,7 +12,7 @@ signal session_ended(reason: String)
 signal round_restarted()       # the host started the next Conquest round (client)
 
 const PORT := 7777
-const PROTOCOL := 30   # 30: guns meet on the cursor (aim distance in the input), retro jets in the snapshot; 29: Deflector shields turn shots (shield families renamed); 28: guided shots carry their target; 27: story signals (the story key calls in drop ships); 26: outfitting wingmen; 25: the story's stardate interludes; 24: story co-op
+const PROTOCOL := 31   # 31: starbase defence turrets (the Starbase carries four more guns); 30: guns meet on the cursor (aim distance in the input), retro jets in the snapshot; 29: Deflector shields turn shots (shield families renamed); 28: guided shots carry their target; 27: story signals (the story key calls in drop ships); 26: outfitting wingmen; 25: the story's stardate interludes; 24: story co-op
 const MAX_PLAYERS := 8
 const SNAPSHOT_INTERVAL := 1.0 / 20.0
 const PING_EVERY := 1.0
@@ -818,6 +818,8 @@ func _rpc_purse(credits: int, hold: Array, blueprints: Array) -> void:
 	var s: Node = ships_by_id.get(local_net_id, null)
 	if s == null or not is_instance_valid(s) or s.docked:
 		return   # not while the shipyard is open on this purse
+	if s.dead and credits < s.credits and not s.has_meta("purse_lost"):
+		s.set_meta("purse_lost", s.credits - credits)   # half the purse went with the wreck: the death screen says so
 	s.credits = credits
 	s.hold = hold
 	s.blueprints = blueprints
