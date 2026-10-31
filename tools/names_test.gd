@@ -50,7 +50,10 @@ func _start() -> void:
 	for w in sk["weapons"]:
 		ids.append(w[0])
 	_check(ids == ["4020", "4003", "4010", "4010", "4002"], "the Skethra cruiser's stock fit (%s)" % [ids])
-	# --- in game: a Skethra pilot's weapons panel and shipyard
+	# --- in game: a Skethra pilot's weapons panel and shipyard (the
+	# player's settings file is put back afterwards, so other tests still
+	# fly for the Solborn)
+	var saved := FileAccess.get_file_as_bytes("user://settings.cfg")
 	root.get_node("/root/Settings").race_id = 2
 	main = load("res://src/Main.tscn").instantiate()
 	if not "world" in main:
@@ -102,6 +105,11 @@ func _start() -> void:
 				heavy = e
 		_check(not row.is_empty() and row["ok"], "the Skethra cruiser's mount %d takes a Gatling gun (%s)" % [i + 1, row.get("price", "no row")])
 		_check(heavy.is_empty() or (not heavy["ok"] and heavy["price"] == "heavy mount"), "a cannon on mount %d says it needs a heavy mount (%s)" % [i + 1, heavy.get("price", "")])
+	root.get_node("/root/Settings").race_id = 1
+	if not saved.is_empty():
+		var fa := FileAccess.open("user://settings.cfg", FileAccess.WRITE)
+		fa.store_buffer(saved)
+		fa.close()
 	print("names test: %s" % ("FAILED" if failed else "ok"))
 	quit(1 if failed else 0)
 
