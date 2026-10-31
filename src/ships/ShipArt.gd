@@ -25,42 +25,17 @@ extends RefCounted
 ## number used by the rules).
 const LENGTH := 3.0
 
-## Where each hardpoint's socket sits on a painting, in hardpoint order,
-## as fractions of the painting (x from the stern edge, y from the top).
-## Keyed "<empire folder>/<file>", or "<folder>/<file>@<hull>" for a
-## painting another hull borrows.  Paintings not listed here get their
-## sockets snapped onto the hull from the original game's mount radii.
+## Where each hardpoint's socket sits on a station painting, in hardpoint
+## order, as fractions of the painting (x from the left edge, y from the
+## top).  Ship hulls keep theirs, with every other part's spot, in
+## ShipPlaces.SPOTS ("w").  Paintings listed in neither get their sockets
+## snapped onto the hull from the original game's mount radii.
 ## Hardpoint order per hull (GameData.SHIPS weapons): Scout bow, bow, aft
 ## rack; Destroyer bow, starboard (+y), port, aft; Raider bow, starboard,
 ## port; Cruiser and BattleCruiser bow, bow, starboard, port, aft;
 ## Battleship bow, heavy bow, starboard, port, aft; Dreadnought bow,
-## starboard, port, dorsal, aft.
+## starboard, port, dorsal, aft; Freighter and Drop ship one bow gun.
 const MOUNTS := {
-	"terran/Scout": [[0.66, 0.5], [0.48, 0.5], [0.3, 0.5]],
-	"terran/Destroyer": [[0.8, 0.5], [0.52, 0.62], [0.52, 0.38], [0.28, 0.5]],
-	"terran/Cruiser": [[0.86, 0.5], [0.62, 0.5], [0.86, 0.84], [0.86, 0.16], [0.27, 0.5]],
-	"terran/BattleCruiser": [[0.53, 0.5], [0.42, 0.5], [0.68, 0.78], [0.68, 0.22], [0.27, 0.5]],
-	"terran/Battleship": [[0.86, 0.5], [0.7, 0.5], [0.55, 0.75], [0.55, 0.25], [0.22, 0.5]],
-	"terran/Dreadnought": [[0.86, 0.5], [0.75, 0.84], [0.75, 0.16], [0.45, 0.5], [0.16, 0.5]],
-	"arcean/Scout": [[0.84, 0.5], [0.7, 0.5], [0.57, 0.5]],
-	"arcean/Destroyer": [[0.8, 0.5], [0.52, 0.66], [0.52, 0.34], [0.33, 0.5]],
-	"arcean/Cruiser": [[0.86, 0.5], [0.7, 0.5], [0.56, 0.8], [0.56, 0.2], [0.3, 0.5]],
-	"arcean/BattleCruiser": [[0.88, 0.5], [0.76, 0.5], [0.62, 0.64], [0.62, 0.36], [0.48, 0.5]],
-	"arcean/Battleship": [[0.86, 0.5], [0.7, 0.5], [0.55, 0.68], [0.55, 0.32], [0.36, 0.5]],
-	"arcean/Dreadnought": [[0.88, 0.5], [0.76, 0.8], [0.76, 0.2], [0.5, 0.5], [0.22, 0.5]],
-	"drengin/Scout": [[0.66, 0.5], [0.52, 0.5], [0.28, 0.5]],
-	"drengin/Destroyer": [[0.62, 0.5], [0.58, 0.82], [0.58, 0.18], [0.3, 0.5]],
-	"drengin/Cruiser": [[0.86, 0.5], [0.62, 0.5], [0.68, 0.85], [0.68, 0.15], [0.33, 0.5]],
-	"drengin/BattleCruiser": [[0.88, 0.5], [0.74, 0.5], [0.6, 0.5], [0.46, 0.5], [0.3, 0.5]],
-	"drengin/Battleship": [[0.8, 0.5], [0.62, 0.5], [0.38, 0.7], [0.38, 0.3], [0.22, 0.5]],
-	"drengin/Dreadnought": [[0.7, 0.5], [0.72, 0.8], [0.72, 0.2], [0.45, 0.5], [0.22, 0.5]],
-	"pirate/Scout": [[0.82, 0.46], [0.66, 0.42], [0.4, 0.48]],
-	"pirate/Raider": [[0.7, 0.5], [0.45, 0.74], [0.45, 0.26]],
-	"pirate/Raider@Destroyer": [[0.7, 0.5], [0.45, 0.74], [0.45, 0.26], [0.3, 0.5]],
-	"pirate/Cruiser": [[0.88, 0.5], [0.72, 0.5], [0.78, 0.8], [0.78, 0.2], [0.3, 0.5]],
-	"pirate/BattleCruiser": [[0.82, 0.36], [0.66, 0.76], [0.45, 0.76], [0.55, 0.3], [0.32, 0.76]],
-	"pirate/Battleship": [[0.62, 0.5], [0.47, 0.5], [0.38, 0.78], [0.38, 0.22], [0.22, 0.5]],
-	"pirate/Battleship@Dreadnought": [[0.62, 0.5], [0.38, 0.78], [0.38, 0.22], [0.47, 0.5], [0.22, 0.5]],
 	# Defensive station: main gun on the hub, the two flak guns in opposite
 	# gun pits (all three turn the full circle, so where they sit is looks)
 	"stations/DefenseStation_terran": [[0.5, 0.45], [0.27, 0.64], [0.744, 0.245]],
@@ -79,6 +54,11 @@ static var _coat_jobs := {}        # the same keys -> WorkerThreadPool task, whi
 static var _coat_lock := Mutex.new()
 ## Bake coats on the spot instead of on a worker (screenshot tools).
 static var bake_now := false
+## Draw the high-resolution paintings (the shipyard), resampled to
+## `hd_width` pixels across when that is set (0: as they are).
+static var hd := false
+static var hd_width := 0
+static var _hd_sized := {}
 
 
 # ---------------------------------------------------------------- public
@@ -124,6 +104,37 @@ static func hull_texture(hull_name: String, race_id: int) -> Texture2D:
 	if t == null and hull_name == "DropShip":
 		return hull_texture("Cruiser", race_id)     # until the drop ship has its own painting
 	return t
+
+
+## The high-resolution copy of a hull painting (assets/ships/hd/, the same
+## picture upscaled from its source sheet, for the shipyard), or null.
+static func hd_source(tex: Texture2D) -> Texture2D:
+	if tex == null:
+		return null
+	return texture(tex.resource_path.replace("res://assets/ships/", "res://assets/ships/hd/").get_basename() + ".webp")
+
+
+## The high-resolution painting resampled to `hd_width` (so it stays sharp
+## without mipmaps); the painting itself when there is no copy.
+static func hd_texture(tex: Texture2D) -> Texture2D:
+	var big := hd_source(tex)
+	return tex if big == null else _sized(big, big.resource_path)
+
+
+## `t` resampled once to `hd_width` pixels across (cached under `key`).
+static func _sized(t: Texture2D, key: String) -> Texture2D:
+	if hd_width <= 0 or hd_width >= t.get_width():
+		return t
+	key += "|%d" % hd_width
+	if not _hd_sized.has(key):
+		if _hd_sized.size() > 12:
+			_hd_sized.clear()
+		var img := t.get_image()
+		if img.is_compressed():
+			img.decompress()
+		img.resize(hd_width, maxi(int(round(img.get_height() * float(hd_width) / img.get_width())), 1), Image.INTERPOLATE_LANCZOS)
+		_hd_sized[key] = ImageTexture.create_from_image(img)
+	return _hd_sized[key]
 
 
 static func part_texture(name: String) -> Texture2D:
@@ -397,7 +408,7 @@ static func hardpoint_spots(hull_name: String, race_id: int, size: float) -> Arr
 	var raws := []
 	var out := []
 	# hand-placed sockets on the decks each painting leaves free
-	var placed: Array = MOUNTS.get(_painting_key(tex) + "@" + hull_name, MOUNTS.get(_painting_key(tex), []))
+	var placed: Array = places(tex, hull_name).get("w", MOUNTS.get(_painting_key(tex) + "@" + hull_name, MOUNTS.get(_painting_key(tex), [])))
 	var hps := GameData.hull_hardpoints(hull_name)
 	if placed.size() == hps.size():
 		for p in placed:
@@ -421,6 +432,34 @@ static func hardpoint_spots(hull_name: String, race_id: int, size: float) -> Arr
 		raws.append(raw)
 		out.append(spot)
 	_spots[key] = out
+	return out
+
+
+## The hand-placed part spots for a hull's painting (ShipPlaces), or {}.
+static func places(tex: Texture2D, hull_name: String) -> Dictionary:
+	var key := _painting_key(tex)
+	return ShipPlaces.SPOTS.get(key + "@" + hull_name, ShipPlaces.SPOTS.get(key, {}))
+
+
+## A painting fraction ([x from the stern edge, y from the top]) as a
+## model-space point.
+static func _at(rect: Rect2, p: Array) -> Vector2:
+	return rect.position + Vector2(float(p[0]) * rect.size.x, float(p[1]) * rect.size.y)
+
+
+## Hand-placed sockets ("boost" or "ext" in ShipPlaces) as model points:
+## a point off the centre line is a mirrored pair, [x, y, 0] a single
+## socket off the centre line, four numbers a pair as given.
+static func _placed_sockets(rect: Rect2, list: Array) -> Array:
+	var out := []
+	for p in list:
+		if p.size() >= 4:
+			out.append(_at(rect, [p[0], p[1]]))
+			out.append(_at(rect, [p[2], p[3]]))
+		else:
+			out.append(_at(rect, p))
+			if p.size() == 2 and absf(float(p[1]) - 0.5) >= 0.005:
+				out.append(_at(rect, [p[0], 1.0 - float(p[1])]))
 	return out
 
 
@@ -479,6 +518,9 @@ static func _make_sockets(hull_name: String, race_id: int, size: float) -> Dicti
 	var tex := hull_texture(hull_name, race_id)
 	var rect := _hull_rect(tex, size, GameData.is_station_hull(hull_name))
 	var mask := hull_mask(tex)
+	var hand := places(tex, hull_name)
+	if hand.has("boost") and hand.has("ext"):
+		return {"boost": _placed_sockets(rect, hand["boost"]), "ext": _placed_sockets(rect, hand["ext"])}
 	var taken: Array = hardpoint_spots(hull_name, race_id, size).duplicate()
 	# boosters ride beside the engines, not out on a wing tip
 	var engine_reach := rect.size.y * 0.28
@@ -627,7 +669,7 @@ static func _coat_of(fit: Dictionary) -> String:
 ## The painting `tex` wearing armor coat `coat_id`, or null with no coat
 ## (or while it is still being baked: the bare painting shows until then).
 ## Baked once per painting and coat on a worker thread.
-static func coat_texture(tex: Texture2D, coat_id: String, race_id: int) -> Texture2D:
+static func coat_texture(tex: Texture2D, coat_id: String, race_id: int, base: Texture2D = null) -> Texture2D:
 	if tex == null or coat_id == "" or not GameData.ARMOR.has(coat_id):
 		return null
 	var key := "%s|%s" % [tex.resource_path, coat_id]
@@ -651,19 +693,21 @@ static func coat_texture(tex: Texture2D, coat_id: String, race_id: int) -> Textu
 	if img.is_compressed():
 		img.decompress()
 	img.convert(Image.FORMAT_RGBA8)
-	var mask := hull_mask(tex)
+	# a high-resolution copy is laid out like its game painting `base`
+	var mask := hull_mask(tex if base == null else base)
+	var px := 1.0 if base == null else img.get_width() / float(base.get_width())
 	var coat: String = GameData.ARMOR[coat_id]["coat"]
 	var tier := GameData.tier(coat_id)
 	if bake_now:
-		_coats[key] = ImageTexture.create_from_image(bake_coat(img, coat, tier, race_id, mask))
+		_coats[key] = ImageTexture.create_from_image(bake_coat(img, coat, tier, race_id, mask, px))
 		return _coats[key]
-	_coat_jobs[key] = WorkerThreadPool.add_task(_bake_job.bind(key, img, coat, tier, race_id, mask), false, "coat " + key)
+	_coat_jobs[key] = WorkerThreadPool.add_task(_bake_job.bind(key, img, coat, tier, race_id, mask, px), false, "coat " + key)
 	return null
 
 
 ## (on a worker: touches nothing but its own arguments)
-static func _bake_job(key: String, img: Image, coat: String, tier: int, race_id: int, mask: Dictionary) -> void:
-	var out := bake_coat(img, coat, tier, race_id, mask)
+static func _bake_job(key: String, img: Image, coat: String, tier: int, race_id: int, mask: Dictionary, px: float) -> void:
+	var out := bake_coat(img, coat, tier, race_id, mask, px)
 	_coat_lock.lock()
 	_coats[key] = out
 	_coat_lock.unlock()
@@ -675,7 +719,9 @@ static func _hash2(x: float, y: float) -> float:
 
 
 ## Repaint `img` (RGBA8, a hull painting) in armor coat `coat` (a
-## GameData.ARMOR "coat"; `tier` for plate).  Each coat has
+## GameData.ARMOR "coat"; `tier` for plate).  `px` is how many pixels of
+## `img` make one pixel of the game painting (the shipyard's high-resolution
+## copy), so the pattern comes out the same size on the hull.  Each coat has
 ## its own finish and pattern; each empire lays the pattern out its own
 ## way: Terran straight and square, Arcean flowing in curves, Drengin
 ## raked at an angle, pirates patchy, with cells missing and mismatched.
@@ -687,13 +733,13 @@ static func _hash2(x: float, y: float) -> float:
 ##  Shroud: near black, with faint radar-scattering facets.
 ##  Bulkheads: barely shows outside (it is inside work): a duller skin,
 ##   faint frame lines and a thicker rim.
-static func bake_coat(img: Image, coat: String, tier: int, race_id: int, mask: Dictionary) -> Image:
+static func bake_coat(img: Image, coat: String, tier: int, race_id: int, mask: Dictionary, px: float = 1.0) -> Image:
 	var w := img.get_width()
 	var h := img.get_height()
 	var data := img.get_data()
 	var tint := part_tint(race_id)
 	var glow := glow_color(race_id)
-	var s := clampf(h / 6.0, 10.0, 34.0)       # pattern cell, in painting pixels
+	var s := clampf(h / px / 6.0, 10.0, 34.0)  # pattern cell, in game painting pixels
 	var gw: int = mask.get("gw", 0)
 	var gh: int = mask.get("gh", 0)
 	var depth: PackedFloat32Array = mask.get("depth", PackedFloat32Array())
@@ -717,8 +763,8 @@ static func bake_coat(img: Image, coat: String, tier: int, race_id: int, mask: D
 			if gw > 0:
 				dep = depth[mini(int(y * cy), gh - 1) * gw + mini(int(x * cx), gw - 1)]
 			# the pattern's coordinates, laid out in the empire's style
-			var u := float(x)
-			var v := float(y)
+			var u := x / px
+			var v := y / px
 			match race_id:
 				0:
 					u += sin(v * 0.06) * s * 0.35
@@ -933,35 +979,55 @@ static func _overlay(m: Dictionary, icon: String, pos: Vector2, width: float, ro
 	m["overlays"].append({"tex": t, "icon": icon, "pos": pos, "w": width, "h": width * t.get_height() / t.get_width(), "rot": rot, "a": alpha, "anchor": anchor})
 
 
+## A system part's width, no wider across the hull than a slim painting
+## can seat (`rot` turns the picture: the jammer spine lies along the hull).
+static func _fit_width(m: Dictionary, icon: String, width: float, rot: float) -> float:
+	var t := part_texture(race_part_icon(icon, m["race"]))
+	var across := 1.0
+	if absf(rot) < 0.1 and t != null:
+		across = t.get_height() / float(t.get_width())
+	return minf(width, m["rect"].size.y * 0.42 / across)
+
+
 ## Fitted systems, placed where they read best on a top-down hull.
 static func _system_overlays(m: Dictionary, size: float, counts: Dictionary) -> void:
 	var rect: Rect2 = m["rect"]
 	var hw := rect.size.y * 0.5          # half height of the hull sprite
 	var s := size
+	var hand := places(m["tex"], m["hull"])
+	# a hand-placed spot (ShipPlaces) when the painting has one, else the
+	# spot given here, kept on the hull and clear of other parts
+	var put := func(icon: String, spot: Vector2, width: float, rot: float = 0.0, alpha: float = 0.95) -> void:
+		if hand.has(icon):
+			var p := _at(rect, hand[icon])
+			m["taken"].append(p)
+			_overlay(m, icon, p, _fit_width(m, icon, width, rot), rot, alpha, 0.5, true)
+		else:
+			_overlay(m, icon, spot, width, rot, alpha)
 	# (engines are part of each painting; boosters and shield emitters sit
 	# in sockets: _placed_systems)
 	# quantum drive over the stern, its drive bell aft (Kyle: it was drawn
 	# backwards with the bell forward)
 	var qt: int = counts.get("qdrv_tier", 0)
 	if qt > 0:
-		_overlay(m, "qdrv", Vector2(rect.position.x + s * 0.7, 0), s * (0.22 + 0.04 * qt), 0.0, 0.9)
+		put.call("qdrv", Vector2(rect.position.x + s * 0.7, 0), s * (0.22 + 0.04 * qt), 0.0, 0.9)
 	# reactor core at the heart, brighter window with tier
 	var pt: int = counts.get("power_tier", 0)
 	if pt > 0:
-		_overlay(m, "reactor", Vector2(-s * 0.15, 0), s * (0.22 + 0.03 * pt), 0.0, 0.95)
+		put.call("reactor", Vector2(-s * 0.15, 0), s * (0.22 + 0.03 * pt))
 	# (armor is a coat over the whole painting: coat_texture)
 	# sensor dish forward, bigger by tier
 	var st: int = counts.get("sensor_tier", 0)
 	if st > 0:
-		_overlay(m, "sensor", Vector2(s * 0.4, -hw * 0.35), s * (0.11 + 0.03 * st), 0.0, 0.95)
+		put.call("sensor", Vector2(s * 0.4, -hw * 0.35), s * (0.11 + 0.03 * st))
 	# the jammer's emitter spine down the middle
 	if counts.get("jammer", 0) > 0:
-		_overlay(m, "cloak", Vector2(-s * 0.55, 0), s * 0.18, PI * 0.5, 0.9)
+		put.call("cloak", Vector2(-s * 0.55, 0), s * 0.18, PI * 0.5, 0.9)
 	# repair hatch, regenerator node, ram prow
 	if counts.get("repair", 0) > 0:
-		_overlay(m, "repair", Vector2(-s * 0.45, hw * 0.35), s * 0.2, 0.0, 0.95)
+		put.call("repair", Vector2(-s * 0.45, hw * 0.35), s * 0.2)
 	if counts.get("regen", 0) > 0:
-		_overlay(m, "regen", Vector2(s * 0.3, hw * 0.3), s * 0.2, 0.0, 0.95)
+		put.call("regen", Vector2(s * 0.3, hw * 0.3), s * 0.2)
 	if counts.get("ram", 0) > 0:
 		_overlay(m, "ram", Vector2(rect.end.x + s * 0.05, 0), s * 0.5, 0.0, 1.0, 0.25, true)
 
@@ -1105,10 +1171,14 @@ static func draw_model(c: CanvasItem, m: Dictionary, base: Color, thrusting: flo
 	var mod := Color(bright * dark, bright * dark, bright * dark, a)
 	var tex: Texture2D = m["tex"]
 	if tex != null:
-		c.draw_texture_rect(tex, rect, false, mod)
+		# (the shipyard draws the high-resolution painting, and its coat)
+		var big := hd_source(tex) if hd else null
+		c.draw_texture_rect(tex if big == null else _sized(big, big.resource_path), rect, false, mod)
 		# the armor coat over it, thinning as an ablative layer or the
 		# reactive tiles are spent
-		var coat_tex := coat_texture(tex, m.get("coat", ""), m["race"])
+		var coat_tex := coat_texture(tex if big == null else big, m.get("coat", ""), m["race"], tex)
+		if coat_tex != null and big != null:
+			coat_tex = _sized(coat_tex, "%s|%s" % [big.resource_path, m.get("coat", "")])
 		if coat_tex != null and coat_wear > 0.0:
 			c.draw_texture_rect(coat_tex, rect, false, Color(mod.r, mod.g, mod.b, a * clampf(coat_wear, 0.0, 1.0)))
 	else:
