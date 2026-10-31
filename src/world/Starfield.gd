@@ -9,11 +9,13 @@ var camera: Camera2D = null
 var world: Node = null          # when set, follows its camera between physics ticks
 var nebula: Texture2D = null
 
-## The nebula is a sky: it keeps its size on screen whatever the zoom and
-## drifts only a little as the camera travels.
-const NEBULA_SCREEN := 2600.0       # one tile's width on screen, pixels
-const NEBULA_PARALLAX := 0.025      # screen pixels per world unit moved
-const NEBULA_TINT := Color(1, 1, 1, 0.85)
+## The nebula is the farthest thing in the sky: a faint backdrop pinned
+## almost still behind the stars.  It is drawn in world units like the star
+## layers, so it grows and shrinks with the zoom, but it slides only a
+## sliver of the camera's travel, as something very far away would.
+const NEBULA_WORLD := 3600.0        # one tile's width, world units
+const NEBULA_PARALLAX := 0.04       # share of the camera's travel it follows: a crossing of the system slides it ~900 units
+const NEBULA_TINT := Color(1, 1, 1, 0.42)
 
 
 func _ready() -> void:
@@ -76,13 +78,12 @@ func _draw() -> void:
 	var view := get_viewport_rect().size / zoom
 	var cam := _centre()
 	if nebula != null:
-		var screen := view * zoom
 		var off := cam * NEBULA_PARALLAX
-		var start := Vector2(fposmod(-off.x, NEBULA_SCREEN), fposmod(-off.y, NEBULA_SCREEN)) - Vector2(NEBULA_SCREEN, NEBULA_SCREEN) - screen * 0.5
-		var tile := Vector2(NEBULA_SCREEN, NEBULA_SCREEN) / zoom
-		for i in int(ceil(screen.x / NEBULA_SCREEN)) + 2:
-			for j in int(ceil(screen.y / NEBULA_SCREEN)) + 2:
-				draw_texture_rect(nebula, Rect2((start + Vector2(i, j) * NEBULA_SCREEN) / zoom, tile), false, NEBULA_TINT)
+		var start := Vector2(fposmod(-off.x, NEBULA_WORLD), fposmod(-off.y, NEBULA_WORLD)) - Vector2(NEBULA_WORLD, NEBULA_WORLD) - view * 0.5
+		var tile := Vector2(NEBULA_WORLD, NEBULA_WORLD)
+		for i in int(ceil(view.x / NEBULA_WORLD)) + 2:
+			for j in int(ceil(view.y / NEBULA_WORLD)) + 2:
+				draw_texture_rect(nebula, Rect2(start + Vector2(i, j) * NEBULA_WORLD, tile), false, NEBULA_TINT)
 	for layer in layers:
 		var tex: ImageTexture = layer[0]
 		var par: float = layer[1]
