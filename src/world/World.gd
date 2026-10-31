@@ -21,6 +21,8 @@ const RESPAWN_DELAY := 4.0
 ## "about 1 minute").  Meanwhile its pilots launch from orbit over the
 ## home world, and nobody docks, refits or buys a kit there.
 const STARBASE_RESPAWN_DELAY := 60.0
+## The share of its credits a ship loses when it is shot down or taken.
+const DEATH_PURSE_LOSS := 0.5
 ## Computer pilots take longer to relaunch, pirates longer still, and none
 ## of them ever appears inside this distance of the player: the next one
 ## arrives from out of view, not on top of you.
@@ -1669,7 +1671,8 @@ func _collect_powerups() -> void:
 				var taken := false
 				match p.kind:
 					"credits":
-						if s.is_player:
+						# pilots (online ones too) and wingmen whose purse buys their ship
+						if is_pilot(s) or (wing != null and wing.earns(s)):
 							s.earn(p.amount)
 							notify(s, "Salvaged %d credits." % p.amount)
 							taken = true
@@ -1687,7 +1690,7 @@ func _collect_powerups() -> void:
 						elif s.cargo_max > 0.0:
 							notify(s, "Cargo hold full: %s left behind." % p.label)
 					"blueprint":
-						if s.is_player:
+						if is_pilot(s):
 							if not s.blueprints.has(p.module_id):
 								s.blueprints.append(p.module_id)
 								notify(s, "Blueprint: %s can now be bought at your shipyard." % GameData.MODULES[p.module_id]["name"])
@@ -1697,10 +1700,10 @@ func _collect_powerups() -> void:
 							taken = true
 					_:
 						if s.try_pickup(p.module_id):
-							if s.is_player:
+							if is_pilot(s):
 								notify(s, "Salvaged %s (hold %d/%d)." % [p.label, s.hold.size(), Ship.HOLD_SIZE])
 							taken = true
-						elif s.is_player:
+						elif is_pilot(s):
 							notify(s, "Hold full: %s left behind." % p.label)
 				if taken:
 					Sfx.play("pickup", s.global_position, 0.7)
@@ -1773,22 +1776,16 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 				player_died.emit()
 			respawn_queue.append([s, elapsed + 2.0])   # the rules hold it for the hull's launch time
 			return
-	# the wreck leaves modules floating
-	var drops := 1 + (2 if big else 0) + (1 if randf() < 0.5 else 0)
-	var candidates := []
-	for id in s.design["modules"]:
-		var f: String = GameData.MODULES[id]["func"]
-		if f in ["shield", "eng", "sensor", "power", "jammer", "boost", "armor"]:
-			candidates.append(id)
-	for i in drops:
-		if candidates.is_empty():
-			break
-		var id: String = candidates[randi() % candidates.size()]
+	# the wreck leaves credits and one of the parts it carried floating
+	# (Kyle, 2026-10-31), for anyone to scoop up
+	var part := wreck_part(s)
+	if part != "":
 		var a := randf() * TAU
-		spawn_powerup(id, s.global_position + Vector2(cos(a), sin(a)) * s.size * 0.5, s.velocity * 0.5 + Vector2(cos(a), sin(a)) * randf_range(10.0, 30.0))
-	# the purse spills: a credit chip, and now and then a blueprint of an
+		spawn_powerup(part, s.global_position + Vector2(cos(a), sin(a)) * s.size * 0.5, s.velocity * 0.5 + Vector2(cos(a), sin(a)) * randf_range(10.0, 30.0))
+	# the purse spills: a credit chip with the half of it the pilot lost
+	# on top of the usual salvage, and now and then a blueprint of an
 	# empire part the wreck carried
-	var purse := 20 + s.rank * 6 + (200 if s.is_starbase() else (60 if s.is_station else 0))
+	var purse := 20 + s.rank * 6 + (200 if s.is_starbase() else (60 if s.is_station else 0)) + lose_purse(s)
 	spawn_powerup("cr:%d" % purse, s.global_position + Vector2(randf_range(-20, 20), randf_range(-20, 20)), s.velocity * 0.5 + Vector2(randf_range(-15, 15), randf_range(-15, 15)))
 	# half the cargo survives the blast as salvage anyone can scoop up; a
 	# frame's materials were never built into anything, so all of them do
@@ -1841,7 +1838,7 @@ func _on_ship_died(s: Ship, killer: Node) -> void:
 	respawn_queue.append([s, elapsed + _respawn_delay(s)])
 	# (Survival ends the run instead; the story times an enemy's rebuild itself)
 	if s.is_starbase() and not is_arena() and not (story_mode and s.race_id != 1):
-		notify_all("The %s starbase at %s is down. It will be rebuilt in %d seconds." % [GameData.race(s.race_id)["name"], _home_planet(s.race_id).body_name, int(STARBASE_RESPAWN_DELAY)],
+		notify_all("The %s starbase at %s is down. It will be rebuilt in %d seconds; until then none of its pilots can launch." % [GameData.race(s.race_id)["name"], _home_planet(s.race_id).body_name, int(STARBASE_RESPAWN_DELAY)],
 			Color(1.0, 0.7, 0.45))
 
 
@@ -1853,6 +1850,53 @@ func _respawn_delay(s: Ship) -> float:
 	if s.is_player or practice or s.net_id in Net.seats.values():
 		return RESPAWN_DELAY
 	return randf_range(PIRATE_RETURN.x, PIRATE_RETURN.y) if s.race_id == 3 else AI_RESPAWN_DELAY
+
+
+## Half the credits a ship carried are lost when it is shot down or taken
+## (Kyle, 2026-10-31: "when I die I should lose half my credits"); the
+## pilot hears how much.  Returns what was lost (the wreck spills it).
+## Practice and the tutorial keep the purse whole.
+func lose_purse(s: Ship) -> int:
+	if practice or s.is_station or s.credits <= 0:
+		return 0
+	var lost := int(ceil(s.credits * DEATH_PURSE_LOSS))
+	s.credits -= lost
+	s.set_meta("purse_lost", lost)      # for the death screen; cleared at the relaunch
+	if is_pilot(s):
+		notify(s, "You lost %d credits, half your purse: %d left.  They spilled with the wreck." % [lost, s.credits])
+	return lost
+
+
+## The one part a wreck leaves floating: any module or gun it carried that
+## a ship can fit (not a station's own fittings), or "" when it had none.
+func wreck_part(s: Ship) -> String:
+	var parts := []
+	for id in s.design["modules"]:
+		parts.append(id)
+	for w in s.design["weapons"]:
+		parts.append(w[0])
+	parts = parts.filter(func(id): return GameData.MODULES.has(id) and not GameData.STATION_ONLY.has(id) \
+			and not (GameData.MODULES[id]["func"] in ["dock", "factory"]))
+	return "" if parts.is_empty() else parts[randi() % parts.size()]
+
+
+## Has this empire a home starbase at all (standing or down)?  Pirates and
+## the arenas have none.
+func has_starbase(race_id: int) -> bool:
+	for s in ships:
+		if s.is_starbase() and s.race_id == race_id:
+			return true
+	return false
+
+
+## No starbase, no launch (Kyle, 2026-10-31: "If I don't have a starbase I
+## shouldn't be able to spawn"): while an empire's home starbase is down,
+## its pilots wait for the rebuild (World.STARBASE_RESPAWN_DELAY).  The
+## arenas, practice and the tutorial launch as before.
+func waits_for_starbase(s: Ship) -> bool:
+	if is_arena() or practice or s.is_station:
+		return false
+	return starbase_of(s.race_id) == null and has_starbase(s.race_id)
 
 
 ## Put a computer pilot back at home, out of the player's view.  False when
@@ -1886,6 +1930,12 @@ func _on_ship_captured(s: Ship, _captor: Node) -> void:
 			player_died.emit()
 		return
 	Net.host_ship_died(s, _captor)
+	# the lost half of the purse goes to whoever took the ship
+	var lost := lose_purse(s)
+	var by: Ship = _captor as Ship
+	if lost > 0 and by != null and is_instance_valid(by) and (is_pilot(by) or (wing != null and wing.earns(by))):
+		by.earn(lost)
+		notify(by, "%s's purse: %d credits." % [s.pilot_name, lost])
 	if s.is_player:
 		if records_career():
 			Settings.career["deaths"] = Settings.career.get("deaths", 0) + 1
@@ -1993,6 +2043,8 @@ func _respawns() -> void:
 			remove_ship(s)        # a prize's crew does not come back, nor a built station, an ordered ship, a Survival raider or an operation's ship
 		elif elapsed >= entry[1] and mode_rules != null and not mode_rules.may_relaunch(s):
 			keep.append(entry)    # Survival after the starbase fell, a Skirmish hull still launching
+		elif elapsed >= entry[1] and waits_for_starbase(s):
+			keep.append(entry)    # home starbase down: nobody launches until it is rebuilt
 		elif elapsed >= entry[1]:
 			var home := _home_planet(s.race_id)
 			if s.is_station:

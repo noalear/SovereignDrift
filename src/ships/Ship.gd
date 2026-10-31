@@ -952,6 +952,15 @@ func _puppet_step(delta: float) -> void:
 	if engine_sound != null:
 		engine_sound.update(thrust_level, false, warping, delta)
 	pdc.tick(self, delta, false)      # the turrets track, the host shoots
+	if is_starbase():
+		# a starbase's guns swing onto their own marks on every screen
+		_puppet_marks -= delta
+		if _puppet_marks <= 0.0:
+			_puppet_marks = 0.3
+			pick_gun_marks(false)
+		for w in weapons:
+			if is_turret(w):
+				w["aim_vis"] = rotate_toward(w.get("aim_vis", w["fire_angle"]), _aim_angle(w), 5.0 * delta)
 	queue_redraw()
 
 
@@ -1453,6 +1462,7 @@ func _systems(delta: float) -> void:
 
 func _weapons(delta: float) -> void:
 	beam_targets.clear()
+	var own_marks := guns_on_marks()
 	for w in weapons:
 		if w["cooldown"] > 0.0:
 			w["cooldown"] -= delta
@@ -1461,7 +1471,9 @@ func _weapons(delta: float) -> void:
 		if w["missile"] != "002":
 			w["aim_vis"] = rotate_toward(w.get("aim_vis", w["fire_angle"]), _aim_angle(w), 5.0 * delta)
 		var want := false
-		if group_fire:
+		if own_marks:
+			want = _gun_on_mark(w)
+		elif group_fire:
 			# a human pilot fires by weapon group: fire_primary..fire_mine
 			# carry groups 1..4 (so the network bits stay the same)
 			want = inputs[GROUP_INPUTS[clampi(int(w["group"]), 1, 4) - 1]]
@@ -1522,6 +1534,81 @@ func rearm(share: float) -> void:
 			w["ammo_f"] -= whole
 
 
+# ------------------------------------------------------ starbase guns
+# A home starbase defends itself (Kyle, 2026-10-31: "My starbase should
+# have its own turrets for defense and it should be fairly powerful"):
+# every gun on it finds its own mark, the nearest enemy ship inside that
+# gun's reach and arc, and fires the moment its turret has swung onto it,
+# whichever way the station faces and whatever its pilot is after.  Its
+# computer pilot picks the marks (AIPilot), so a station whose pilot is
+# switched off (a story siege) holds its fire; a client picks them too,
+# to swing the turrets it draws.
+
+## How far out a starbase gun takes a mark (px), at most.
+const BASE_GUN_REACH := 1700.0
+## Marks older than this (s) are stale: the pilot that kept them is off.
+const BASE_GUN_MARK_LIFE := 0.6
+## How close (rad) a turret must have swung onto its mark to fire.
+const BASE_GUN_ON := 0.12
+
+var _marks_at := -1e9             # when pick_gun_marks last ran (s)
+var _puppet_marks := 0.0          # a client's countdown to picking them again
+
+
+## Do this ship's guns pick and fire at their own marks?  A home starbase
+## with a computer pilot that has picked them lately.
+func guns_on_marks() -> bool:
+	return is_starbase() and not group_fire and Time.get_ticks_msec() / 1000.0 - _marks_at < BASE_GUN_MARK_LIFE
+
+
+## Give every gun its own mark: the nearest enemy ship it can reach and
+## turn onto, or null.  The rules are the computer pilots' own: no first
+## shot across the Accord, nothing a friend is taking alive, nothing
+## landed or out of sight.  A client, which only swings the turrets it
+## draws, skips the sight check (its copy of the station keeps no sensor
+## picture).
+func pick_gun_marks(need_sight: bool = true) -> void:
+	_marks_at = Time.get_ticks_msec() / 1000.0
+	var foes: Array = []
+	if world != null:
+		var reach := BASE_GUN_REACH + size
+		var side := team()
+		for o in world.ships:
+			if o == self or o.dead or o.team() == side or o.race_id == GameData.NEUTRAL or o.is_landing():
+				continue
+			if o.global_position.distance_to(global_position) > reach + o.size:
+				continue
+			if world.keeps_peace() and not world.fair_game(side, o):
+				continue
+			if o.spoken_for(side) or (need_sight and not o.visible_to(self)):
+				continue
+			foes.append(o)
+	for w in weapons:
+		var best: Ship = null
+		if w["missile"] != "002":       # mines are laid, not aimed
+			var reach: float = minf(w["range"], BASE_GUN_REACH) + size * 0.5
+			var best_d := INF
+			for o in foes:
+				var d: float = o.global_position.distance_to(global_position)
+				if d > reach + o.size or d >= best_d:
+					continue
+				if not in_arc(w, wrapf((o.global_position - global_position).angle() - rotation, -PI, PI), 0.1):
+					continue
+				best = o
+				best_d = d
+		w["mark"] = best
+
+
+## Should this gun fire at its mark now?
+func _gun_on_mark(w: Dictionary) -> bool:
+	var mark: Variant = w.get("mark")
+	if mark == null or not is_instance_valid(mark) or mark.dead:
+		return false
+	if w["kind"] == "beam" or not is_turret(w):
+		return true                # a laser holds its own lock; a fixed tube fires down its arc
+	return absf(wrapf(_aim_angle(w) - float(w.get("aim_vis", w["fire_angle"])), -PI, PI)) < BASE_GUN_ON
+
+
 func is_turret(w: Dictionary) -> bool:
 	return w["arc1"] - w["arc0"] >= deg_to_rad(150.0)
 
@@ -1568,6 +1655,12 @@ static func clamp_to_arc(w: Dictionary, rel: float) -> float:
 func _aim_angle(w: Dictionary) -> float:
 	# Fire toward the target if it is inside the arc, else straight down the arc centre.
 	var centre: float = w["fire_angle"]
+	# a starbase gun on its own mark (see pick_gun_marks)
+	var mark: Variant = w.get("mark")
+	if mark != null and is_instance_valid(mark) and not mark.dead:
+		var rel := _lead_angle(w, mark)
+		if in_arc(w, rel):
+			return rel
 	# a laser locks onto the targeted ship by itself (as in the original);
 	# with no lock it follows the pilot's mouse like any turret (Kyle)
 	if w["kind"] == "beam":
@@ -1699,7 +1792,10 @@ func _fire_tube(w: Dictionary) -> void:
 		apply_hit_impulse(-dir * md["warhead"] * World.IMPULSE_PER_DAMAGE * md["recoil"], mount)
 	if Net.is_client():
 		return   # the host fires it and tells everyone, us included
-	world.spawn_missile(self, w["missile"], mount + dir * size * 0.3, v, ang, target)
+	var seek: Node2D = target
+	if w.get("mark") != null and is_instance_valid(w["mark"]):
+		seek = w["mark"]          # a starbase gun's own mark
+	world.spawn_missile(self, w["missile"], mount + dir * size * 0.3, v, ang, seek)
 	if is_player:
 		world.last_player_fire = world.elapsed
 	var snd := "torpedo"
@@ -2134,6 +2230,8 @@ func _die(killer: Node) -> void:
 func respawn(at: Vector2, vel: Vector2) -> void:
 	dead = false
 	captured = false
+	if has_meta("purse_lost"):
+		remove_meta("purse_lost")    # the death screen's note of a lost purse
 	if landing != Landing.NONE:
 		_end_landing()
 	refit(design)
@@ -2175,7 +2273,7 @@ func add_score(points: int, is_kill: bool) -> void:
 ## A floating module.  The pilot stows it in the hold for the shipyard;
 ## a computer pilot fits it on the spot if it is an upgrade.
 func try_pickup(module_id: String) -> bool:
-	if is_player:
+	if is_player or (world != null and world.is_pilot(self)):   # a pilot online too
 		if hold.size() >= HOLD_SIZE:
 			return false
 		hold.append(module_id)

@@ -58,6 +58,7 @@ var ground_time := 0.0
 var ground_order := false        # already told the colonists what to do on this landing
 var last_drop: Planet = null     # where we last put colonists down
 var plan_timer := 0.0
+var gun_timer := 0.0             # a starbase's next pick of marks for its guns
 var hauler := false              # a supply ship: carries the empire's goods, keeps out of fights
 var haul_res := ""               # what the run is for
 var haul_to: Planet = null       # where the load goes
@@ -296,6 +297,12 @@ func _physics_process(delta: float) -> void:
 	if think_timer <= 0.0:
 		think_timer = 0.25 + randf() * 0.25
 		_think()
+	if ship.is_starbase():
+		# the starbase's guns each pick their own mark (Ship.pick_gun_marks)
+		gun_timer -= delta
+		if gun_timer <= 0.0:
+			gun_timer = 0.2
+			ship.pick_gun_marks()
 	if not ship.is_landing():
 		_act(delta)
 
