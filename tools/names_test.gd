@@ -54,7 +54,12 @@ func _start() -> void:
 	# player's settings file is put back afterwards, so other tests still
 	# fly for the Solborn)
 	var saved := FileAccess.get_file_as_bytes("user://settings.cfg")
-	root.get_node("/root/Settings").race_id = 2
+	var S = root.get_node("/root/Settings")
+	var old_race: int = S.race_id
+	var old_single: Dictionary = S.profiles.get("single", {}).duplicate()
+	S.race_id = 2
+	if S.profiles.has("single"):
+		S.profiles["single"]["race"] = 2      # a round starts on the single-player profile
 	main = load("res://src/Main.tscn").instantiate()
 	if not "world" in main:
 		print("FAILED: src/Main.gd did not compile. Run `godot --headless --path . --import` and try again.")
@@ -105,7 +110,9 @@ func _start() -> void:
 				heavy = e
 		_check(not row.is_empty() and row["ok"], "the Skethra cruiser's mount %d takes a Gatling gun (%s)" % [i + 1, row.get("price", "no row")])
 		_check(heavy.is_empty() or (not heavy["ok"] and heavy["price"] == "heavy mount"), "a cannon on mount %d says it needs a heavy mount (%s)" % [i + 1, heavy.get("price", "")])
-	root.get_node("/root/Settings").race_id = 1
+	S.race_id = old_race
+	if not old_single.is_empty():
+		S.profiles["single"] = old_single
 	if not saved.is_empty():
 		var fa := FileAccess.open("user://settings.cfg", FileAccess.WRITE)
 		fa.store_buffer(saved)
