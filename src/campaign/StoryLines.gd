@@ -239,7 +239,7 @@ const LINES := [
 	["sr_net", "hale", "ops_room", "You're at the edge of the net. Engines low, emissions off. Slow and quiet."],
 	["sr_warn", "brandt", "cockpit_terran", "A picket's listening our way. Jam it, or get out of its way."],
 	["sr_scan", "hale", "ops_room", "You're in range. Hold steady and let your sensors drink it in."],
-	["sr_seen", "hale", "ops_room", "There it is. A dreadnought. A spinal gun, and armour like a moon. And it's almost finished."],
+	["sr_seen", "hale", "ops_room", "There it is. A dreadnought. A spinal gun, and armor like a moon. And it's almost finished."],
 	["sr_seen2", "okafor", "admiralty", "If that ship launches, nothing we have can stop it. Get out of there with that scan, Lantern."],
 	["sr_out", "hale", "ops_room", "Ease out the way you came. Nobody heard you come in. Nobody hears you leave."],
 	["sr_done", "hale", "ops_room", "Clean. They never knew you were there. Now we know what we're up against."],

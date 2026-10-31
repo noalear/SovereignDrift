@@ -296,7 +296,7 @@ func _hold_and_controls(b, gd) -> void:
 		_check(false, "no part type has a family of several marks")
 	# fit something that adds a bay rather than swapping one (power plants swap)
 	var add_type := first_type
-	for t in ["Repair", "Defence", "Drones", "Missiles", "Mines"]:
+	for t in ["Repair", "Defense", "Drones", "Missiles", "Mines"]:
 		if b._catalogue_view().any(func(e): return e["key"] == "type:" + t and e["ok"] > 0):
 			add_type = t
 			break
