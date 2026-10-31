@@ -48,6 +48,8 @@ var inputs_received := 0
 var host_elapsed := 0.0
 var callsign := "Pilot"
 var mode := ""                   # "duel" for a free-for-all, "survival", "skirmish", "story" for the story campaign, "" for co-op Conquest (set before host(); a client hears it in _rpc_session)
+var versus := false              # competitive: joiners fly against the host (a rival empire, Skirmish's other side, Survival's raiders), not with them (set before host())
+var hosting_campaign := false    # the host's saving Conquest campaign, for the LAN list
 var story_timer := 0.0
 var _story_dirty := false
 var _session_begun := false      # the client has the host's session and builds its world
@@ -99,8 +101,9 @@ func host(port: int = PORT) -> Error:
 
 
 func _announcement(port: int) -> Dictionary:
-	return {"name": callsign + ("'s " + mode if mode != "" else "'s game"), "players": player_count(), "max": MAX_PLAYERS, "port": port,
-		"protocol": PROTOCOL, "system": "Sol", "mode": mode}
+	var what := mode if mode != "" else ("campaign" if hosting_campaign else "game")
+	return {"name": callsign + "'s " + what, "players": player_count(), "max": MAX_PLAYERS, "port": port,
+		"protocol": PROTOCOL, "system": "Sol", "mode": mode, "versus": versus, "campaign": hosting_campaign}
 
 
 func join(ip: String, port: int = PORT) -> Error:
@@ -135,6 +138,8 @@ func leave() -> void:
 		lan.stop()
 	role = Role.OFFLINE
 	mode = ""
+	versus = false
+	hosting_campaign = false
 	_session_begun = false
 	_story_dirty = false
 	world = null
@@ -256,22 +261,52 @@ func _seat_ai(s: Node, on: bool) -> void:
 
 
 ## A joiner takes over a computer pilot of the host's empire (co-op), a
-## living one when there is a choice.
+## living one when there is a choice.  Competitive (versus), a rival
+## empire's instead: the joiner's own empire when it is not the host's,
+## otherwise the rival with the fewest people in it.
 ## The joiner brings their career score and kills, so their rank and
 ## the career they save at the end are their own, not the AI's.
-func _seat_player(peer_id: int, name: String, career_score: int = 0, career_kills: int = 0) -> Node:
+func _seat_player(peer_id: int, name: String, career_score: int = 0, career_kills: int = 0, race: int = -1) -> Node:
+	var empires := [world.player.race_id]
+	if versus and not world.story_mode:
+		empires = _versus_empires(race)
+	for empire in empires:
+		var s := _seat_in(peer_id, name, career_score, career_kills, empire)
+		if s != null:
+			return s
+	return null
+
+
+## Competitive Conquest: the empires a joiner could fly for, best first.
+func _versus_empires(race: int) -> Array:
+	var host_race: int = world.player.race_id
+	var rivals := [0, 1, 2].filter(func(r): return r != host_race)
+	var people := {}
+	for r in rivals:
+		people[r] = 0
+	for s in seated_ships():
+		if people.has(s.race_id):
+			people[s.race_id] += 1
+	rivals.sort_custom(func(a, b): return people[a] < people[b] if people[a] != people[b] else a < b)
+	if race in rivals:
+		rivals.erase(race)
+		rivals.push_front(race)
+	return rivals
+
+
+func _seat_in(peer_id: int, name: String, career_score: int, career_kills: int, empire: int) -> Node:
 	var best: Node = null
 	for s in world.ships:
 		if s.is_player or s.is_station or s.is_prize or s.support or s.net_id in seats.values():
 			continue
 		if s.has_meta("story") or s.has_meta("ordered"):
 			continue                   # the story's own pilots, and ships built to order, fly their parts
-		if s.race_id != world.player.race_id:
+		if s.race_id != empire:
 			continue
 		if best == null or (best.dead and not s.dead):
 			best = s
 	if best == null and world.story_mode:
-		best = world.spawn_story_seat(world.player.race_id)   # the story keeps no spare fleet: a fresh ship at the starbase
+		best = world.spawn_story_seat(empire)   # the story keeps no spare fleet: a fresh ship at the starbase
 	if best == null:
 		return null
 	seats[peer_id] = best.net_id
@@ -369,7 +404,7 @@ func _rpc_hello(name: String, protocol: int, career_score: int = 0, career_kills
 	elif world.mode_rules != null:
 		s = _seat_mode_pilot(peer_id, name, career_score, career_kills)
 	else:
-		s = _seat_player(peer_id, name, career_score, career_kills)
+		s = _seat_player(peer_id, name, career_score, career_kills, race)
 	if s == null:
 		_rpc_refused.rpc_id(peer_id, "No free seat in this round." if world.mode != "survival" else "Survival is full (%d pilots)." % Survival.MAX_PLAYERS)
 		return
@@ -1525,12 +1560,13 @@ func _rpc_duel(state: Array) -> void:
 # ---------------------------------------------- Survival and Skirmish
 # Like duels: the host's rules (World.mode_rules) decide, clients get a
 # mirror for the HUD.  In Survival a joiner flies a fresh ship for the
-# host's empire; in Skirmish a fresh ship for the side with fewer people.
+# host's empire (competitive: a hunter with the raiders); in Skirmish a
+# fresh ship on the host's side (competitive: the side with fewer people).
 
 func _seat_mode_pilot(peer_id: int, name: String, career_score: int, career_kills: int) -> Node:
 	if seats.size() + 1 >= MAX_PLAYERS:
 		return null
-	var s: Node = world.mode_rules.pilot_joined(name, career_score, career_kills) if world.mode == "survival" else world.mode_rules.pilot_joined(name)
+	var s: Node = world.mode_rules.pilot_joined(name, career_score, career_kills, versus) if world.mode == "survival" else world.mode_rules.pilot_joined(name, versus)
 	if s == null:
 		return null
 	_register(s)
@@ -1540,6 +1576,11 @@ func _seat_mode_pilot(peer_id: int, name: String, career_score: int, career_kill
 	pilot_names[peer_id] = name
 	_seat_ai(s, false)
 	host_mode_changed()
+	if s.has_meta("hunter"):
+		# after the welcome, so the joiner's world is there to hear it
+		get_tree().create_timer(1.5).timeout.connect(func():
+			if world != null and is_instance_valid(s):
+				world.notify(s, Survival.HUNTER_NOTE))
 	return s
 
 

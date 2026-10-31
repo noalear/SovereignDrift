@@ -51,6 +51,9 @@ func _start() -> void:
 	await process_frame
 	await process_frame
 	_check(main.menu != null and main.menu.save_info.is_empty(), "no saved campaign: the menu has nothing to continue")
+	main.menu._set_page("single")   # the mode pages: Single Player and Practice
+	await process_frame
+	await process_frame
 	var cont: Array = []
 	for b in main.menu.buttons:
 		if b[1] == "Continue":

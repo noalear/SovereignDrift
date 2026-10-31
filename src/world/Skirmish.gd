@@ -4,7 +4,7 @@
 ## The first side to KILLS_TO_WIN, or the side ahead when the clock runs
 ## out, takes the round; after a short ceasefire everyone relaunches.
 ## Computer pilots fill the empty seats, and each joiner takes one's place
-## on the side with fewer people.  The host runs it; clients hold a mirror
+## on the side with fewer people (hosted co-op: on the host's side).  The host runs it; clients hold a mirror
 ## for the HUD (Net._rpc_mode).
 class_name Skirmish
 extends RefCounted
@@ -155,11 +155,16 @@ func _bot_hull() -> String:
 	return "Scout" if roll < 0.2 else ("Destroyer" if roll < 0.55 else ("Cruiser" if roll < 0.85 else ("BattleCruiser" if roll < 0.95 else "Battleship")))
 
 
-## A joiner flies for the side with fewer people, in a computer pilot's
-## place when the side is full.  Null when both sides are full of people.
-func pilot_joined(pilot: String) -> Ship:
+## A joiner flies for the side with fewer people (competitive), or the
+## host's side (co-op, against the computer), in a computer pilot's place
+## when the side is full.  Null when there is no seat left for people.
+func pilot_joined(pilot: String, versus := true) -> Ship:
 	var side := 0 if humans(0) <= humans(1) else 1
-	if humans(side) >= TEAM_SIZE:
+	if not versus:
+		side = 0
+		if humans(0) >= TEAM_SIZE:
+			return null
+	elif humans(side) >= TEAM_SIZE:
 		side = 1 - side
 		if humans(side) >= TEAM_SIZE:
 			return null
