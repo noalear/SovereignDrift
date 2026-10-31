@@ -2207,7 +2207,13 @@ func _draw_centre(r: Rect2, rc: Color) -> void:
 		scale = minf(scale, 1.9 * tex.get_width() / (size * ShipArt.LENGTH))
 	# the part in focus in the list is shown on the ship before it is bought
 	var look := design if preview_id == "" else _design_with(preview_id)
+	# the high-resolution painting, resampled to the pixels it covers on
+	# the screen (the window may be bigger than the 1920x1080 layout)
+	var px := float(DisplayServer.window_get_size().x) / maxf(get_viewport_rect().size.x, 1.0)
+	ShipArt.hd = true
+	ShipArt.hd_width = int(ceil(size * ShipArt.LENGTH * scale * px / 32.0)) * 32
 	ShipArt.draw_ship(self, look, art_race, size, rc, 0.4 + 0.2 * sin(time * 3.0), 1.0, 0.0, Transform2D(0.0, Vector2.ONE * scale, 0.0, centre))
+	ShipArt.hd = false
 	if preview_id != "":
 		draw_string(font, Vector2(pic.position.x + 16, pic.end.y - 14), "Preview: %s fitted, not bought yet" % GameData.MODULES[preview_id]["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, GOLD)
 	# hardpoints: a small numbered badge on each turret; names live in the
