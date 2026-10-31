@@ -26,6 +26,9 @@ func _start() -> void:
 	root.add_child(main)
 	await process_frame
 	await process_frame
+	main.menu._set_page("practice")   # the mode pages: Single Player and Practice
+	await process_frame
+	await process_frame
 	var b: Array = main.menu.buttons[0]
 	for mb in main.menu.buttons:
 		if mb[1] == "Practice duel":

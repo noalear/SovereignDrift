@@ -1,6 +1,6 @@
 ## MainMenu -- the title screen: painted key art, the game's logo, a column
-## of choices down the left, and the pilot, settings, online, controls and
-## about pages on a glass panel.  The pause menu opens it in_game, on the
+## of choices down the left, and the Single Player, Online, Practice,
+## pilot, settings and controls pages on glass panels.  The pause menu opens it in_game, on the
 ## Settings page over the running game.
 class_name MainMenu
 extends Control
@@ -14,10 +14,10 @@ signal campaign_continue_pressed()
 signal story_new_pressed()
 signal story_continue_pressed()
 signal story_load_pressed()
-signal host_pressed()
+signal host_pressed(versus: bool, campaign: String)   # Conquest hosted: a round (""), or the saving campaign ("new", "continue")
 signal duel_pressed()
-signal story_host_pressed()          # the story campaign, hosted for friends
-signal mode_pressed(which: String, online: bool)   # "survival" or "skirmish", alone or hosted
+signal story_host_pressed(fresh: bool)  # the story campaign, hosted for friends: a new war or the saved one
+signal mode_pressed(which: String, online: bool, versus: bool)   # "survival" or "skirmish", alone or hosted
 signal join_pressed(address: String)
 signal quit_pressed()
 signal closed()              # in_game: Back or Esc on the Settings page
@@ -52,7 +52,8 @@ var keyart: Texture2D = null
 var logo: Texture2D = null
 var glow_tex: GradientTexture2D
 var vignette_tex: GradientTexture2D
-var page := "main"      # main | pilot | settings | about | online | controls
+var page := "main"      # main | single | online | practice | pilot | settings | controls
+var versus := false      # the Online page hosts competitive games (friends against you), not co-op
 var buttons: Array = []   # [rect, label, callback, enabled]
 var hover := -1
 var focus := 0            # keyboard / gamepad focus, an index into buttons
@@ -334,8 +335,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 
-## One page up: Controls to Settings, then Settings to the title screen, or
-## in game back to the pause menu.
+## One page up: Controls to Settings, then every page to the title screen,
+## or in game back to the pause menu.
 func _back() -> void:
 	if page == "controls":
 		_set_page("settings")
@@ -391,6 +392,8 @@ func _set_page(p: String) -> void:
 	page = p
 	focus = 0
 	hover = -1
+	story_note = ""          # a warning before a new war is for the page it was given on
+	campaign_note = ""
 	name_edit.visible = p == "pilot"
 	ip_edit.visible = p == "online"
 	if p == "online":
@@ -476,8 +479,8 @@ func _button(rect: Rect2, label: String, cb: Callable, enabled: bool = true) -> 
 
 
 ## A row of options with one of them selected.
-func _choice(y: float, label: String, options: Array, current: Variant, setter: Callable, vp: Vector2) -> void:
-	var x := vp.x * 0.5 - 300.0
+func _choice(y: float, label: String, options: Array, current: Variant, setter: Callable, vp: Vector2, at_x := -1.0) -> void:
+	var x := at_x if at_x >= 0.0 else vp.x * 0.5 - 300.0
 	_text(Vector2(x, y + 27), label, 21, DIM, HORIZONTAL_ALIGNMENT_LEFT, -1, label_font)
 	var bx := x + 220.0
 	# numbers set by other means (the mouse-wheel zoom) light the nearest option
@@ -581,8 +584,10 @@ func _draw() -> void:
 			_draw_pilot(vp)
 		"settings":
 			_draw_settings(vp)
-		"about":
-			_draw_about(vp)
+		"single":
+			_draw_single(vp)
+		"practice":
+			_draw_practice(vp)
 		"online":
 			_draw_online(vp)
 		"controls":
@@ -656,83 +661,117 @@ func _draw_main(vp: Vector2) -> void:
 	_hgrad(Rect2(Vector2(x0, y), Vector2(lw * 0.9, 1.0)), Color(CYAN, 0.7), Color(CYAN, 0.0))
 	_text(Vector2(x0, y + 26), _profile_line("single").to_upper(), 15, AMBER, HORIZONTAL_ALIGNMENT_LEFT, -1, caps_font)
 	y += 50.0
-	var rows := 9
+	var rows := 7
 	var bottom := vp.y - 64.0
-	var row_h := clampf((bottom - y) / rows, 42.0, 68.0)
+	var row_h := clampf((bottom - y) / rows, 42.0, 74.0)
 	var rw := clampf(vp.x * 0.27, 330.0, 470.0)
-	var gap := 8.0
-	var half := (rw - gap) * 0.5
-	var i := 0
 	var story_line := story_note if not story_note.is_empty() else (_story_line() if not story_info.is_empty() else "")
-	var camp_line := campaign_note if not campaign_note.is_empty() else (_save_line() if not save_info.is_empty() else "")
-	var has_story := not story_info.is_empty()
-	var has_save := not save_info.is_empty()
-	var best := int(Settings.profile_info("single")["career"].get("survival_best", 0))
 	var rr := func(k: int) -> Rect2:   # row k's strip
 		return Rect2(Vector2(x0, y + k * row_h), Vector2(rw, row_h - 6.0))
 	var ra := func(k: int) -> void:    # the row's slice of the intro: later rows come later
-		row_anim = smoothstep(0.3 + k * 0.045, 0.7 + k * 0.045, intro)
+		row_anim = smoothstep(0.3 + k * 0.05, 0.7 + k * 0.05, intro)
 		draw_set_transform(Vector2(-34.0 * (1.0 - row_anim), 14.0 * page_fade))
 	# 1  the story campaign: its name is a heading, the chips are the buttons
-	ra.call(i)
-	var r: Rect2 = rr.call(i)
-	_text(r.position + Vector2(18.0, r.size.y * 0.5 + 8.0), "The Frontier War".to_upper(), 30, DIM, HORIZONTAL_ALIGNMENT_LEFT, -1, caps_font)
-	draw_rect(Rect2(r.position, Vector2(4.0, r.size.y)), _ink(Color(AMBER, 0.6)))
-	var cx := x0 + rw + 12.0
-	var ch := minf(34.0, r.size.y - 10.0)
-	var cy := r.position.y + (r.size.y - ch) * 0.5
-	for c in [["New", _new_story, true], ["Continue", func(): story_continue_pressed.emit(), has_story], ["Load", func(): story_load_pressed.emit(), story_slots]]:
-		var cw := _chip_width(c[0])
-		_chip(Rect2(Vector2(cx, cy), Vector2(cw, ch)), c[0], c[1], c[2])
-		cx += cw + 6.0
+	ra.call(0)
+	var cx := _heading_with_chips(rr.call(0), "The Frontier War", [["New", _new_story, true],
+		["Continue", func(): story_continue_pressed.emit(), not story_info.is_empty()],
+		["Load", func(): story_load_pressed.emit(), story_slots]], 30)
 	if not story_line.is_empty():
-		_text(Vector2(cx + 14.0, cy + ch * 0.5 + 5.0), story_line, 15, AMBER if not story_note.is_empty() else MUTE, HORIZONTAL_ALIGNMENT_LEFT, -1, font)
-	i += 1
-	# 2  a Conquest round
-	ra.call(i)
-	_row(rr.call(i), "Play: the Sol system", "A Conquest round: one empire against two for every world of Sol", func(): play_pressed.emit())
-	i += 1
-	# 3  the saving campaign
-	ra.call(i)
-	r = rr.call(i)
-	_row(Rect2(r.position, Vector2(half, r.size.y)), "New campaign", "Saves as it goes", _new_campaign, true, 24)
-	_row(Rect2(r.position + Vector2(half + gap, 0), Vector2(half, r.size.y)), "Continue", "The saved campaign", func(): campaign_continue_pressed.emit(), has_save, 24)
-	if not camp_line.is_empty():
-		_text(Vector2(x0 + rw + 20.0, r.position.y + r.size.y * 0.5 + 5.0), camp_line, 15, AMBER if not campaign_note.is_empty() else MUTE, HORIZONTAL_ALIGNMENT_LEFT, -1, font)
-	i += 1
-	# 4  the tutorial
-	ra.call(i)
-	_row(rr.call(i), "Tutorial (voiced, %s)" % Names.TERRAN, "Commander Hale walks you through flying, fighting and taking worlds", func(): tutorial_pressed.emit())
-	i += 1
-	# 5  practice
-	ra.call(i)
-	r = rr.call(i)
-	_row(Rect2(r.position, Vector2(half, r.size.y)), "Practice duel", "One opponent, off the record", func(): practice_pressed.emit(), true, 24)
-	_row(Rect2(r.position + Vector2(half + gap, 0), Vector2(half, r.size.y)), "Free flight", "Sol with nobody shooting", func(): free_flight_pressed.emit(), true, 24)
-	i += 1
-	# 6  the modes
-	ra.call(i)
-	r = rr.call(i)
-	_row(Rect2(r.position, Vector2(half, r.size.y)), "Survival", "Hold your starbase" + ((", best %d" % best) if best > 0 else ""), func(): mode_pressed.emit("survival", false), true, 24)
-	_row(Rect2(r.position + Vector2(half + gap, 0), Vector2(half, r.size.y)), "Skirmish", "%d a side, first to %d kills" % [Skirmish.TEAM_SIZE, Skirmish.KILLS_TO_WIN], func(): mode_pressed.emit("skirmish", false), true, 24)
-	i += 1
-	# 7  online
-	ra.call(i)
-	_row(rr.call(i), "Play online", "Co-op Conquest, duels, Survival, Skirmish and the story with friends", func(): _set_page("online"))
-	i += 1
-	# 8  pilot and settings
-	ra.call(i)
-	r = rr.call(i)
-	_row(Rect2(r.position, Vector2(half, r.size.y)), "Pilot", "Name, empire and career", func(): _set_page("pilot"), true, 24)
-	_row(Rect2(r.position + Vector2(half + gap, 0), Vector2(half, r.size.y)), "Settings", "Sound, display, controls", func(): _set_page("settings"), true, 24)
-	i += 1
-	# 9  about and quit
-	ra.call(i)
-	r = rr.call(i)
-	_row(Rect2(r.position, Vector2(half, r.size.y)), "About", "", func(): _set_page("about"), true, 24)
-	_row(Rect2(r.position + Vector2(half + gap, 0), Vector2(half, r.size.y)), "Quit", "", func(): quit_pressed.emit(), true, 24)
+		var r: Rect2 = rr.call(0)
+		_text(Vector2(cx + 14.0, r.position.y + r.size.y * 0.5 + 5.0), story_line, 15, AMBER if not story_note.is_empty() else MUTE, HORIZONTAL_ALIGNMENT_LEFT, -1, font)
+	var entries := [
+		["Single Player", "Campaign, Conquest, Survival and Skirmish against the computer", func(): _set_page("single")],
+		["Online", "Host or join friends: co-op or competitive, duels and The Frontier War", func(): _set_page("online")],
+		["Practice", "Duels and free flight off the record, and the voiced tutorial", func(): _set_page("practice")],
+		["Pilot", "Name, empire and career", func(): _set_page("pilot")],
+		["Settings", "Sound, display, controls and keys", func(): _set_page("settings")],
+		["Quit", "", func(): quit_pressed.emit()],
+	]
+	for k in entries.size():
+		ra.call(k + 1)
+		_row(rr.call(k + 1), entries[k][0], entries[k][1], entries[k][2])
 	row_anim = 1.0
 	draw_set_transform(Vector2(0, 14.0 * page_fade))
+
+
+## A row whose name is only a heading, with its choices as chips beside it
+## (New, Continue, Load), after the row or (`inside`) at its right end.
+## Returns where the chips end.
+func _heading_with_chips(r: Rect2, label: String, chips: Array, size := 30, note := "", enabled := true, note_col := MUTE, inside := false) -> float:
+	var has_note := not note.is_empty() and r.size.y >= 54.0
+	var ty := r.size.y * 0.5 + size * 0.36 - (8.0 if has_note else 0.0)
+	_text(r.position + Vector2(18.0, ty), label.to_upper(), size, DIM if enabled else Color(0.38, 0.42, 0.5), HORIZONTAL_ALIGNMENT_LEFT, -1, caps_font)
+	if has_note:
+		_text(r.position + Vector2(19.0, ty + 19.0), note, 15, note_col if enabled else Color(note_col, 0.75), HORIZONTAL_ALIGNMENT_LEFT, -1, font)
+	draw_rect(Rect2(r.position, Vector2(4.0, r.size.y)), _ink(Color(AMBER, 0.6 if enabled else 0.15)))
+	var cx := r.end.x + 12.0
+	if inside:
+		cx = r.end.x - 12.0
+		for c in chips:
+			cx -= _chip_width(c[0]) + 6.0
+	var ch := minf(34.0, r.size.y - 10.0)
+	var cy := r.position.y + (r.size.y - ch) * 0.5
+	for c in chips:
+		var cw := _chip_width(c[0])
+		_chip(Rect2(Vector2(cx, cy), Vector2(cw, ch)), c[0], c[1], c[2] and enabled)
+		cx += cw + 6.0
+	return cx
+
+
+## A page of modes: a glass panel down the middle of the screen, a row per
+## mode (name, a line about it) and Back under them.  Returns the panel.
+func _mode_panel(vp: Vector2, title: String, n: int, extra := 0.0, width := 860.0, x := -1.0) -> Rect2:
+	var row_h := 72.0
+	var h := 84.0 + extra + n * row_h + 96.0
+	var top := clampf(vp.y * 0.5 - h * 0.5 - 20.0, 90.0, maxf(vp.y - 56.0 - h - 12.0, 90.0))
+	var px := x if x >= 0.0 else vp.x * 0.5 - width * 0.5
+	var rect := Rect2(Vector2(px, top), Vector2(width, h))
+	_panel(rect, title)
+	return rect
+
+
+func _mode_row(panel: Rect2, k: int, extra: float) -> Rect2:
+	return Rect2(panel.position + Vector2(30.0, 84.0 + extra + k * 72.0), Vector2(panel.size.x - 60.0, 64.0))
+
+
+func _back_button(panel: Rect2) -> void:
+	_button(Rect2(panel.position + Vector2(30.0, panel.size.y - 72.0), Vector2(160, 48)), "Back", func(): _set_page("main"))
+
+
+## Single Player: the campaign, a Conquest round, Survival and Skirmish,
+## against the computer.
+func _draw_single(vp: Vector2) -> void:
+	var panel := _mode_panel(vp, "Single player", 4, 30.0)
+	_text(panel.position + Vector2(30.0, 100.0), _profile_line("single"), 17, AMBER, HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 60.0, label_font)
+	var has_save := not save_info.is_empty()
+	# the note gives way to the saved war, or the warning before a new one replaces it
+	var camp_line := campaign_note if not campaign_note.is_empty() else (_save_line() if has_save else "No clock: the war runs until one empire holds every colony. Saves as it goes.")
+	_heading_with_chips(_mode_row(panel, 0, 30.0), "Campaign", [["New", _new_campaign, true], ["Continue", func(): campaign_continue_pressed.emit(), has_save]], 26,
+		camp_line, true, AMBER if not campaign_note.is_empty() else MUTE, true)
+	_row(_mode_row(panel, 1, 30.0), "Conquest", _conquest_note(), func(): play_pressed.emit(), true, 26)
+	_row(_mode_row(panel, 2, 30.0), "Survival", _survival_note(), func(): mode_pressed.emit("survival", false, false), true, 26)
+	_row(_mode_row(panel, 3, 30.0), "Skirmish", "%d a side at %s in ready-built ships, first to %d kills" % [Skirmish.TEAM_SIZE, Skirmish.ARENA, Skirmish.KILLS_TO_WIN], func(): mode_pressed.emit("skirmish", false, false), true, 26)
+	_back_button(panel)
+
+
+func _conquest_note() -> String:
+	var length := "until one empire holds every colony" if Settings.round_minutes <= 0 else "%d-minute round" % Settings.round_minutes
+	return "One empire against two for every world of Sol, %s" % length
+
+
+func _survival_note() -> String:
+	var best := int(Settings.profile_info("single")["career"].get("survival_best", 0))
+	return "Hold your starbase against waves of raiders" + ((", best %d" % best) if best > 0 else "")
+
+
+## Practice: off the record.  The tutorial lives here too.
+func _draw_practice(vp: Vector2) -> void:
+	var panel := _mode_panel(vp, "Practice", 3, 30.0)
+	_text(panel.position + Vector2(30.0, 100.0), "Nothing here counts toward your career.", 16, DIM, HORIZONTAL_ALIGNMENT_LEFT, -1, font)
+	_row(_mode_row(panel, 0, 30.0), "Practice duel", "One pirate Scout at a time, no clock, no fleets", func(): practice_pressed.emit(), true, 26)
+	_row(_mode_row(panel, 1, 30.0), "Free flight", "Sol with nobody shooting: learn the ship and the autopilot", func(): free_flight_pressed.emit(), true, 26)
+	_row(_mode_row(panel, 2, 30.0), "Tutorial (voiced, %s)" % Names.TERRAN, "Commander Hale walks you through flying, fighting and taking worlds", func(): tutorial_pressed.emit(), true, 26)
+	_back_button(panel)
 
 
 ## The bar along the bottom: the song, the keys and the credit line.
@@ -763,13 +802,17 @@ func _draw_update(vp: Vector2) -> void:
 		_button(Rect2(vp.x - 244, 48, 220, 42), "Get the installer", func(): OS.shell_open(Updater.installer_url), not Updater.installer_url.is_empty())
 
 
-## A new story over a saved one asks first, like a campaign.
-func _new_story() -> void:
+## A new story over a saved one asks first, like a campaign.  `hosted`:
+## for friends, from the Online page.
+func _new_story(hosted := false) -> void:
 	if SaveGame.exists(SaveGame.STORY_PATH) and story_note.is_empty():
-		story_note = "This replaces the story you are playing (your save slots stay). Press New again to start over."
+		story_note = "This replaces your saved story (save slots stay). Press New again."
 		return
 	story_note = ""
-	story_new_pressed.emit()
+	if hosted:
+		story_host_pressed.emit(true)
+	else:
+		story_new_pressed.emit()
 
 
 ## "Operation 2 of 14 next, 0:42:10 in"
@@ -782,12 +825,15 @@ func _story_line() -> String:
 
 
 ## A new campaign over a saved one asks first: the second press starts it.
-func _new_campaign() -> void:
+func _new_campaign(hosted := false) -> void:
 	if SaveGame.exists() and campaign_note.is_empty():
-		campaign_note = "This replaces your saved campaign. Press New campaign again to start over."
+		campaign_note = "This replaces your saved campaign. Press New again."
 		return
 	campaign_note = ""
-	campaign_new_pressed.emit()
+	if hosted:
+		host_pressed.emit(versus, "new")
+	else:
+		campaign_new_pressed.emit()
 
 
 ## "Saved campaign: Terran, 1:42:10 in, 6 worlds held"
@@ -807,48 +853,82 @@ func _profile_line(which: String) -> String:
 	return "%s %s of the %s   score %d   kills %d" % [rank, p["name"], GameData.race(int(p["race"]))["name"], int(c.get("score", 0)), int(c.get("kills", 0))]
 
 
+## Online: host any mode for friends, co-op (on your side) or competitive
+## (against you), on the left; join a game by address or from the LAN on
+## the right.
 func _draw_online(vp: Vector2) -> void:
-	var x := vp.x * 0.5 - 300.0
+	var extra := 130.0
+	var total := 820.0 + 30.0 + 520.0
+	var x0 := maxf((vp.x - total) * 0.5, 24.0)
+	var panel := _mode_panel(vp, "Play online", 6, extra, 820.0, x0)
+	var px := panel.position.x + 30.0
+	var py := panel.position.y
+	_text(Vector2(px, py + 100.0), _profile_line("online"), 17, AMBER, HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 60.0, label_font)
+	_text(Vector2(px, py + 120.0), "Your online pilot (the Pilot page changes it).  The Frontier War and the campaign are your single-player pilot's own.", 14, MUTE, HORIZONTAL_ALIGNMENT_LEFT, -1, font)
+	_choice(py + 136.0, "Friends play", [[false, "Co-op"], [true, "Competitive"]], versus, func(v):
+		versus = v
+		story_note = ""
+		campaign_note = "", vp, px)
+	_text(Vector2(px, py + 200.0), "Co-op: friends join your side against the computer." if not versus else
+		"Competitive: friends fly against you, for a rival empire (in Survival, with the raiders).", 15, DIM, HORIZONTAL_ALIGNMENT_LEFT, -1, font)
+	# 1  the story: co-op only
+	var story_line := story_note if not story_note.is_empty() else (_story_line() if not story_info.is_empty() else "Friends fly as Lantern Squadron and share every objective.")
+	if versus:
+		story_line = "Co-op only: choose Co-op above to host the story."
+	_heading_with_chips(_mode_row(panel, 0, extra), "The Frontier War", [["New", _new_story.bind(true), true],
+		["Continue", func(): story_host_pressed.emit(false), not story_info.is_empty()]], 26, story_line, not versus,
+		AMBER if versus or not story_note.is_empty() else MUTE, true)
+	# 2  the saving campaign, hosted
+	var has_save := not save_info.is_empty()
+	var camp_line := campaign_note if not campaign_note.is_empty() else (_save_line() if has_save else "Your saving war, with friends %s." % ("beside you" if not versus else "against you"))
+	_heading_with_chips(_mode_row(panel, 1, extra), "Campaign", [["New", _new_campaign.bind(true), true],
+		["Continue", func(): host_pressed.emit(versus, "continue"), has_save]], 26, camp_line, true, AMBER if not campaign_note.is_empty() else MUTE, true)
+	# 3 - 6  the rounds
+	_row(_mode_row(panel, 2, extra), "Conquest", _conquest_note(), func(): host_pressed.emit(versus, ""), true, 26)
+	_row(_mode_row(panel, 3, extra), "Survival", ("Hold the starbase together, up to %d pilots" % Survival.MAX_PLAYERS) if not versus else "You hold the starbase; friends hunt you with the raiders",
+		func(): mode_pressed.emit("survival", true, versus), true, 26)
+	_row(_mode_row(panel, 4, extra), "Skirmish", ("Your side together against the computer, %d a side" % Skirmish.TEAM_SIZE) if not versus else ("Friends split between the two sides, %d a side" % Skirmish.TEAM_SIZE),
+		func(): mode_pressed.emit("skirmish", true, versus), true, 26)
+	_row(_mode_row(panel, 5, extra), "Duels", "A free-for-all, everyone against everyone in a %s" % Duel.HULL, func(): duel_pressed.emit(), true, 26)
+	_back_button(panel)
+	# the join side
+	var jp := Rect2(Vector2(panel.end.x + 30.0, panel.position.y), Vector2(520.0, panel.size.y))
+	_panel(jp, "Join a game")
+	var jx := jp.position.x + 30.0
+	var jw := jp.size.x - 60.0
+	var y := jp.position.y + 84.0
+	_text(Vector2(jx, y + 16), "JOIN BY ADDRESS", 15, Color(CYAN, 0.9), HORIZONTAL_ALIGNMENT_LEFT, -1, caps_font)
+	ip_edit.position = Vector2(jx, y + 30)
+	ip_edit.size = Vector2(jw - 120.0, 44)
+	_button(Rect2(jx + jw - 110.0, y + 28, 110, 48), "Join", func(): join_pressed.emit(ip_edit.text))
+	_text(Vector2(jx, y + 100), "Friends join with your address.  Online, open UDP %d" % Net.PORT, 14, MUTE, HORIZONTAL_ALIGNMENT_LEFT, -1, font)
+	_text(Vector2(jx, y + 118), "on your router, or use Tailscale.", 14, MUTE, HORIZONTAL_ALIGNMENT_LEFT, -1, font)
+	_text(Vector2(jx, y + 160), "GAMES ON THIS NETWORK", 15, Color(CYAN, 0.9), HORIZONTAL_ALIGNMENT_LEFT, -1, caps_font)
+	var gy := y + 176.0
 	var games: Array = Net.lan.list()
-	var list_h := 40.0 if games.is_empty() else 48.0 * mini(games.size(), 5)
-	var status_h := 34.0 if not online_status.is_empty() else 0.0
-	var below := 428.0 + list_h + status_h          # from y down to the bottom of Back
-	var y := minf(vp.y * 0.36, vp.y - 56.0 - 24.0 - below)
-	_panel(Rect2(Vector2(x - 40.0, y - 110.0), Vector2(680.0, 110.0 + below + 24.0)), "Play online")
-	_text(Vector2(x, y - 36), _profile_line("online"), 17, AMBER, HORIZONTAL_ALIGNMENT_LEFT, -1, label_font)
-	_text(Vector2(x, y - 16), "Your online pilot.  Change it on the Pilot page.", 14, MUTE, HORIZONTAL_ALIGNMENT_LEFT, -1, font)
-	_text(Vector2(x, y + 6), "Co-op: friends drop in as %s pilots.  Duel: a free-for-all, everyone against everyone." % GameData.race(int(Settings.profile_info("online")["race"]))["name"],
-		16, DIM, HORIZONTAL_ALIGNMENT_LEFT, 600, font)
-	_button(Rect2(x, y + 20, 296, 48), "Host co-op Conquest", func(): host_pressed.emit())
-	_button(Rect2(x + 304, y + 20, 296, 48), "Host a duel (free-for-all)", func(): duel_pressed.emit())
-	_button(Rect2(x, y + 76, 296, 48), "Host Survival (co-op, up to %d)" % Survival.MAX_PLAYERS, func(): mode_pressed.emit("survival", true))
-	_button(Rect2(x + 304, y + 76, 296, 48), "Host Skirmish (teams)", func(): mode_pressed.emit("skirmish", true))
-	_button(Rect2(x, y + 132, 600, 48), "Host my story campaign (%s)" % ("continue the war" if not story_info.is_empty() else "a new war"), func(): story_host_pressed.emit())
-	y += 56
-	_text(Vector2(x, y + 142), "The story is yours: your single-player pilot and save. Friends fly as Lantern Squadron and share every objective.",
-		14, MUTE, HORIZONTAL_ALIGNMENT_LEFT, 600, font)
-	y += 80
-	_text(Vector2(x, y + 90), "Friends join with your address. Online, open UDP %d on your router or use Tailscale." % Net.PORT,
-		14, MUTE, HORIZONTAL_ALIGNMENT_LEFT, 600, font)
-	y += 30
-	_text(Vector2(x, y + 110), "JOIN BY ADDRESS", 15, Color(CYAN, 0.9), HORIZONTAL_ALIGNMENT_LEFT, -1, caps_font)
-	ip_edit.position = Vector2(x + 180, y + 84)
-	ip_edit.size = Vector2(300, 40)
-	_button(Rect2(x + 490, y + 80, 110, 48), "Join", func(): join_pressed.emit(ip_edit.text))
-	_text(Vector2(x, y + 170), "GAMES ON THIS NETWORK", 15, Color(CYAN, 0.9), HORIZONTAL_ALIGNMENT_LEFT, -1, caps_font)
-	var gy := y + 190
+	var room := int((jp.end.y - 90.0 - gy) / 52.0)
 	if games.is_empty():
-		_text(Vector2(x, gy + 22), "Listening... a host on your LAN shows up here within a few seconds.", 15, MUTE, HORIZONTAL_ALIGNMENT_LEFT, -1, font)
-		gy += 40
-	for g in games.slice(0, 5):
-		var label := "%s  (%s, %s, %d/%d players)  %s" % [g["name"], {"duel": "duel", "survival": "Survival", "skirmish": "Skirmish", "story": "story co-op"}.get(g.get("mode", ""), "co-op"), g.get("system", "Sol"), int(g["players"]), int(g["max"]), g["ip"]]
+		_text(Vector2(jx, gy + 22), "Listening... a host on your network", 15, MUTE, HORIZONTAL_ALIGNMENT_LEFT, -1, font)
+		_text(Vector2(jx, gy + 42), "shows up here within a few seconds.", 15, MUTE, HORIZONTAL_ALIGNMENT_LEFT, -1, font)
+		gy += 56.0
+	for g in games.slice(0, maxi(room, 1)):
 		var ok: bool = int(g.get("protocol", -1)) == Net.PROTOCOL
-		_button(Rect2(x, gy, 600, 40), label if ok else label + "  (different version)", func(): join_pressed.emit("%s:%d" % [g["ip"], int(g["port"])]), ok)
-		gy += 48
+		var label := "%s  ·  %s  ·  %d/%d" % [g["name"], _game_kind(g), int(g["players"]), int(g["max"])]
+		_button(Rect2(jx, gy, jw, 44), label if ok else "%s  (other version)" % g["name"], func(): join_pressed.emit("%s:%d" % [g["ip"], int(g["port"])]), ok)
+		gy += 52.0
 	if not online_status.is_empty():
-		_text(Vector2(x, gy + 30), online_status, 16, AMBER, HORIZONTAL_ALIGNMENT_LEFT, 640, font)
-		gy += 34
-	_button(Rect2(x, gy + 24, 160, 48), "Back", func(): _set_page("main"))
+		_text(Vector2(jx, jp.end.y - 40.0), online_status, 15, AMBER, HORIZONTAL_ALIGNMENT_LEFT, jw, font)
+
+
+## "Survival, competitive": what a host on the LAN is playing.
+func _game_kind(g: Dictionary) -> String:
+	var mode: String = g.get("mode", "")
+	if mode == "story":
+		return "The Frontier War"
+	if mode == "duel":
+		return "duel"
+	var name: String = {"survival": "Survival", "skirmish": "Skirmish"}.get(mode, "campaign" if g.get("campaign", false) else "Conquest")
+	return name + (", competitive" if g.get("versus", false) else ", co-op")
 
 
 func _draw_pilot(vp: Vector2) -> void:
@@ -1012,25 +1092,3 @@ func _slot_button(rect: Rect2, text: String, cb: Callable, waiting: bool, size :
 		draw_rect(rect.grow(2), _ink(Color(1.0, 0.95, 0.75, 0.45 + 0.3 * sin(time * 6.0))), false, 1.0)
 	_text(rect.position + Vector2(0, rect.size.y * 0.5 + 5), text if not text.is_empty() else "-", size,
 		INK if not text.is_empty() else Color(0.4, 0.45, 0.55), HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, label_font)
-
-
-func _draw_about(vp: Vector2) -> void:
-	var lines := [
-		"%s is a remake of %s, made by Stardock in 1997: a real-time 2-D" % [Names.GAME, Names.ORIGINAL],
-		"space combat game where three empires fight for the planets of a solar system, and every",
-		"ship, from scout to starbase, is flown by a player or a computer pilot with a rank and a name.",
-		"",
-		"This remake is built from scratch on Godot 4.  Its rules (ships, modules, weapons, ranks,",
-		"the Sol scenario) come from the original game's data files.  The art is new.",
-		"",
-		"Soundtrack: genre remixes of the eight original songs, and eighteen new tracks built from",
-		"unused fragments of them.",
-		"",
-		"Non-commercial use only, under the Stardock Shared Source %s License." % Names.ORIGINAL,
-	]
-	var y := vp.y * 0.38
-	_panel(Rect2(Vector2(vp.x * 0.5 - 440.0, y - 100.0), Vector2(880.0, lines.size() * 26.0 + 200.0)), "About")
-	for l in lines:
-		_text(Vector2(0, y), l, 18, DIM if not l.begins_with("Non-commercial") else MUTE, HORIZONTAL_ALIGNMENT_CENTER, vp.x, font)
-		y += 26
-	_button(Rect2(vp.x * 0.5 - 80, y + 30, 160, 48), "Back", func(): _set_page("main"))

@@ -4,7 +4,9 @@
 ## dock at the starbase (U), mend and spend the bounties.  Pilots relaunch
 ## from the starbase while it stands; when it falls the run is over, and
 ## after a pause a new run starts from wave 1.  The host runs it; clients
-## hold a mirror for the HUD (Net._rpc_mode).
+## hold a mirror for the HUD (Net._rpc_mode).  Hosted competitive, the
+## friends who join are hunters instead: they fly for a rival empire with
+## the raiders, launch with each wave and wait out the breaks.
 class_name Survival
 extends RefCounted
 
@@ -24,6 +26,7 @@ const BASE_MEND := 0.3
 ## The starbase is built heavier here than in Conquest: alone it holds the
 ## first four waves, and a boss wave needs the pilots there to stop it.
 const BASE_TOUGHNESS := 2.5
+const HUNTER_NOTE := "Competitive Survival: you hunt with the raiders. You launch with each wave; bring down the starbase to end the run."
 const PIRATE_NAMES := ["Vex", "Grist", "Mordo", "Sable", "Kett", "Rook", "Harrow", "Jinx", "Skerry", "Tallow", "Brand", "Cutter"]
 
 var world: Node
@@ -61,6 +64,16 @@ func team_of(s: Ship) -> int:
 	return ENEMY_TEAM if s.has_meta("wave") or s.race_id != race else s.race_id
 
 
+## Competitive: a friend flying with the raiders.  A client knows only
+## its own ship is one (it is not of the defenders' empire).
+func is_hunter(s: Ship) -> bool:
+	return s.has_meta("hunter") or (not s.has_meta("wave") and s.race_id != race and (s.is_player or kills.has(s)))
+
+
+func hunters() -> Array:
+	return world.ships.filter(func(s): return is_hunter(s) and not s.is_station)
+
+
 ## The defenders, best first.
 func pilots() -> Array:
 	var out := []
@@ -71,8 +84,10 @@ func pilots() -> Array:
 	return out
 
 
+## The wave still in the fight (hunters do not count: the wave is beaten
+## without them).
 func raiders() -> Array:
-	return world.ships.filter(func(s): return team_of(s) == ENEMY_TEAM and not s.dead and not s.is_station)
+	return world.ships.filter(func(s): return team_of(s) == ENEMY_TEAM and not s.dead and not s.is_station and not is_hunter(s))
 
 
 func run_kills(s: Ship) -> int:
@@ -93,6 +108,8 @@ func held() -> int:
 
 ## Two short lines for the message log when the mode starts.
 func intro() -> Array:
+	if world.player != null and is_hunter(world.player):
+		return [HUNTER_NOTE, "The %s starbase at %s holds out for as long as its pilots do. Every pilot you bring down counts." % [GameData.race(race)["name"], home().body_name]]
 	return ["Survival: guard the %s starbase at %s against waves of raiders. A boss leads every %dth wave." % [GameData.race(race)["name"], home().body_name, BOSS_EVERY],
 		"Between waves, dock (U) to mend and spend your bounties. Lose the starbase and the run is over."]
 
@@ -129,11 +146,24 @@ func _start_pilot(s: Ship) -> void:
 
 
 ## A joiner flies for the defenders in a fresh ship at the starbase.  Null
-## when four pilots are already in.
-func pilot_joined(pilot: String, career_score: int, career_kills: int) -> Ship:
-	if pilots().size() >= MAX_PLAYERS:
+## when four pilots are already in.  Competitive (versus), a hunter: a
+## rival empire's ship that waits for the next wave to launch with it.
+func pilot_joined(pilot: String, career_score: int, career_kills: int, versus := false) -> Ship:
+	if pilots().size() + hunters().size() >= MAX_PLAYERS:
 		return null
 	var level := GameData.rank_for(career_score, career_kills)
+	if versus:
+		var empire: int = [0, 1, 2].filter(func(r): return r != race)[hunters().size() % 2]
+		var h: Ship = world._make_ship(pilot, empire, world._design_for_rank(level, empire), pilot + "'s ship", false)
+		h.set_meta("hunter", true)
+		h.score = maxi(career_score, 0)
+		h.kills = maxi(career_kills, 0)
+		h.rank = level
+		h.credits = World.START_CREDITS
+		world._place_at_home(h)
+		world._bench(h, 0.0)          # out until the next wave comes in
+		_start_pilot(h)
+		return h
 	var s: Ship = world._make_ship(pilot, race, world._design_for_rank(level, race), pilot + "'s ship", false)
 	s.score = maxi(career_score, 0)
 	s.kills = maxi(career_kills, 0)
@@ -152,9 +182,10 @@ func pilot_left(s: Ship) -> void:
 	world.remove_ship(s)
 
 
-## Pilots relaunch at the starbase while it stands; raiders never do.
+## Pilots relaunch at the starbase while it stands; raiders never do, and
+## hunters only with the next wave (_launch_wave).
 func may_relaunch(s: Ship) -> bool:
-	return not over and not s.has_meta("wave")
+	return not over and not s.has_meta("wave") and not s.has_meta("hunter")
 
 
 ## Every tick on the host.
@@ -236,12 +267,27 @@ func _launch_wave() -> void:
 		s.reset_physics_interpolation()
 		s.target = b
 		Net.host_ship_added(s)
+	_launch_hunters(b, bearing)
 	enemies_left = hulls.size()
 	from_text = _bearing_name(bearing)
 	var boss := ("  A %s leads them." % hulls[0]) if wave % BOSS_EVERY == 0 else ""
 	world.notify_all("Wave %d: %d raiders coming in from the %s.%s" % [wave, hulls.size(), from_text, boss], Color(1.0, 0.7, 0.45))
 	Sfx.play_ui("alarm", 0.6)
 	Net.host_mode_changed()
+
+
+## The hunters waiting out the break come in with the wave, on its bearing.
+func _launch_hunters(b: Ship, bearing: float) -> void:
+	for s in hunters():
+		if not s.dead:
+			continue
+		world.respawn_queue = world.respawn_queue.filter(func(e): return e[0] != s)
+		var ang := bearing + randf_range(-0.3, 0.3)
+		var at: Vector2 = b.global_position + Vector2(cos(ang), sin(ang)) * randf_range(ARRIVE_MIN, ARRIVE_MAX)
+		s.respawn(at, b.velocity)
+		s.rotation = (b.global_position - at).angle()
+		s.reset_physics_interpolation()
+		Net.host_ship_respawned(s)
 
 
 func _names(empire: int) -> Array:
@@ -282,10 +328,14 @@ func _wave_cleared() -> void:
 ## A ship is gone.  The starbase going ends the run; a raider counts for
 ## whoever brought it down.  (World pays the bounty and drops the loot.)
 func on_death(victim: Ship, killer: Ship) -> void:
-	if victim.has_meta("wave"):
-		if killer != null and not killer.has_meta("wave") and kills.has(killer):
+	if victim.has_meta("wave") or victim.has_meta("hunter"):
+		if killer != null and not killer.has_meta("wave") and not killer.has_meta("hunter") and kills.has(killer):
 			kills[killer] += 1
 		enemies_left = raiders().size()
+	elif killer != null and killer.has_meta("hunter") and kills.has(killer) and (team_of(victim) == race):
+		kills[killer] += 1             # a hunter's tally: the defenders and their starbase
+		if victim.is_starbase() and victim.race_id == race and not over:
+			_run_over()
 	elif victim.is_starbase() and victim.race_id == race and not over:
 		_run_over()
 	Net.host_mode_changed()
@@ -319,10 +369,19 @@ func _new_run() -> void:
 	break_left = FIRST_BREAK
 	enemies_left = 0
 	from_text = ""
-	world.respawn_queue.clear()
+	# hunters stay benched (or are benched now) until wave 1 brings them in
+	world.respawn_queue = world.respawn_queue.filter(func(e): return is_instance_valid(e[0]) and e[0].has_meta("hunter"))
 	for s in world.ships.duplicate():
 		if s.has_meta("wave"):
 			world.remove_ship(s)
+	for h in hunters():
+		var old: Array = baseline.get(h, [h.score, h.kills])
+		h.score = old[0]
+		h.kills = old[1]
+		_start_pilot(h)
+		if not h.dead:
+			world._bench(h, 0.0)
+			Net.host_ship_died(h, null)
 	var b: Ship = null
 	for s in world.ships:
 		if s.is_starbase() and s.race_id == race:
@@ -355,7 +414,7 @@ func _new_run() -> void:
 
 func pack() -> Array:
 	var board := []
-	for s in pilots():
+	for s in pilots() + hunters():
 		board.append([s.net_id, run_kills(s)])
 	return [race, wave, break_left, enemies_left, over, restart_left, run, from_text, board]
 

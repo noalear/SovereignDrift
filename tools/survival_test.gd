@@ -37,6 +37,9 @@ func _start() -> void:
 	var settings = root.get_node("/root/Settings")
 	settings.race_id = 2            # Drengin: the starbase is at Mars
 	var b: Array = []
+	main.menu._set_page("single")   # the mode pages: Single Player and Practice
+	await process_frame
+	await process_frame
 	for mb in main.menu.buttons:
 		if mb[1] == "Survival":
 			b = mb

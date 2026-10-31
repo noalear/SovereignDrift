@@ -7,7 +7,7 @@ extends SceneTree
 var frames := 0
 var main: Node
 var out_dir := "/tmp/claude-0/sf/pages"
-var pages := ["main", "pilot", "settings", "online", "controls", "about"]
+var pages := ["main", "single", "online", "online_versus", "practice", "pilot", "settings", "controls"]
 var at := 0
 
 
@@ -39,7 +39,8 @@ func _process(_delta: float) -> bool:
 		if at >= pages.size():
 			quit(0)
 			return true
-		main.menu._set_page(pages[at])
+		main.menu.versus = pages[at].ends_with("_versus")   # the Online page with Competitive picked
+		main.menu._set_page(pages[at].trim_suffix("_versus"))
 		main.menu.intro = 1.0
 		main.menu.page_fade = 0.0
 		at += 1

@@ -1026,11 +1026,13 @@ func _draw_survival(p: Ship, vp: Vector2) -> void:
 		draw_rect(Rect2(cx - bw * 0.5, 43, bw * clampf(b.shield / b.shield_max, 0.0, 1.0), 3), Color(0.45, 0.75, 1.0, 0.9))
 	_text(Vector2(cx + bw * 0.5 + 10, 44), "best %d wave%s" % [sv.best, "" if sv.best == 1 else "s"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.7, 0.8, 0.9, 0.9))
 	var pilots := sv.pilots()
-	for i in mini(pilots.size(), Survival.MAX_PLAYERS):
-		var s: Ship = pilots[i]
+	var hunters := sv.hunters()      # competitive: friends flying with the raiders, in red
+	var board := pilots + hunters
+	for i in mini(board.size(), Survival.MAX_PLAYERS):
+		var s: Ship = board[i]
 		var x := cx - 350.0 + float(i) * 180.0
-		var c: Color = Color(1, 0.95, 0.6) if s == p else (Color(0.55, 0.55, 0.6) if s.dead else Color(0.9, 0.9, 0.92))
-		_text(Vector2(x, 68), "%s  %d" % [s.pilot_name, sv.run_kills(s)], HORIZONTAL_ALIGNMENT_CENTER, 170, 14, c)
+		var c: Color = Color(1, 0.95, 0.6) if s == p else (Color(0.55, 0.55, 0.6) if s.dead else (Color(1.0, 0.6, 0.5) if s in hunters else Color(0.9, 0.9, 0.92)))
+		_text(Vector2(x, 68), "%s%s  %d" % ["hunter " if s in hunters else "", s.pilot_name, sv.run_kills(s)], HORIZONTAL_ALIGNMENT_CENTER, 170, 14, c)
 
 
 ## Skirmish: your tally top left, the two sides' scores and the clock top
@@ -1242,6 +1244,8 @@ func _draw_dead(vp: Vector2) -> void:
 		_draw_hull_picker(vp, a)
 	elif world.mode == "survival" and world.mode_rules != null and world.mode_rules.over:
 		line = "The starbase has fallen.  A new run starts in %s." % world.mode_rules.clock_text()
+	elif world.mode == "survival" and world.mode_rules != null and world.mode_rules.is_hunter(world.player):
+		line = "You launch with the next wave (%s)." % world.mode_rules.clock_text() if world.mode_rules.break_left > 0.0 else "You launch with the next wave."
 	elif world.starbase_back_in(world.player.race_id) >= 0.0:
 		line += "   (the starbase is down: you launch over %s)" % world._home_planet(world.player.race_id).body_name
 	draw_string(font, Vector2(0, vp.y * 0.4 + 40), line, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, Color(1, 1, 1, a))

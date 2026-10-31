@@ -30,6 +30,9 @@ func _start() -> void:
 	await process_frame
 	_lines_check()
 	var b: Array = []
+	main.menu._set_page("practice")   # the mode pages: Single Player and Practice
+	await process_frame
+	await process_frame
 	for mb in main.menu.buttons:
 		if str(mb[1]).begins_with("Tutorial"):
 			b = mb

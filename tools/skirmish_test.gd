@@ -30,6 +30,9 @@ func _start() -> void:
 	await process_frame
 	await process_frame
 	var b: Array = []
+	main.menu._set_page("single")   # the mode pages: Single Player and Practice
+	await process_frame
+	await process_frame
 	for mb in main.menu.buttons:
 		if mb[1] == "Skirmish":
 			b = mb
