@@ -65,15 +65,18 @@ func _start() -> void:
 	_check(absf(w.starbase_back_in(p.race_id) - (delay - (w.elapsed - t0))) < 0.5, "the countdown runs down (%.1f s left)" % w.starbase_back_in(p.race_id))
 	_check(notes.any(func(n): return "none of its pilots can launch" in n), "everyone is told nobody launches until then")
 	var back_at := -1.0
+	var launch_d := -1.0
 	while w.elapsed - t0 < delay + 3.0:
 		await physics_frame
 		p.hull = p.hull_max
 		p.invulnerable = 1.0
 		if back_at < 0.0 and not own.dead:
 			back_at = w.elapsed - t0
+		if launch_d < 0.0 and not p.dead:
+			launch_d = p.global_position.distance_to(own.global_position)
 	_check(back_at >= delay - 0.1 and back_at <= delay + 1.0, "the starbase is back after %.1f s" % back_at)
 	_check(not p.dead, "the player launches once it is back")
-	_check(p.global_position.distance_to(own.global_position) < own.size * 1.4 + 400.0, "...from the starbase (%d px from it)" % int(p.global_position.distance_to(own.global_position)))
+	_check(launch_d >= 0.0 and launch_d < own.size * 1.4 + 300.0, "...from the starbase (%d px from it)" % int(launch_d))
 	_check(not enemy.dead, "so is the enemy's")
 	_check(w.starbase_of(p.race_id) == own and w.starbase_back_in(p.race_id) < 0.0, "starbase_of() finds it again; no countdown")
 	_check(own.hull >= own.hull_max * 0.99, "rebuilt at full hull")
