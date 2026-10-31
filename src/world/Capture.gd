@@ -299,9 +299,9 @@ func take(captor: Ship, victim: Ship) -> void:
 	var round_rules = world.round_rules
 	if round_rules != null:
 		round_rules.on_kill(captor.race_id)
-		round_rules.note("%s captured %s's %s" % [captor.pilot_name, victim.pilot_name, victim.design_name], captor.race_id)
+		round_rules.note("%s captured %s's %s" % [captor.pilot_name, victim.pilot_name, GameData.hull_label(victim.design_name)], captor.race_id)
 	if world.in_feed(captor, victim):
-		world.notify_all("%s (%s) captured %s's %s." % [captor.pilot_name, GameData.race(captor.race_id)["name"], victim.pilot_name, victim.design_name],
+		world.notify_all("%s (%s) captured %s's %s." % [captor.pilot_name, GameData.race(captor.race_id)["name"], victim.pilot_name, GameData.hull_label(victim.design_name)],
 			captor.race_color() if captor.is_player or victim.is_player else Color(0.85, 0.85, 0.75))
 	if victim.is_player:
 		world.notify(victim, "Your ship was boarded and captured.")

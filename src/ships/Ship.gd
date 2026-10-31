@@ -250,7 +250,7 @@ func group_weapons(g: int) -> Array:
 	for w in weapons:
 		if int(w["group"]) != g:
 			continue
-		var label: String = GameData.missile_display_name(race_id, w["missile"]) if w["kind"] == "tube" else w["name"]
+		var label: String = w["name"]      # the part's own name, as the shipyard shows it
 		if not counts.has(label):
 			order.append(label)
 			counts[label] = 0
@@ -709,7 +709,7 @@ func set_pdc(on: bool) -> void:
 		return
 	pdc.enabled = on
 	if is_player and world != null:
-		world.notify(self, "Point defence on: the PDCs shoot down incoming missiles, torpedoes, drones and mines." if on else "Point defence off: the PDCs hold their fire.")
+		world.notify(self, "Point defense on: the PDCs shoot down incoming missiles, torpedoes, drones and mines." if on else "Point defense off: the PDCs hold their fire.")
 
 
 func set_silent(on: bool) -> void:

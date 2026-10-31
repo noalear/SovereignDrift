@@ -424,7 +424,7 @@ func _rpc_hello(name: String, protocol: int, career_score: int = 0, career_kills
 		_rpc_story.rpc_id(peer_id, world.story.pack_live())
 		_rpc_story_marks.rpc_id(peer_id, world.story.pack_marks())
 	_rpc_seat_changed.rpc(s.net_id, name, true)
-	world.notify_all("%s joined the game as %s." % [name, s.design_name], Color(0.7, 1.0, 0.7))
+	world.notify_all("%s joined the game as %s." % [name, GameData.hull_label(s.design_name)], Color(0.7, 1.0, 0.7))
 	lan.announce(_announcement(PORT))
 
 
@@ -883,7 +883,7 @@ func _rpc_welcome(my_id: int, elapsed: float, roster: Array, owners: PackedInt32
 		var p: Node = powerups_by_id.get(row[0], null)
 		if p != null:
 			p.age = row[4]
-	status.emit("In the game as %s." % world.player.design_name)
+	status.emit("In the game as %s." % GameData.hull_label(world.player.design_name))
 	world.notify_all("Joined %s. Press H for the controls." % "the host's game", Color(0.7, 1.0, 0.7))
 
 

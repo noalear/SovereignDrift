@@ -2763,7 +2763,7 @@ func _use_types() -> bool:
 
 
 const TYPE_ORDER := ["Lasers", "Guns", "Missiles", "Torpedoes", "Mines", "Drones",
-	"Power", "Engines", "Drives", "Shields", "Armor", "Sensors", "Stealth", "Repair", "Defence", "Other"]
+	"Power", "Engines", "Drives", "Shields", "Armor", "Sensors", "Stealth", "Repair", "Defense", "Other"]
 
 
 ## The list's part type for a module ("Shields", "Guns", ...).
@@ -2786,7 +2786,7 @@ static func _part_type(id: String) -> String:
 		"sensor": return "Sensors"
 		"jammer", "heatsink", "stealth": return "Stealth"
 		"regen", "repair": return "Repair"
-		"pdc", "ram": return "Defence"
+		"pdc", "ram": return "Defense"
 	return "Other"
 
 
@@ -2903,7 +2903,9 @@ func _catalogue_rows() -> Array:
 			ptxt = "%s blueprint" % GameData.race(race)["adj"]
 			pcol = Color(0.4, 0.6, 0.65)
 		elif too_big:
-			ptxt = "won't fit" if banned else "too heavy"
+			# a hardpoint takes its own size class and smaller: say which
+			# mount the part needs, not "too heavy" (it is not about mass)
+			ptxt = "won't fit" if banned else "%s mount" % GameData.class_name_of(GameData.weapon_class(id))
 			pcol = Color(0.5, 0.45, 0.45)
 		elif in_hold:
 			ptxt = "in hold"

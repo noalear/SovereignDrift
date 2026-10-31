@@ -132,7 +132,7 @@ func _draw() -> void:
 		y += 25.0
 	y += 16.0
 	if story.world != null and story.world.player != null:
-		draw_string(font, Vector2(x, y), "Your ship: %s   ·   %d credits" % [story.world.player.design_name, story.world.player.credits], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.65, 0.72, 0.85))
+		draw_string(font, Vector2(x, y), "Your ship: %s   ·   %d credits" % [GameData.hull_label(story.world.player.design_name), story.world.player.credits], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.65, 0.72, 0.85))
 		y += 22.0
 		draw_string(font, Vector2(x, y), "Refit at the starbase first if you like: the operation waits.", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.65, 0.72, 0.85))
 	draw_string(font, Vector2(0, vp.y - 30.0), "Enter: launch   ·   Esc or %s: not yet" % Keybinds.short_text("briefing"), HORIZONTAL_ALIGNMENT_CENTER, vp.x, 14, Color(0.6, 0.7, 0.85))

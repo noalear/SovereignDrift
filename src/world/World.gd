@@ -1956,7 +1956,7 @@ func _on_system_failed(s: Ship, e: Dictionary, attacker: Node) -> void:
 			Sfx.play_ui("alarm", 0.6)
 	if attacker is Ship and attacker != s:
 		if vital and s.is_disabled():
-			notify(attacker, "%s's %s is disabled: %s out. Close in and press K to board." % [s.pilot_name, s.design_name, e["label"].to_lower()])
+			notify(attacker, "%s's %s is disabled: %s out. Close in and press K to board." % [s.pilot_name, GameData.hull_label(s.design_name), e["label"].to_lower()])
 		else:
 			notify(attacker, "Hit: %s's %s is out." % [s.pilot_name, e["label"].to_lower()])
 
