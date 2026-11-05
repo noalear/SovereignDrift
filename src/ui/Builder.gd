@@ -43,7 +43,7 @@ const FOCUS := Color(1.0, 0.93, 0.62)
 ## half: a new hull's stock fit is worth more than the hull costs.
 const SCRAP := 0.1
 
-const SECTIONS := ["hulls", "fit", "parts", "hold"]
+const SECTIONS := ["hulls", "fit", "parts", "hold", "stats"]
 
 ## The last control the pilot touched was a gamepad: hints show pad buttons.
 static var pad_mode := false
@@ -111,6 +111,14 @@ var _badges: Array = []            # per hardpoint: its numbered badge on the sl
 var _pic_rect := Rect2()            # the slip picture
 var _drag_mount := -1               # the mount whose turret the mouse is turning, or -1
 var _pad_axes := {}                 # trigger / right stick -> last direction, so a push acts once
+var _stat_keys: Array = []          # the performance panel's lines, top to bottom, as drawn last
+var _tip_key := ""                  # what the mouse-over description is for...
+var _tip_at := 0.0                  # ...and since when it has been pointed at
+## Seconds the pointer (or the focus) rests on something before its
+## description shows, so sweeping across the screen doesn't flash tips.
+const TIP_DELAY := 0.45
+const TIP_DELAY_KEYS := 0.3
+const TIP_W := 410.0
 const TURN_STEP := 15
 
 
@@ -697,7 +705,8 @@ func _mount_now(id: String) -> void:
 
 
 ## A ship carries one part of each kind except engines, shields and
-## boosters (GameData.STACKING), and shields of one family: the part just
+## boosters (GameData.STACKING), shields of one family, and one sensor of
+## each family (a radar and an infrared, as the stock fits have): the part just
 ## fitted at `keep` pushes out the others to the hold.
 func _one_of_a_kind(keep: int) -> Array:
 	var id: String = modules[keep]["id"]
@@ -709,6 +718,8 @@ func _one_of_a_kind(keep: int) -> Array:
 		var clash := false
 		if i != keep and GameData.MODULES[other]["func"] == f:
 			clash = not GameData.stacks(id) or (f == "shield" and GameData.shield_family(other) != GameData.shield_family(id))
+			if f == "sensor":
+				clash = GameData.MODULES[other]["fam"] == GameData.MODULES[id]["fam"]     # one of each kind: radar and infrared together
 		if clash:
 			out.append(GameData.MODULES[other]["name"])
 			_unmount_bay(i)
@@ -1468,6 +1479,7 @@ func _section_of(key: String) -> String:
 		"hp", "bay", "sock": return "fit"
 		"part", "type", "grp": return "parts"
 		"hold": return "hold"
+		"stat", "sys": return "stats"
 	return ""
 
 
@@ -1554,6 +1566,8 @@ func _list_keys(sec: String) -> Array:
 		"hold":
 			for i in hold.size():
 				out.append("hold:%d" % i)
+		"stats":
+			out = _stat_keys.duplicate()
 		"fit":
 			for i in hardpoints.size():
 				out.append("hp:%d" % i)
@@ -1579,13 +1593,20 @@ func _move_focus(dir: Vector2i) -> void:
 			return
 		if dir.y != 0:
 			return
-	elif dir.y != 0 and sec in ["hulls", "parts", "hold"]:
+	elif dir.y != 0 and sec in ["hulls", "parts", "hold", "stats"]:
 		var keys := _list_keys(sec)
 		var at := keys.find(focus_key)
 		if at >= 0 and at + dir.y >= 0 and at + dir.y < keys.size():
 			focus_key = keys[at + dir.y]
 			_scroll_to_focus()
 			Sfx.play_ui("click", 0.2)
+		elif at >= 0:
+			# the performance panel sits above the parts list: walk between them
+			var other: Array = _list_keys("parts") if sec == "stats" and dir.y > 0 else (_stat_keys if sec == "parts" and dir.y < 0 else [])
+			if not other.is_empty():
+				focus_key = other[0] if dir.y > 0 else other[-1]
+				_scroll_to_focus()
+				Sfx.play_ui("click", 0.2)
 		return
 	var i := _focus_index()
 	if i < 0:
@@ -1598,6 +1619,10 @@ func _move_focus(dir: Vector2i) -> void:
 	for k in buttons.size():
 		var key: String = buttons[k][3]
 		if k == i or key == "" or key.begins_with("modal:"):
+			continue
+		# the performance lines are reached by Tab / LB / RB or from the
+		# top of the parts list, so left and right still go straight to parts
+		if sec != "stats" and _section_of(key) == "stats":
 			continue
 		var r: Rect2 = buttons[k][0]
 		var d := r.get_center() - c
@@ -1863,6 +1888,8 @@ func _draw() -> void:
 	_draw_footer(footer)
 	if not confirm.is_empty():
 		_draw_modal(vp)
+	else:
+		_draw_tip(vp)
 
 
 func _draw_header(r: Rect2, rc: Color) -> void:
@@ -2054,6 +2081,141 @@ func _draw_modal(vp: Vector2) -> void:
 	buttons.append_array(keep)
 
 
+# ------------------------------------------------------ descriptions
+
+## What the pointer is on (or, with keys or a pad, the focus): the key of
+## its description and the rect to put it beside.  Mounts on the ship
+## picture count as their mount.
+func _tip_target() -> Array:
+	if not placing.is_empty() or _drag_mount >= 0:
+		return []
+	if hover >= 0 and hover < buttons.size() and not kb_nav:
+		var k: String = buttons[hover][3]
+		if k == "" and _hp_hover.has(hover):
+			k = "hp:%d" % _hp_hover[hover]
+		var cb: Callable = buttons[hover][1]
+		if k == "" and cb.get_method() == "_cycle_group" and not cb.get_bound_arguments().is_empty():
+			k = "group:%d" % int(cb.get_bound_arguments()[0])
+		return [k, buttons[hover][0]] if k != "" else []
+	if kb_nav:
+		var i := _focus_index()
+		if i >= 0:
+			return [focus_key, buttons[i][0]]
+	return []
+
+
+## The description for a key ("part:4001", "hp:2", "stat:mass", ...), or
+## an empty one.
+func _tip_for(key: String) -> Dictionary:
+	var st := GameData.stats_for(current_design())
+	var kind := key.get_slice(":", 0)
+	var arg := key.substr(kind.length() + 1)
+	match kind:
+		"part", "sys":
+			return PartInfo.part(arg, st, base.race_id)
+		"hold":
+			var i := int(arg)
+			return PartInfo.part(hold[i], st, base.race_id) if i < hold.size() else {}
+		"hull":
+			return PartInfo.hull(arg, base.race_id)
+		"type":
+			return PartInfo.part_type(arg)
+		"grp":
+			# a family: its first mark's description under the family's name
+			for e in _catalogue_rows():
+				if _family(e["id"]) == arg:
+					var t := PartInfo.part(e["id"], st, base.race_id)
+					t["title"] = arg
+					t["facts"] = []
+					t["sub"] = "%s  ·  open it to compare the marks" % t["sub"].get_slice("  ·  mark", 0)
+					return t
+		"hp":
+			var i := int(arg)
+			if i >= hardpoints.size():
+				return {}
+			var fire_arc := _hp_turned(i)
+			var arc := int(round(float(fire_arc[4]) - float(fire_arc[3])))
+			if mounts[i] == null:
+				return PartInfo.mount(i, int(hardpoints[i][5]), arc)
+			var t := PartInfo.part(mounts[i]["id"], st, base.race_id)
+			var g: int = int(mounts[i].get("group", GameData.default_weapon_group(mounts[i]["id"])))
+			t["sub"] = "Mount %d  ·  %s  ·  %s  ·  fire group %d" % [i + 1, GameData.class_name_of(hardpoints[i][5]), "all round" if arc >= 348 else "arc %d°" % arc, g]
+			return t
+		"bay":
+			var i := int(arg)
+			if i < modules.size():
+				return PartInfo.part(modules[i]["id"], st, base.race_id)
+			return PartInfo.bays(int(st["bay_used"]), int(st["bay_cap"]))
+		"stat":
+			return PartInfo.stat(arg, st)
+		"group":
+			var i := int(arg)
+			if i < mounts.size() and mounts[i] != null:
+				return PartInfo.fire_group(int(mounts[i].get("group", GameData.default_weapon_group(mounts[i]["id"]))))
+	return {}
+
+
+## The description card beside whatever the pointer or focus has rested on.
+func _draw_tip(vp: Vector2) -> void:
+	var target := _tip_target()
+	var key: String = target[0] if not target.is_empty() else ""
+	if key != _tip_key:
+		_tip_key = key
+		_tip_at = time
+	if key == "" or time - _tip_at < (TIP_DELAY_KEYS if kb_nav else TIP_DELAY):
+		return
+	var tip := _tip_for(key)
+	if tip.is_empty():
+		return
+	var at: Rect2 = target[1]
+	var w := TIP_W
+	var inner := w - 32.0
+	# lay the text out first, to know how tall the card is
+	var lines := []           # [text, size, colour, gap before]
+	lines.append([tip["title"], 18, TEXT, 0.0])
+	if tip.get("sub", "") != "":
+		for ln in _wrap(tip["sub"], inner, 12):
+			lines.append([ln, 12, DIM, 0.0])
+	var facts: Array = tip.get("facts", [])
+	if not facts.is_empty():
+		var first := true
+		for ln in _wrap("  ·  ".join(facts), inner, 12):
+			lines.append([ln, 12, GOLD, 6.0 if first else 0.0])
+			first = false
+	for sec in tip["sections"]:
+		lines.append([String(sec[0]).to_upper(), 11, LABEL, 9.0])
+		for ln in _wrap(sec[1], inner, 13):
+			lines.append([ln, 13, TEXT, 0.0])
+	var h := 26.0
+	for ln in lines:
+		h += ln[3] + ln[1] + 6.0
+	h = minf(h, vp.y - 16.0)
+	# beside the thing pointed at, on the side with more room
+	var x := at.position.x - w - 12.0 if at.get_center().x > vp.x * 0.5 else at.end.x + 12.0
+	x = clampf(x, 8.0, vp.x - w - 8.0)
+	var y := clampf(at.position.y - 6.0, 8.0, vp.y - h - 8.0)
+	var card := Rect2(x, y, w, h)
+	draw_rect(Rect2(card.position + Vector2(4, 6), card.size), Color(0, 0, 0, 0.35))
+	_card(card, Color(0.03, 0.05, 0.1, 0.97), EDGE, 10.0, 1.5)
+	var accent := LABEL
+	var id := key.get_slice(":", 1)
+	if (key.begins_with("part:") or key.begins_with("sys:")) and GameData.MODULES.has(id):
+		accent = _func_color(id)
+	elif key.begins_with("hp:") and int(id) < mounts.size() and mounts[int(id)] != null:
+		accent = _func_color(mounts[int(id)]["id"])
+	elif key.begins_with("bay:") and int(id) < modules.size():
+		accent = _func_color(modules[int(id)]["id"])
+	elif key.begins_with("hold:") and int(id) < hold.size():
+		accent = _func_color(hold[int(id)])
+	draw_rect(Rect2(card.position.x + 12, card.position.y + 1, card.size.x - 24, 2), Color(accent, 0.8))
+	var ty := card.position.y + 14.0
+	for ln in lines:
+		ty += ln[3] + ln[1] + 6.0
+		if ty > card.end.y - 8.0:
+			break
+		draw_string(font, Vector2(card.position.x + 16, ty - 4.0), ln[0], HORIZONTAL_ALIGNMENT_LEFT, -1, ln[1], ln[2])
+
+
 func _wrap(text: String, width: float, fsize: int) -> Array:
 	var out := []
 	var line := ""
@@ -2207,7 +2369,13 @@ func _draw_centre(r: Rect2, rc: Color) -> void:
 		scale = minf(scale, 1.9 * tex.get_width() / (size * ShipArt.LENGTH))
 	# the part in focus in the list is shown on the ship before it is bought
 	var look := design if preview_id == "" else _design_with(preview_id)
+	# the high-resolution painting, resampled to the pixels it covers on
+	# the screen (the window may be bigger than the 1920x1080 layout)
+	var px := float(DisplayServer.window_get_size().x) / maxf(get_viewport_rect().size.x, 1.0)
+	ShipArt.hd = true
+	ShipArt.hd_width = int(ceil(size * ShipArt.LENGTH * scale * px / 32.0)) * 32
 	ShipArt.draw_ship(self, look, art_race, size, rc, 0.4 + 0.2 * sin(time * 3.0), 1.0, 0.0, Transform2D(0.0, Vector2.ONE * scale, 0.0, centre))
+	ShipArt.hd = false
 	if preview_id != "":
 		draw_string(font, Vector2(pic.position.x + 16, pic.end.y - 14), "Preview: %s fitted, not bought yet" % GameData.MODULES[preview_id]["name"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, GOLD)
 	# hardpoints: a small numbered badge on each turret; names live in the
@@ -2467,41 +2635,44 @@ func _draw_right(r: Rect2) -> void:
 	draw_string(font, Vector2(r.end.x - 316, y), _fit(legend, 300, 13), HORIZONTAL_ALIGNMENT_RIGHT, 300, 13, GOLD if preview != "" else DIM)
 	y += 14
 	var rows := [
-		["Top speed", was["max_speed"], st["max_speed"], "%d", true],
-		["Acceleration", was["accel"], st["accel"], "%d", true],
-		["Turn rate", was["turn"], st["turn"], "%d°/s", true],
-		["Mass", was["mass"] / 1000.0, st["mass"] / 1000.0, "%.1f t", false],
-		["Energy", was["energy_max"], st["energy_max"], "%d", true],
-		["Energy regen", was["energy_regen"] * 0.1, st["energy_regen"] * 0.1, "%.0f/s", true],
-		["Shields", was["shield_max"], st["shield_max"], "%d", true],
-		["Hull", was["hull_max"], st["hull_max"], "%d", true],
-		["Lock range", was["sensor_range"], st["sensor_range"], "%d", true],
-		["Fuel tank", was["eng"] * Ship.FUEL_PER_ENGINE, st["eng"] * Ship.FUEL_PER_ENGINE, "%d", true],
+		["Top speed", was["max_speed"], st["max_speed"], "%d", true, "max_speed"],
+		["Acceleration", was["accel"], st["accel"], "%d", true, "accel"],
+		["Turn rate", was["turn"], st["turn"], "%d°/s", true, "turn"],
+		["Mass", was["mass"] / 1000.0, st["mass"] / 1000.0, "%.1f t", false, "mass"],
+		["Energy", was["energy_max"], st["energy_max"], "%d", true, "energy_max"],
+		["Energy regen", was["energy_regen"] * 0.1, st["energy_regen"] * 0.1, "%.0f/s", true, "energy_regen"],
+		["Shields", was["shield_max"], st["shield_max"], "%d", true, "shields"],
+		["Hull", was["hull_max"], st["hull_max"], "%d", true, "hull"],
+		["Lock range", was["sensor_range"], st["sensor_range"], "%d", true, "sensor_range"],
+		["Fuel tank", was["eng"] * Ship.FUEL_PER_ENGINE, st["eng"] * Ship.FUEL_PER_ENGINE, "%d", true, "fuel"],
 	]
 	# what boosters and a quantum drive add, so a better one reads better
 	if was["has_boost"] or st["has_boost"]:
-		rows.insert(2, ["Boost speed", _boosted(was, "max_speed"), _boosted(st, "max_speed"), "%d", true])
-		rows.insert(3, ["Boost accel", _boosted(was, "accel"), _boosted(st, "accel"), "%d", true])
-		rows.insert(rows.size(), ["Boost burn time", _boost_burn_time(was), _boost_burn_time(st), "%d s", true])
+		rows.insert(2, ["Boost speed", _boosted(was, "max_speed"), _boosted(st, "max_speed"), "%d", true, "boost_speed"])
+		rows.insert(3, ["Boost accel", _boosted(was, "accel"), _boosted(st, "accel"), "%d", true, "boost_accel"])
+		rows.insert(rows.size(), ["Boost burn time", _boost_burn_time(was), _boost_burn_time(st), "%d s", true, "boost_burn"])
 	if was["qdrv"] > 0.0 or st["qdrv"] > 0.0:
-		rows.insert(rows.size() - 1, ["Warp speed", was["qdrv"] * GameData.LIGHT_SPEED * 1.25, st["qdrv"] * GameData.LIGHT_SPEED * 1.25, "%d", true])
+		rows.insert(rows.size() - 1, ["Warp speed", was["qdrv"] * GameData.LIGHT_SPEED * 1.25, st["qdrv"] * GameData.LIGHT_SPEED * 1.25, "%d", true, "warp"])
 	# how loud the build is: lower is stealthier
 	var sw := Sensors.fit_signatures(orig_design, was)
 	var sn := Sensors.fit_signatures(design, st)
-	rows.append(["Radar return", sw["radar"], sn["radar"], "%d", false])
-	rows.append(["Heat (burning)", sw["burn"], sn["burn"], "%d", false])
-	rows.append(["Emissions", sw["em"], sn["em"], "%d", false])
+	rows.append(["Radar return", sw["radar"], sn["radar"], "%d", false, "radar"])
+	rows.append(["Heat (burning)", sw["burn"], sn["burn"], "%d", false, "heat_burn"])
+	rows.append(["Emissions", sw["em"], sn["em"], "%d", false, "em"])
+	_stat_keys.clear()
 	for row in rows:
 		y += 22
+		_stat_hot(Rect2(x - 6, y - 16, r.size.x - 20, 22), "stat:" + row[5])
 		_stat_row(Rect2(x, y - 14, r.size.x - 32, 18), row[0], float(row[1]), float(row[2]), row[3], row[4])
 	y += 24
 	var texts := [
-		["Shield type", _shield_text(was), _shield_text(st)],
-		["Armor", GameData.coat_label(was["coat"]), GameData.coat_label(st["coat"])],
-		["Armor radar factor", "%.1fx" % was["armor_sig"], "%.1fx" % st["armor_sig"]],
-		["Heat coasting", "%d" % sw["heat"], "%d" % sn["heat"]],
+		["Shield type", _shield_text(was), _shield_text(st), "shield_type"],
+		["Armor", GameData.coat_label(was["coat"]), GameData.coat_label(st["coat"]), "armor"],
+		["Armor radar factor", "%.1fx" % was["armor_sig"], "%.1fx" % st["armor_sig"], "armor_sig"],
+		["Heat coasting", "%d" % sw["heat"], "%d" % sn["heat"], "heat_coast"],
 	]
 	for row in texts:
+		_stat_hot(Rect2(x - 6, y - 14, r.size.x - 20, 19), "stat:" + row[3])
 		draw_string(font, Vector2(x, y), row[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DIM)
 		var same: bool = row[1] == row[2]
 		draw_string(font, Vector2(r.end.x - 316, y), row[1] if same else "%s  →  %s" % [row[1], row[2]], HORIZONTAL_ALIGNMENT_RIGHT, 300, 13, TEXT if same else GOLD)
@@ -2511,6 +2682,7 @@ func _draw_right(r: Rect2) -> void:
 	var draw_p: float = st["power_draw"]
 	var pcol := GOOD if draw_p <= gen else BAD
 	y += 4
+	_stat_hot(Rect2(x - 6, y - 14, r.size.x - 20, 30), "stat:reactor")
 	draw_string(font, Vector2(x, y), "Reactor", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, DIM)
 	draw_string(font, Vector2(r.end.x - 316, y), "%d made  ·  %d drawn" % [gen, draw_p], HORIZONTAL_ALIGNMENT_RIGHT, 300, 13, pcol)
 	y += 7
@@ -2521,37 +2693,63 @@ func _draw_right(r: Rect2) -> void:
 	if draw_p > gen:
 		draw_string(font, Vector2(x, y - 2), "Overloaded: weapons cost more and energy comes back slower.", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, BAD)
 		y += 18
-	# systems, as pills
+	# systems, as pills (each names the part behind it, for its description)
 	var flags := []
 	if st["can_jam"]:
-		flags.append("Jammer")
+		flags.append(["Jammer", "jammer"])
 	if st["pdc"] > 0:
-		flags.append("PDC x%d" % st["pdc"] if st["pdc"] > 1 else "PDC")
+		flags.append(["PDC x%d" % st["pdc"] if st["pdc"] > 1 else "PDC", "pdc"])
 	if st["heat_sink"] > 0.0:
-		flags.append("Heat sink")
+		flags.append(["Heat sink", "heatsink"])
 	if st["has_boost"]:
-		flags.append("Booster")
+		flags.append(["Booster", "boost"])
 	if st["qdrv"] > 0.0:
-		flags.append("Warp %d" % st["qdrv"])
+		flags.append(["Warp %d" % st["qdrv"], "qdrv"])
 	if st["regen"] > 0.0:
-		flags.append("Regen %d/s" % st["regen"])
+		flags.append(["Regen %d/s" % st["regen"], "regen"])
 	if st["repair"] > 0.0:
-		flags.append("Repair %d/s" % st["repair"])
+		flags.append(["Repair %d/s" % st["repair"], "repair"])
 	if st["ram"] > 0.0:
-		flags.append("Ram x%d" % st["ram"])
+		flags.append(["Ram x%d" % st["ram"], "ram"])
 	var px := x
 	if flags.is_empty():
 		draw_string(font, Vector2(x, y + 4), "No special systems", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, FAINT)
 	for f in flags:
-		var w := font.get_string_size(f, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x + 20
+		var w := font.get_string_size(f[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x + 20
 		if px + w > r.end.x - 16:
 			break
-		_card(Rect2(px, y - 10, w, 22), Color(0.07, 0.12, 0.2, 0.9), Color(0.5, 0.7, 1.0, 0.3), 11.0)
-		draw_string(font, Vector2(px + 10, y + 5), f, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, TEXT)
+		var pill := Rect2(px, y - 10, w, 22)
+		var part := _fitted_of(design, f[1])
+		if part != "":
+			_stat_hot(pill, "sys:" + part, false)
+		_card(pill, Color(0.07, 0.12, 0.2, 0.9), Color(0.5, 0.7, 1.0, 0.3), 11.0)
+		draw_string(font, Vector2(px + 10, y + 5), f[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, TEXT)
+		_focus_ring(pill, "sys:" + part)
 		px += w + 6
 	y += 28
 	draw_line(Vector2(x, y - 6), Vector2(r.end.x - 16, y - 6), LINE, 1.0)
 	_draw_catalogue(Rect2(x, y, r.size.x - 32, r.end.y - y - 10))
+
+
+## A line of the performance panel that shows its description under the
+## pointer or the focus: a button that does nothing when pressed, lit
+## while it is pointed at.
+func _stat_hot(rect: Rect2, key: String, lit_row: bool = true) -> void:
+	buttons.append([rect, func(): pass, true, key, Callable()])
+	_stat_keys.append(key)
+	if lit_row and (hover == buttons.size() - 1 or (kb_nav and focus_key == key)):
+		_card(rect, Color(0.09, 0.14, 0.26, 0.55), Color(0.5, 0.7, 1.0, 0.18 if not kb_nav else 0.0), 5.0)
+		if kb_nav and focus_key == key:
+			_focus_ring(rect, key)
+
+
+## The best fitted part of a kind (its "func") in a design, or "".
+static func _fitted_of(design: Dictionary, f: String) -> String:
+	var best := ""
+	for id in design["modules"]:
+		if GameData.MODULES[id]["func"] == f and (best == "" or GameData.tier(id) > GameData.tier(best)):
+			best = id
+	return best
 
 
 ## Top speed or acceleration while boosting (0 with no booster).
@@ -2757,7 +2955,7 @@ func _use_types() -> bool:
 
 
 const TYPE_ORDER := ["Lasers", "Guns", "Missiles", "Torpedoes", "Mines", "Drones",
-	"Power", "Engines", "Drives", "Shields", "Armor", "Sensors", "Stealth", "Repair", "Defence", "Other"]
+	"Power", "Engines", "Drives", "Shields", "Armor", "Sensors", "Stealth", "Repair", "Defense", "Other"]
 
 
 ## The list's part type for a module ("Shields", "Guns", ...).
@@ -2780,7 +2978,7 @@ static func _part_type(id: String) -> String:
 		"sensor": return "Sensors"
 		"jammer", "heatsink", "stealth": return "Stealth"
 		"regen", "repair": return "Repair"
-		"pdc", "ram": return "Defence"
+		"pdc", "ram": return "Defense"
 	return "Other"
 
 
@@ -2897,7 +3095,9 @@ func _catalogue_rows() -> Array:
 			ptxt = "%s blueprint" % GameData.race(race)["adj"]
 			pcol = Color(0.4, 0.6, 0.65)
 		elif too_big:
-			ptxt = "won't fit" if banned else "too heavy"
+			# a hardpoint takes its own size class and smaller: say which
+			# mount the part needs, not "too heavy" (it is not about mass)
+			ptxt = "won't fit" if banned else "%s mount" % GameData.class_name_of(GameData.weapon_class(id))
 			pcol = Color(0.5, 0.45, 0.45)
 		elif in_hold:
 			ptxt = "in hold"
@@ -2979,7 +3179,7 @@ func _part_info(id: String) -> String:
 		"tube":
 			var md: Dictionary = GameData.MISSILES[p[3]]
 			var ammo: int = p[2]
-			return "%s  dmg %d  %s%s" % [GameData.missile_display_name(base.race_id, p[3]).to_lower(), md["warhead"], GameData.class_name_of(GameData.weapon_class(id)),
+			return "%s  dmg %d  %s%s" % [GameData.missile_display_name(base.race_id, p[3]).to_lower(), int(round(md["warhead"] * GameData.DAMAGE_SCALE)), GameData.class_name_of(GameData.weapon_class(id)),
 				("  ammo %d" % ammo) if ammo < 400 else ""]
 		"beam":
 			return "laser  range %d  %s" % [GameData.beam_range(id), GameData.class_name_of(GameData.weapon_class(id))]

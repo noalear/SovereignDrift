@@ -25,12 +25,15 @@ func _start() -> void:
 	root.add_child(main)
 	await process_frame
 	await process_frame
-	# a real click on "Play" must start the game (full-screen Controls
+	# a real click on "Conquest" must start the game (full-screen Controls
 	# under a CanvasLayer once stayed at size zero and ate no clicks)
 	assert(main.menu.size != Vector2.ZERO, "main menu has no size")
+	main.menu._set_page("single")   # the mode pages: Single Player and Practice
+	await process_frame
+	await process_frame
 	var play: Rect2 = main.menu.buttons[0][0]
 	for b in main.menu.buttons:
-		if str(b[1]).begins_with("Play:"):
+		if str(b[1]) == "Conquest":
 			play = b[0]
 	_click(play.get_center())
 	await process_frame

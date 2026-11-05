@@ -38,7 +38,7 @@ func setup(id: String, pos: Vector2, vel: Vector2) -> void:
 		kind = "credits"
 		amount = int(id.substr(3))
 		label = "%d credits" % amount
-		life = 25.0
+		life = 45.0               # long enough to fly back from the starbase for a lost purse
 	elif id.begins_with("rs:"):
 		kind = "cargo"
 		module_id = id.get_slice(":", 1)

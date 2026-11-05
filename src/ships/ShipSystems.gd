@@ -57,7 +57,7 @@ const VITAL := ["engines", "reactor"]
 const LABELS := {
 	"engines": ["Engines", "ENG"], "reactor": ["Reactor", "PWR"], "shields": ["Shields", "SHD"],
 	"sensors": ["Sensors", "SNS"], "qdrv": ["Warp drive", "WD"], "jammer": ["Jammer", "JAM"],
-	"pdc": ["Point defence", "PDC"],
+	"pdc": ["Point defense", "PDC"],
 }
 ## Which part overlay on the painting stands for which system.
 const ICONS := {"reactor": "reactor", "shields": "shield", "sensors": "sensor", "qdrv": "qdrv", "jammer": "cloak"}
@@ -127,7 +127,7 @@ func build(s: Node) -> void:
 		var e := _add("weapon", [spot], hull)
 		e["id"] = "w%d" % i
 		e["weapon"] = i
-		e["label"] = w["name"] if w["kind"] == "beam" else GameData.missile_display_name(s.race_id, w["missile"]).capitalize()
+		e["label"] = w["name"]      # the part's own name, as the shipyard shows it
 		e["tag"] = "W%d" % (i + 1)
 	changed = true
 

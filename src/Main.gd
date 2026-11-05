@@ -51,21 +51,23 @@ func _ready() -> void:
 
 ## `--host` hosts a game on port 7777, `--host-duel` a free-for-all duel,
 ## `--host-survival` and `--host-skirmish` those modes, `--host-story` the
-## story campaign (the single-player save) in co-op;
+## story campaign (the single-player save) in co-op, `--host-campaign`
+## the saving campaign; `--versus` before
+## any of them makes it competitive (joiners against the host);
 ## `--join=1.2.3.4` joins any of them (after `--` when run from the editor
 ## binary).  The Play online screen replaces this.
 func _start_from_command_line() -> void:
 	var args := OS.get_cmdline_user_args() + OS.get_cmdline_args()
+	var versus := "--versus" in args
 	for a in args:
 		if a == "--host" or a == "--host-duel":
-			Settings.use_profile("online")
-			Net.callsign = Settings.pilot_name
-			Net.mode = "duel" if a == "--host-duel" else ""
-			if Net.host() == OK:
-				_start_game(false, true, "", a == "--host-duel")
+			_host_game(a == "--host-duel", versus)
+			return
+		if a == "--host-campaign":
+			_host_game(false, versus, "continue")     # the saved campaign, or a new one when there is none
 			return
 		if a == "--host-survival" or a == "--host-skirmish":
-			_host_mode(a.substr(7))
+			_host_mode(a.substr(7), versus)
 			return
 		if a == "--host-story":
 			_host_story()
@@ -101,36 +103,46 @@ func _on_session_ended(reason: String) -> void:
 		menu.online_status = reason
 
 
-## `duel`: a free-for-all instead of co-op Conquest.
-func _host_game(duel := false) -> void:
-	Settings.use_profile("online")
+## `duel`: a free-for-all instead of Conquest.  `versus`: friends fly
+## for the rival empires instead of the host's.  `campaign` ("new" or
+## "continue") hosts the saving campaign, the single-player pilot's own
+## war, rather than a round.
+func _host_game(duel := false, versus := false, campaign := "") -> void:
+	Settings.use_profile("single" if campaign != "" else "online")
 	Net.callsign = Settings.pilot_name
 	Net.mode = "duel" if duel else ""
 	if Net.host() == OK:
-		_start_game(false, true, "", duel)
+		Net.versus = versus and not duel
+		Net.hosting_campaign = campaign != ""
+		Net.lan.announce(Net._announcement(Net.PORT))
+		_start_game(false, true, campaign, duel)
 	elif menu != null:
 		menu.online_status = "Could not open port %d. Is another game hosting?" % Net.PORT
 
 
-## Survival or Skirmish over the network: friends join with the address.
-func _host_mode(which: String) -> void:
+## Survival or Skirmish over the network: friends join with the address,
+## on the host's side, or (versus) against them.
+func _host_mode(which: String, versus := false) -> void:
 	Settings.use_profile("online")
 	Net.callsign = Settings.pilot_name
 	Net.mode = which
 	if Net.host() == OK:
+		Net.versus = versus
+		Net.lan.announce(Net._announcement(Net.PORT))
 		_start_game(false, true, "", false, false, which)
 	elif menu != null:
 		menu.online_status = "Could not open port %d. Is another game hosting?" % Net.PORT
 
 
 ## The story campaign in co-op: the host's own story (the single-player
-## pilot and save); friends drop in as Lantern Squadron pilots.
-func _host_story() -> void:
+## pilot and save); friends drop in as Lantern Squadron pilots.  `fresh`
+## starts a new war over the saved one.
+func _host_story(fresh := false) -> void:
 	Settings.use_profile("single")
 	Net.callsign = Settings.pilot_name
 	Net.mode = "story"
 	if Net.host() == OK:
-		_start_game(false, true, "story_continue")
+		_start_game(false, true, "story_new" if fresh else "story_continue")
 	elif menu != null:
 		menu.online_status = "Could not open port %d. Is another game hosting?" % Net.PORT
 
@@ -202,12 +214,12 @@ func _show_menu() -> void:
 	menu.story_new_pressed.connect(func(): _start_game(false, true, "story_new"))
 	menu.story_continue_pressed.connect(func(): _start_game(false, true, "story_continue"))
 	menu.story_load_pressed.connect(_open_saves.bind("load", null))
-	menu.host_pressed.connect(_host_game)
+	menu.host_pressed.connect(func(versus: bool, campaign: String): _host_game(false, versus, campaign))
 	menu.duel_pressed.connect(_host_game.bind(true))
 	menu.story_host_pressed.connect(_host_story)
-	menu.mode_pressed.connect(func(which: String, online: bool):
+	menu.mode_pressed.connect(func(which: String, online: bool, versus: bool):
 		if online:
-			_host_mode(which)
+			_host_mode(which, versus)
 		else:
 			_start_game(false, true, "", false, false, which))
 	menu.join_pressed.connect(_join_game)
@@ -407,6 +419,7 @@ func _open_pause() -> void:
 		world.set_paused(true)   # online the round goes on behind the menu
 	world.menu_open = true       # either way the ship ignores the keys and clicks meant for the menu
 	pause_panel = PausePanel.new()
+	pause_panel.theme = MainMenu.make_theme()   # the title screen's fonts and glass buttons
 	pause_panel.process_mode = Node.PROCESS_MODE_ALWAYS
 	pause_panel.resume.connect(_close_pause)
 	ui_layer.add_child(pause_panel)

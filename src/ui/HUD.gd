@@ -190,14 +190,14 @@ func _draw_labels(p: Ship, vp: Vector2) -> void:
 		if sh.shield_bubble != null:
 			reach = maxf(reach, maxf(sh.shield_bubble.half.x, sh.shield_bubble.half.y) + sh.shield_bubble.position.length())
 		var friend: bool = sh.team() == p.team()
-		var col := Color(0.45, 1.0, 0.5) if friend else (Color(1.0, 0.38, 0.32) if world.shown_hostile(p, sh) else World.PEACE_COLOR)
+		# pilots by their empire's colour (Kyle 2026-10-31: Skethra red,
+		# Solborn blue, Ephyri green, pirates yellow); stations, which can
+		# change hands, by who holds them
+		var col: Color = sh.race_color()
 		if sh.is_station:
 			col = world.owner_color(p, sh.team())
-		elif sh.race_id == GameData.NEUTRAL:
-			col = sh.race_color()
 		var text: String = station_label(sh) if sh.is_station else sh.pilot_name
 		if friend and my_wing.has(sh):
-			col = WING_COLOR
 			text = "%s  [W%d]" % [sh.pilot_name, my_wing.find(sh) + 1]
 		var pos := at - Vector2(0, reach * cam.zoom.x + 8.0)
 		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
@@ -247,7 +247,7 @@ func _draw_wing(p: Ship, vp: Vector2) -> void:
 		draw_string(font, Vector2(x + 44, ly - 2), "--" if s.dead else "%d%%" % ceili(frac * 100.0), HORIZONTAL_ALIGNMENT_LEFT, 34, 11,
 			Color(0.55, 0.58, 0.65) if s.dead else hc)
 		var kind := "prize" if s.is_prize and not s.has_meta("ordered") else ("escort" if s.has_meta("ordered") else s.design_name)
-		var col := Color(0.92, 0.96, 1.0) if not s.dead else Color(0.55, 0.58, 0.65)
+		var col: Color = s.race_color().lerp(Color.WHITE, 0.25) if not s.dead else Color(0.55, 0.58, 0.65)
 		draw_string(font, Vector2(x + 80, ly - 2), "W%d %s  %s" % [i + 1, s.pilot_name, kind], HORIZONTAL_ALIGNMENT_LEFT, 150, 13, col)
 		draw_string(font, Vector2(x + 80, ly - 2), world.wing.status(s), HORIZONTAL_ALIGNMENT_RIGHT, w - 80, 12, Color(0.7, 0.85, 0.95, 0.9))
 		ly += 20.0
@@ -325,7 +325,7 @@ func _draw_status(p: Ship, vp: Vector2) -> void:
 	var y := vp.y - 144.0
 	var w := 300.0
 	draw_rect(Rect2(x - 10, y - 34, w + 20, 148), Color(0.02, 0.04, 0.08, 0.6))
-	draw_string(font, Vector2(x, y - 12), "%s   %s" % [p.ship_name, p.design_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, p.race_color())
+	draw_string(font, Vector2(x, y - 12), "%s   %s" % [p.ship_name, GameData.hull_label(p.design_name)], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, p.race_color())
 	if not p.systems.list.is_empty():
 		draw_rect(Rect2(x - 10, y - 66, w + 20, 30), Color(0.02, 0.04, 0.08, 0.6))
 		_draw_systems(p, Vector2(x, y - 60), w)
@@ -523,7 +523,7 @@ func _draw_target(p: Ship, vp: Vector2) -> void:
 	if t is Ship:
 		_draw_ship_picture(t, Rect2(x - 10, y + tall + 2, 320, PIC_H), vis, col)
 	if t is Ship:
-		draw_string(font, Vector2(x, y + 14), "%s   %s %s" % [t.pilot_name, GameData.race(t.race_id)["adj"], t.design_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, col)
+		draw_string(font, Vector2(x, y + 14), "%s   %s %s" % [t.pilot_name, GameData.race(t.race_id)["adj"], GameData.hull_label(t.design_name)], HORIZONTAL_ALIGNMENT_LEFT, -1, 16, col)
 		draw_string(font, Vector2(x, y + 34), "%s   range %d" % [GameData.rank_name(t.rank), int(t.global_position.distance_to(p.global_position))], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.9, 0.9, 0.9))
 		_shield_bar(Vector2(x, y + 44), 300, 18, t, false)
 		_bar(Vector2(x, y + 66), 300, 18, t.hull / maxf(t.hull_max, 1.0), Color(0.95, 0.55, 0.25, 0.85), "Hull", "%d" % int(t.hull))
@@ -989,7 +989,7 @@ func _draw_duel(p: Ship, vp: Vector2) -> void:
 		var col_x := cx - 350.0 + float(i / 4) * 360.0
 		var y := 44.0 + float(i % 4) * 17.0
 		var me := s == p
-		var c: Color = Color(1, 0.95, 0.6) if me else (Color(0.55, 0.55, 0.6) if s.dead else Color(0.9, 0.9, 0.92))
+		var c: Color = s.race_color().lerp(Color.WHITE, 0.45 if me else 0.15) if not s.dead else Color(0.55, 0.55, 0.6)
 		draw_circle(Vector2(col_x + 6, y - 5), 4.5, s.race_color())
 		_text(Vector2(col_x + 16, y), "%d. %s" % [i + 1, s.pilot_name], HORIZONTAL_ALIGNMENT_LEFT, 220, 14, c)
 		_text(Vector2(col_x + 220, y), "%d  /  %d" % [s.kills, s.deaths], HORIZONTAL_ALIGNMENT_RIGHT, 110, 14, c)
@@ -1026,18 +1026,20 @@ func _draw_survival(p: Ship, vp: Vector2) -> void:
 		draw_rect(Rect2(cx - bw * 0.5, 43, bw * clampf(b.shield / b.shield_max, 0.0, 1.0), 3), Color(0.45, 0.75, 1.0, 0.9))
 	_text(Vector2(cx + bw * 0.5 + 10, 44), "best %d wave%s" % [sv.best, "" if sv.best == 1 else "s"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.7, 0.8, 0.9, 0.9))
 	var pilots := sv.pilots()
-	for i in mini(pilots.size(), Survival.MAX_PLAYERS):
-		var s: Ship = pilots[i]
+	var hunters := sv.hunters()      # competitive: friends flying with the raiders, in red
+	var board := pilots + hunters
+	for i in mini(board.size(), Survival.MAX_PLAYERS):
+		var s: Ship = board[i]
 		var x := cx - 350.0 + float(i) * 180.0
-		var c: Color = Color(1, 0.95, 0.6) if s == p else (Color(0.55, 0.55, 0.6) if s.dead else Color(0.9, 0.9, 0.92))
-		_text(Vector2(x, 68), "%s  %d" % [s.pilot_name, sv.run_kills(s)], HORIZONTAL_ALIGNMENT_CENTER, 170, 14, c)
+		var c: Color = Color(1, 0.95, 0.6) if s == p else (Color(0.55, 0.55, 0.6) if s.dead else (Color(1.0, 0.6, 0.5) if s in hunters else Color(0.9, 0.9, 0.92)))
+		_text(Vector2(x, 68), "%s%s  %d" % ["hunter " if s in hunters else "", s.pilot_name, sv.run_kills(s)], HORIZONTAL_ALIGNMENT_CENTER, 170, 14, c)
 
 
 ## Skirmish: your tally top left, the two sides' scores and the clock top
 ## centre with each side's pilots under them, and the winner between rounds.
 func _draw_skirmish(p: Ship, vp: Vector2) -> void:
 	var sk: Skirmish = world.mode_rules
-	_text(Vector2(24, 24), "%s   kills %d   deaths %d   %s" % [p.pilot_name, p.kills, p.deaths, p.design_name], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 0.95, 0.8))
+	_text(Vector2(24, 24), "%s   kills %d   deaths %d   %s" % [p.pilot_name, p.kills, p.deaths, GameData.hull_label(p.design_name)], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 0.95, 0.8))
 	_text(Vector2(24, 44), "Skirmish: the %s against the %s.  %s targets the nearest enemy." % [sk.side_name(0), sk.side_name(1), Keybinds.short_text("target_nearest")], HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.75, 0.82, 0.95, 0.85))
 	var cx := vp.x * 0.5
 	var head := "round %d   first to %d   %s left" % [sk.round_no, Skirmish.KILLS_TO_WIN, sk.clock_text()]
@@ -1054,7 +1056,7 @@ func _draw_skirmish(p: Ship, vp: Vector2) -> void:
 			var s: Ship = board[i]
 			var y := 64.0 + float(i) * 16.0
 			var c: Color = Color(1, 0.95, 0.6) if s == p else (Color(0.55, 0.55, 0.6) if s.dead else Color(0.9, 0.9, 0.92))
-			_text(Vector2(x + 16, y), "%s  (%s)" % [s.pilot_name, s.design_name], HORIZONTAL_ALIGNMENT_LEFT, 230, 13, c)
+			_text(Vector2(x + 16, y), "%s  (%s)" % [s.pilot_name, GameData.hull_label(s.design_name)], HORIZONTAL_ALIGNMENT_LEFT, 230, 13, c)
 			_text(Vector2(x + 240, y), "%d / %d" % [s.kills, s.deaths], HORIZONTAL_ALIGNMENT_RIGHT, 90, 13, c)
 	if sk.break_left > 0.0:
 		var msg := ("The %s take round %d!" % [sk.side_name(sk.winner), sk.round_no]) if sk.winner >= 0 else ("Round %d is a draw." % sk.round_no)
@@ -1087,7 +1089,7 @@ func _draw_hull_picker(vp: Vector2, a: float) -> void:
 		draw_rect(r, Color(0.05, 0.08, 0.14, 0.8 * a))
 		draw_rect(r, Color(1.0, 0.85, 0.4, a) if on else Color(0.5, 0.6, 0.8, 0.5 * a), false, 2.5 if on else 1.0)
 		ShipArt.draw_ship(self, hull, p.race_id, 34.0, col, 0.4, 1.0, 0.0, Transform2D(-PI * 0.5, r.get_center() + Vector2(0, -12)))
-		_text(Vector2(r.position.x, r.position.y + 20), "%d  %s" % [i + 1, hull], HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 15, Color(1, 0.95, 0.7, a) if on else Color(0.9, 0.9, 0.95, a))
+		_text(Vector2(r.position.x, r.position.y + 20), "%d  %s" % [i + 1, GameData.hull_label(hull)], HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 15, Color(1, 0.95, 0.7, a) if on else Color(0.9, 0.9, 0.95, a))
 		_text(Vector2(r.position.x, r.end.y - 10), "launch %d s" % int(Skirmish.LAUNCH_DELAY[hull]), HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 13, Color(0.7, 0.8, 0.9, a))
 
 
@@ -1161,8 +1163,7 @@ func _draw_pointers(p: Ship, vp: Vector2) -> void:
 	var xf := world.get_viewport().get_canvas_transform()
 	var marks := []
 	if p.target != null and is_instance_valid(p.target) and p.target is Ship and not p.target.dead:
-		var hostile: bool = world.shown_hostile(p, p.target)
-		marks.append([p.target, Color(1.0, 0.35, 0.3) if hostile else Color(1.0, 0.9, 0.4), p.target.pilot_name])
+		marks.append([p.target, p.target.race_color(), p.target.pilot_name])
 	var base: Ship = world.starbase_of(p.race_id)
 	if base != null and base != p.target:
 		marks.append([base, Color(0.45, 1.0, 0.6), "Starbase"])
@@ -1212,9 +1213,9 @@ func _draw_heat(p: Ship, vp: Vector2) -> void:
 	draw_string(font, Vector2(0, vp.y * 0.32), text, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 26, tc)
 
 
-## Crosshair where the turrets are pointed (mouse or right stick).
+## Crosshair where the guns are pointed and meet (mouse or right stick).
 func _draw_aim(p: Ship, vp: Vector2) -> void:
-	if p.dead or p.aim_point == Vector2.INF or not p.has_turret:
+	if p.dead or p.aim_point == Vector2.INF or p.weapons.is_empty():
 		return
 	var cam := world.camera
 	var screen := (p.aim_point - world.camera_centre()) * cam.zoom + vp * 0.5
@@ -1242,9 +1243,16 @@ func _draw_dead(vp: Vector2) -> void:
 		_draw_hull_picker(vp, a)
 	elif world.mode == "survival" and world.mode_rules != null and world.mode_rules.over:
 		line = "The starbase has fallen.  A new run starts in %s." % world.mode_rules.clock_text()
-	elif world.starbase_back_in(world.player.race_id) >= 0.0:
-		line += "   (the starbase is down: you launch over %s)" % world._home_planet(world.player.race_id).body_name
+	elif world.mode == "survival" and world.mode_rules != null and world.mode_rules.is_hunter(world.player):
+		line = "You launch with the next wave (%s)." % world.mode_rules.clock_text() if world.mode_rules.break_left > 0.0 else "You launch with the next wave."
+	elif world.waits_for_starbase(world.player):
+		# no starbase, no launch: wait for the rebuild
+		var back: float = world.starbase_back_in(world.player.race_id)
+		line = "Your starbase is down: you launch when it is rebuilt%s." % (" in %d s" % int(ceil(back)) if back > 0.0 else "")
 	draw_string(font, Vector2(0, vp.y * 0.4 + 40), line, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 20, Color(1, 1, 1, a))
+	var lost: int = world.player.get_meta("purse_lost", 0)
+	if lost > 0:
+		draw_string(font, Vector2(0, vp.y * 0.4 + 70), "Lost %d credits, half your purse: they float in the wreck." % lost, HORIZONTAL_ALIGNMENT_CENTER, vp.x, 18, Color(1.0, 0.85, 0.45, a))
 
 
 ## A help row for an action as it is bound right now: "W / Up  (RT)".
@@ -1280,7 +1288,7 @@ func _draw_help(vp: Vector2) -> void:
 		["%s - %s" % [Keybinds.short_text("weapon_group_1"), Keybinds.short_text("weapon_group_4")], "select weapon group 1 - 4"],
 		[_keys("weapon_group_next"), "next weapon group"], [_keys("cloak"), "jammer on your target"],
 		[_keys("ping"), "pulse radar ping"], [_keys("silent_running"), "silent running"],
-		[_keys("pdc_toggle"), "point defence (PDC) on / off"],
+		[_keys("pdc_toggle"), "point defense (PDC) on / off"],
 		["", ""],
 		["TARGETS AND NAVIGATION", ""],
 		[_keys("target_next"), "next target"], [_keys("target_nearest"), "nearest enemy"], [_keys("select_target"), "target a ship, world info"],

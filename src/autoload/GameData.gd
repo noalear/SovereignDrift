@@ -18,23 +18,21 @@ const DAMAGE_SCALE := 0.65
 
 # ---------------------------------------------------------------- races
 
+## Each empire's colour names its pilots, ships, worlds and score rows
+## everywhere (Kyle 2026-10-31: Skethra red, Solborn blue, Ephyri green,
+## pirates yellow).
 const RACES := [
 	{"id": 0, "name": Names.ARCEAN, "adj": Names.ARCEAN, "plural": Names.PLURAL[0], "home": "Titan",
-	 "color": Color(0.35, 0.95, 0.55), "dark": Color(0.1, 0.4, 0.2),
-	 "weapon1": "Spark gun", "weapon2": "Nettle"},
+	 "color": Color(0.35, 0.95, 0.55), "dark": Color(0.1, 0.4, 0.2)},
 	{"id": 1, "name": Names.TERRAN, "adj": Names.TERRAN, "plural": Names.PLURAL[1], "home": "Earth",
-	 "color": Color(0.4, 0.7, 1.0), "dark": Color(0.1, 0.25, 0.5),
-	 "weapon1": "Mass driver", "weapon2": "Plasma torpedo"},
+	 "color": Color(0.4, 0.7, 1.0), "dark": Color(0.1, 0.25, 0.5)},
 	{"id": 2, "name": Names.DRENGIN, "adj": Names.DRENGIN, "plural": Names.PLURAL[2], "home": "Mars",
-	 "color": Color(1.0, 0.4, 0.35), "dark": Color(0.45, 0.1, 0.1),
-	 "weapon1": "Barb gun", "weapon2": "Venom bolt"},
+	 "color": Color(1.0, 0.4, 0.35), "dark": Color(0.45, 0.1, 0.1)},
 	{"id": 3, "name": "Pirate", "adj": "Pirate", "plural": "Pirates", "home": "Ceres",
-	 "color": Color(1.0, 0.75, 0.3), "dark": Color(0.4, 0.3, 0.1),
-	 "weapon1": "Mass driver", "weapon2": "Plasma torpedo"},
+	 "color": Color(1.0, 0.86, 0.2), "dark": Color(0.42, 0.35, 0.06)},
 	# nobody's: the free port at Jupiter's Trojan point (the Resources update)
 	{"id": 4, "name": "Free port", "adj": "Free", "home": "Jupiter",
-	 "color": Color(0.95, 0.88, 0.6), "dark": Color(0.4, 0.36, 0.2),
-	 "weapon1": "Mass driver", "weapon2": "Plasma torpedo"},
+	 "color": Color(0.95, 0.88, 0.6), "dark": Color(0.4, 0.36, 0.2)},
 ]
 ## The side of the free port: every empire's ships may use it, and nobody
 ## fights over it.
@@ -66,7 +64,7 @@ const MODULES := {
 	"4004": {"name": "Mine layer", "vol": 95, "mass": 60, "power": -950, "hp": 120, "func": "tube", "p": [100, 99999, 5, "002"]},
 	"4008": {"name": "Missile rack", "vol": 38, "mass": 55, "power": -285, "hp": 180, "func": "tube", "p": [40, 5800, 280, "008"]},
 	"4009": {"name": "Seeker rack", "vol": 38, "mass": 60, "power": -285, "hp": 190, "func": "tube", "p": [40, 5700, 30, "009"]},
-	"4010": {"name": "Rapid tube", "vol": 76, "mass": 700, "power": -190, "hp": 210, "func": "tube", "p": [60, 960, 1500, "010"]},
+	"4010": {"name": "Gatling gun", "vol": 76, "mass": 700, "power": -190, "hp": 210, "func": "tube", "p": [60, 960, 1500, "010"]},
 	"4011": {"name": "Station battery", "vol": 4200, "mass": 21000, "power": -190, "hp": 260, "func": "tube", "p": [60, 960, 1500, "011"]},
 	"4018": {"name": "Cannon", "vol": 190, "mass": 60, "power": -480, "hp": 120, "func": "tube", "p": [50, 30000, 25, "018"]},
 	# beam: [energy frames, energy per frame, range]
@@ -238,11 +236,11 @@ const MISSILES := {
 	"004": {"dtype": "explosive", "name": "torpedo", "shootable": true, "tough": 2, "blast": 90, "warhead": 700, "fire_v": 0.32, "guided": true, "trigger": "prox", "prox": 60, "seek_range": 600, "max_v": 0.90, "life": 4.22, "radius": 7, "look": "torpedo", "turn": 0.12, "accel": 240},
 	"008": {"dtype": "explosive", "name": "missile", "shootable": true, "warhead": 300, "fire_v": 0.32, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.47, "life": 7.5, "radius": 4, "look": "missile", "turn": 3.6, "accel": 230},
 	"009": {"dtype": "explosive", "name": "seeker", "shootable": true, "warhead": 380, "fire_v": 0.32, "guided": true, "trigger": "impact", "seek_range": 500, "max_v": 0.75, "life": 6.1, "radius": 5, "look": "seeker", "turn": 2.6, "accel": 320, "heat": true},
-	"010": {"dtype": "kinetic", "name": "rapid bolt", "spread": 4.0, "warhead": 43, "fire_v": 0.72, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.82, "life": 3.11, "radius": 3, "look": "bolt"},
+	"010": {"dtype": "kinetic", "name": "gatling round", "spread": 4.0, "warhead": 43, "fire_v": 0.72, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.82, "life": 3.11, "radius": 3, "look": "bolt"},
 	"011": {"dtype": "plasma", "name": "rapid plasma", "warhead": 143, "fire_v": 0.82, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.02, "life": 3.12, "radius": 5, "look": "plasma"},
 	"018": {"dtype": "kinetic", "name": "cannon shell", "recoil": 2.0, "pierce": 0.5, "warhead": 720, "fire_v": 0.42, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 0.95, "life": 3.05, "radius": 6, "look": "shell"},
 	"020": {"dtype": "ion", "name": "disruptor bolt", "warhead": 160, "fire_v": 0.55, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.0, "life": 2.6, "radius": 5, "look": "disruptor", "drain": 320, "sys": 2.5},
-	"022": {"dtype": "kinetic", "name": "point defence round", "pdc": true, "warhead": 12, "fire_v": 1.2, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.4, "life": 0.6, "radius": 2, "look": "tracer"},
+	"022": {"dtype": "kinetic", "name": "point defense round", "pdc": true, "warhead": 12, "fire_v": 1.2, "guided": false, "trigger": "impact", "seek_range": 0, "max_v": 1.4, "life": 0.6, "radius": 2, "look": "tracer"},
 	"021": {"dtype": "explosive", "name": "drone", "shootable": true, "warhead": 120, "fire_v": 0.25, "guided": true, "trigger": "impact", "seek_range": 900, "max_v": 0.5, "life": 12.0, "radius": 4, "look": "drone", "turn": 4.5, "accel": 260, "cone": 3.2},
 }
 
@@ -412,7 +410,11 @@ const SHIPS := {
 	"Starbase": {"rank": 14, "speed": 0.09, "size": 110, "turn": 18.0,
 		"modules": ["1006", "5007", "2004", "7003", "0001"],
 		"dock": [70, 0],
-		"weapons": [["4003", 0, 0, 0, -170, 170], ["4003", 180, 0, 180, 10, 350], ["4011", 90, 0, 90, 0, 355], ["4503", 270, 12, 270, 0, 355]]},
+		# the last four are its defence turrets, one in each of the gun
+		# emplacements between the arms (Kyle, 2026-10-31); every starbase
+		# gun picks its own mark (Ship.pick_gun_marks)
+		"weapons": [["4003", 0, 0, 0, -170, 170], ["4003", 180, 0, 180, 10, 350], ["4011", 90, 0, 90, 0, 355], ["4503", 270, 12, 270, 0, 355],
+			["4010", 45, 64, 45, 0, 360], ["4010", 135, 64, 135, 0, 360], ["4010", 225, 64, 225, 0, 360], ["4010", 315, 64, 315, 0, 360]]},
 	"Freighter": {"rank": 0, "speed": 0.165, "size": 40, "turn": 88.0,
 		"modules": ["1002", "5001", "5502", "2003", "3002", "7002", "9201"],
 		"dock": [180, 0],
@@ -462,8 +464,16 @@ const CIVIL_HULLS := ["Freighter", "Trader", "DropShip"]
 
 
 ## A hull's name as the shipyard lists it.
+## What players see a hull called: the shipyard, the HUD, the map,
+## notices and score boards all go through this (a station by its label).
 static func hull_label(hull: String) -> String:
-	return {"Freighter": "Supply ship", "Trader": "Trade ship", "DropShip": "Drop ship"}.get(hull, hull)
+	if HULL_LABELS.has(hull):
+		return HULL_LABELS[hull]
+	if STATIONS.has(hull):
+		return STATIONS[hull]["label"]
+	return hull
+
+const HULL_LABELS := {"Freighter": "Supply ship", "Trader": "Trade ship", "DropShip": "Drop ship", "BattleCruiser": "Battlecruiser"}
 
 
 ## The hulls on a shipyard's list, warships first.
@@ -632,7 +642,7 @@ const STATIONS := {
 		"does": "stores 1500 units; refuels and crews ships like a starbase"},
 	"SensorStation": {"label": "Sensor station", "cost": {"metals": 15, "exotics": 3}, "build": 60.0, "kit": 200, "where": "any",
 		"does": "shows your empire every ship within 6000 px"},
-	"DefenseStation": {"label": "Defensive station", "cost": {"metals": 30, "alloys": 8}, "build": 120.0, "kit": 350, "where": "any",
+	"DefenseStation": {"label": "Defense station", "cost": {"metals": 30, "alloys": 8}, "build": 120.0, "kit": 350, "where": "any",
 		"does": "a turret platform guarding a world, a mine or a lane"},
 	# phase 4: trade and shipyards
 	"TradeStation": {"label": "Trade station", "cost": {"metals": 40, "alloys": 10}, "build": 180.0, "kit": 400, "where": "any",
@@ -740,7 +750,7 @@ const BUILDING_SLOTS := {"Outpost": 2, "Minor": 4, "Major": 6}
 const UNITS := {
 	"infantry": {"label": "Infantry", "cost": {"metals": 2}, "people": 50e6, "strength": 1.0, "upkeep": {"food": 1.0},
 		"does": "a cheap holding force; marines aboard a warship"},
-	"armour": {"label": "Armour", "cost": {"metals": 6, "fuel": 2, "alloys": 1}, "people": 0.0, "strength": 4.0, "upkeep": {"fuel": 1.0},
+	"armour": {"label": "Armor", "cost": {"metals": 6, "fuel": 2, "alloys": 1}, "people": 0.0, "strength": 4.0, "upkeep": {"fuel": 1.0},
 		"does": "breaks garrisons"},
 	"commandos": {"label": "Commandos", "cost": {"alloys": 1, "exotics": 2}, "people": 20e6, "strength": 2.0, "upkeep": {"food": 1.0},
 		"does": "blow up shields and batteries from the ground; double a boarding party"},
@@ -846,7 +856,7 @@ static func price(id: String) -> int:
 
 ## Weapon groups (1-4) the pilot selects with the number keys.  A new
 ## weapon joins a group by what it is (Kyle: weapons grouped by type):
-## 1 guns (mass driver, rapid tube, cannon), 2 energy (lasers,
+## 1 guns (mass driver, Gatling gun, cannon), 2 energy (lasers,
 ## disruptor), 3 launchers (torpedo, missile, seeker, drone), 4 mines.
 ## The shipyard lets the pilot change a group.  (The PDC is not a weapon
 ## mount: it fires on its own, see PointDefence.)
@@ -898,10 +908,9 @@ static func hull_hardpoints(hull: String) -> Array:
 	for w in d["weapons"]:
 		var c := weapon_class(w[0])
 		if not is_station_hull(hull):
-			if d["rank"] >= 6 and i > 0 and c == 0 and w[2] > 0:
-				c = 1          # cruisers and up carry medium turrets
-			if d["rank"] >= 10 and c == 0:
-				c = 1
+			if d["rank"] >= 6 and c == 0:
+				c = 1          # cruisers and up: every gun mount is medium,
+				               # so a Gatling gun fits the turret and nose too
 			if d["rank"] >= 12 and w[2] > 0:
 				c = 2          # dreadnought turrets are heavy
 			if w[1] == 180:
@@ -1228,14 +1237,13 @@ static func stats_for(design: Dictionary) -> Dictionary:
 	return st
 
 
-static func missile_display_name(race_id: int, missile_id: String) -> String:
-	var rc := race(race_id)
-	match missile_id:
-		"001", "010":
-			return rc["weapon1"]
-		"003", "011":
-			return rc["weapon2"]
-	return MISSILES[missile_id]["name"].capitalize()
+## What a munition is called ("Gatling round").  Every empire calls its
+## guns and rounds the same as the shipyard does (Kyle 2026-10-31: the
+## old per-empire names like "Barb gun" are gone); race_id is kept for
+## callers.
+static func missile_display_name(_race_id: int, missile_id: String) -> String:
+	var n: String = MISSILES[missile_id]["name"]
+	return n.left(1).to_upper() + n.substr(1)
 
 
 static func ship_names_for_rank(level: int, include_aces: bool = true) -> Array:

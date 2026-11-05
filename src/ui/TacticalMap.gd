@@ -394,10 +394,9 @@ func _draw_side(r: Rect2) -> void:
 			y += 16
 			if y > r.end.y - 10:
 				return
-			var line := "%s  %s" % [sh.pilot_name, sh.design_name]
-			var col := TEXT if not sh.dead else Color(0.5, 0.5, 0.55)
-			if sh.is_player:
-				col = Color(1, 0.95, 0.7)
+			var line := "%s  %s" % [sh.pilot_name, GameData.hull_label(sh.design_name)]
+			# each pilot in its empire's colour, yours brighter
+			var col: Color = sh.race_color().lerp(Color.WHITE, 0.45 if sh.is_player else 0.15) if not sh.dead else Color(0.5, 0.5, 0.55)
 			draw_string(font, Vector2(x + 10, y), line, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 110, 12, col)
 			var k: int = rd.round_kills(sh) if rd != null else sh.kills
 			draw_string(font, Vector2(x, y), "%d" % k, HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 30, 12, DIM)
