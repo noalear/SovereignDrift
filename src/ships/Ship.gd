@@ -29,7 +29,9 @@ const BURN_PER_ENGINE := 0.015
 const FUEL_MASS := 0.5
 ## A booster burns its extra push this many times less efficiently than
 ## the main engines (on top of the push itself, see GameData.boost_gain).
-const BOOST_BURN := 1.8
+## 1.38 since the 30% push raise (2026-11-05) so a boost drains the tank
+## as fast as before (was 1.8 on the old pushes).
+const BOOST_BURN := 1.38
 ## Share of the tank per second the reactor cracks from nothing while the
 ## engines are idle, so nobody is stranded for good (about 33 min empty to full).
 const FUEL_TRICKLE := 0.0005
