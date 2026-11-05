@@ -110,8 +110,15 @@ func _start() -> void:
 	var st1: Dictionary = with_boost.call(["9201"])
 	var st3: Dictionary = with_boost.call(["9203"])
 	var st2x: Dictionary = with_boost.call(["9201", "9201"])
-	_check(is_equal_approx(st1["boost_speed"], 1.5) and is_equal_approx(st1["boost_accel"], 1.0 + 1200.0 / 1000.0), "Booster I boosts x1.5 speed as before (%.2f, %.2f)" % [st1["boost_speed"], st1["boost_accel"]])
+	_check(is_equal_approx(st1["boost_speed"], 1.5) and is_equal_approx(st1["boost_accel"], 1.0 + 1860.0 / 1000.0), "Booster I boosts x1.5 speed as before (%.2f, %.2f)" % [st1["boost_speed"], st1["boost_accel"]])
 	_check(st3["boost_speed"] > st1["boost_speed"] and st3["boost_accel"] > st1["boost_accel"], "Booster III boosts more than Booster I")
+	# Kyle 2026-11-05: every booster tier accelerates 30% harder than the
+	# old pushes (1200/1440/1680), and the burn per second stays as it was
+	for pair in [["9201", 1200.0], ["9202", 1440.0], ["9203", 1680.0]]:
+		var stb: Dictionary = with_boost.call([pair[0]])
+		var old_accel: float = 1.0 + pair[1] / 1000.0
+		_check(absf(stb["boost_accel"] / old_accel - 1.3) < 0.005, "%s boosts acceleration 30%% over the old push (x%.2f vs x%.2f)" % [gd.MODULES[pair[0]]["name"], stb["boost_accel"], old_accel])
+		_check(absf(stb["boost_accel"] * Ship.BOOST_BURN / (old_accel * 1.8) - 1.0) < 0.01, "%s drains fuel as fast as before while boosting" % gd.MODULES[pair[0]]["name"])
 	_check(st2x["boost_speed"] > st1["boost_speed"] and st2x["boost_speed"] < 2.0 * st1["boost_speed"], "a second booster adds, at half")
 	await _hold_and_controls(b, gd)
 	print("shipyard test: ", "FAILED" if failed else "passed")

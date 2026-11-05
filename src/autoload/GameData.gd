@@ -124,9 +124,9 @@ const MODULES := {
 	"9101": {"name": "Jammer", "vol": 48, "mass": 110, "power": -480, "hp": 110, "func": "jammer", "p": [2500]},
 	# soaks most of the ship's heat until it is full, then vents in a flare
 	"9401": {"name": "Heat sink", "vol": 60, "mass": 600, "power": -50, "hp": 60, "func": "heatsink", "p": [1000]},
-	"9201": {"name": "Booster I", "vol": 95, "mass": 520, "power": -95, "hp": 110, "func": "boost", "p": [1200, 180, 30]},
-	"9202": {"name": "Booster II", "vol": 135, "mass": 680, "power": -145, "hp": 115, "func": "boost", "p": [1440, 240, 50]},
-	"9203": {"name": "Booster III", "vol": 150, "mass": 820, "power": -170, "hp": 120, "func": "boost", "p": [1680, 300, 70]},
+	"9201": {"name": "Booster I", "vol": 95, "mass": 520, "power": -95, "hp": 110, "func": "boost", "p": [1860, 180, 30]},
+	"9202": {"name": "Booster II", "vol": 135, "mass": 680, "power": -145, "hp": 115, "func": "boost", "p": [2172, 240, 50]},
+	"9203": {"name": "Booster III", "vol": 150, "mass": 820, "power": -170, "hp": 120, "func": "boost", "p": [2484, 300, 70]},
 	"9301": {"name": "Docking tractor", "vol": 380, "mass": 1050, "power": -95, "hp": 120, "func": "dock", "p": [420, 2400, 210]},
 	# remake parts with an empire flavour: Arcean regeneration and drones,
 	# Terran repair, Drengin rams and disruptors
@@ -1109,7 +1109,8 @@ static func draws_power(m: Dictionary) -> bool:
 
 ## What one booster adds while boosting, from its [push, speed, -] in
 ## MODULES: (top speed factor, acceleration factor) on top of 1.0.
-## Booster I gives x1.5 top speed and x2.2 acceleration; II and III more.
+## Booster I gives x1.5 top speed and x2.86 acceleration; II and III more
+## (pushes raised 30% on 2026-11-05, Kyle: "the boosters are sluggish").
 static func boost_gain(p: Array) -> Vector2:
 	return Vector2(float(p[1]) / 360.0, float(p[0]) / 1000.0)
 
