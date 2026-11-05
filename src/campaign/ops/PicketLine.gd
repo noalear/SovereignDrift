@@ -66,7 +66,7 @@ func step(_delta: float) -> void:
 				set_text("guard", "Guard the frame while it is built (%d%%)" % int(frame.build_t / total * 100.0))
 			if raiders.is_empty() and stage_time > RAID_AFTER:
 				_raid()
-			var left := _raiders_left()
+			var left := hold_raiders(raiders, frame)
 			if not raiders.is_empty() and left == 0 and frame.building:
 				# with the raid beaten the crews hurry the last of it
 				frame.build_t = maxf(frame.build_t, total - 8.0)
@@ -105,17 +105,19 @@ func _raid() -> void:
 		r.reset_physics_interpolation()
 		var ai: AIPilot = r.get_node("AI")
 		ai.patrol_point = frame.global_position
+		ai.duel = true                    # they came for the frame: no going home to mend
 		r.target = frame
 		raiders.append(r)
 	say("pk_raid")
 	say("pk_raid2")
-	objective("raiders", "Drive off the raiders", null, "", false)
+	objective("raiders", "Drive off the raiders", func(): return nearest_raider(raiders, frame.global_position) if alive(frame) else null, "Raider")
 
 
+## Raiders still in the fight (a disabled one is out of it).
 func _raiders_left() -> int:
 	var n := 0
 	for r in raiders:
-		if alive(r):
+		if alive(r) and not r.is_disabled():
 			n += 1
 	return n
 
