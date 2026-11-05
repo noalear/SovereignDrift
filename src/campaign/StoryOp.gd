@@ -261,6 +261,61 @@ func alive(s) -> bool:              # untyped: a ship taken away is freed
 	return s != null and is_instance_valid(s) and not s.dead
 
 
+# ------------------------------------------------------------ raids
+
+const RAID_FLED := 6000.0          # a raider this far from its prey and every pilot, and not closing, has run
+
+## Raiders sent at `prey`, kept on the job each step: no flying home to
+## mend and no wandering patrols, so each fights round the prey.  One
+## that runs anyway (past RAID_FLED of the prey and every pilot, not
+## closing) is driven off: taken away, and the pilots told.  A disabled
+## one is out of the fight (it stays, to be boarded).  Gives the number
+## still in the fight, so a raid can never hang on a raider nobody sees.
+func hold_raiders(list: Array, prey: Node2D) -> int:
+	var n := 0
+	var prey_ok: bool = prey != null and is_instance_valid(prey) and not (prey is Ship and prey.dead)
+	for r in list:
+		if not alive(r) or r.captured:
+			continue
+		if r.is_disabled():
+			continue
+		if prey_ok and _ran_off(r, prey):
+			for p in pilots():
+				if alive(p):
+					world.notify(p, "%s broke off and ran." % r.ship_name)
+			world.remove_ship(r)
+			continue
+		var ai: AIPilot = r.get_node_or_null("AI")
+		if ai != null and prey_ok:
+			ai.duel = true                    # no going home to mend
+			ai.patrol_point = prey.global_position
+			if ai.state == AIPilot.State.RETREAT or ai.state == AIPilot.State.FLEE:
+				ai.state = AIPilot.State.PATROL
+		n += 1
+	return n
+
+
+func _ran_off(r: Ship, prey: Node2D) -> bool:
+	var to_prey: Vector2 = prey.global_position - r.global_position
+	if to_prey.length() < RAID_FLED or r.velocity.dot(to_prey) > 0.0:
+		return false
+	for p in pilots():
+		if alive(p) and p.global_position.distance_to(r.global_position) < RAID_FLED:
+			return false
+	return true
+
+
+## The raider still in the fight nearest `to`, for an objective's mark
+## (null when none is).
+func nearest_raider(list: Array, to: Vector2) -> Ship:
+	var best: Ship = null
+	for r in list:
+		if alive(r) and not r.captured and not r.is_disabled():
+			if best == null or r.global_position.distance_to(to) < best.global_position.distance_to(to):
+				best = r
+	return best
+
+
 ## A free spot about `dist` from `from`, clear of every world.
 func clear_spot(from: Vector2, dir: float, dist: float) -> Vector2:
 	var at := from + Vector2.RIGHT.rotated(dir) * dist

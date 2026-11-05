@@ -119,7 +119,12 @@ func step(delta: float) -> void:
 			_scout_away(delta)
 			if cormorant.hull < cormorant.hull_max * 0.5:
 				say_once("fw_hurt")
-			if _raiders_left() == 0:
+			if cormorant.global_position.distance_to(port.global_position) < ARRIVE_REACH:
+				# under the port's eyes they give up the chase
+				for r in raiders:
+					if alive(r) and not r.is_disabled():
+						world.remove_ship(r)
+			if hold_raiders(raiders, cormorant) == 0:
 				complete("raiders")
 				var bai: AIPilot = brandt.get_node_or_null("AI") if alive(brandt) else null
 				if bai != null and alive(lead_pilot()):
@@ -433,6 +438,7 @@ func _raid() -> void:
 		r.reset_physics_interpolation()
 		var ai: AIPilot = r.get_node("AI")
 		ai.patrol_point = cormorant.global_position
+		ai.duel = true                    # they came for her: no going home to mend
 		r.target = cormorant
 		raiders.append(r)
 	var bai: AIPilot = brandt.get_node_or_null("AI") if alive(brandt) else null
@@ -440,13 +446,14 @@ func _raid() -> void:
 		bai.guard(cormorant)              # Brandt sticks to her and fights what comes
 	say("fw_raid")
 	say("fw_raid2")
-	objective("raiders", "Drive the raiders off the Cormorant", null, "", false)
+	objective("raiders", "Drive the raiders off the Cormorant", func(): return nearest_raider(raiders, cormorant.global_position) if alive(cormorant) else null, "Raider")
 
 
+## Raiders still in the fight (a disabled one is out of it).
 func _raiders_left() -> int:
 	var n := 0
 	for r in raiders:
-		if alive(r):
+		if alive(r) and not r.is_disabled():
 			n += 1
 	return n
 
